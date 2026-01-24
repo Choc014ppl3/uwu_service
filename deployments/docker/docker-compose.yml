@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  uwu_service:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_HTTP_PORT=8080
+      - SERVER_GRPC_PORT=50051
+      - SERVER_ENV=development
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=console
+      # Add your API keys here or use .env file
+      # - OPENAI_API_KEY=your-key
+      # - GEMINI_API_KEY=your-key
+    volumes:
+      - ../../:/app:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # Optional: PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=uwu_user
+      - POSTGRES_PASSWORD=uwu_password
+      - POSTGRES_DB=uwu_service
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:

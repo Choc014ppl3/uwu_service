@@ -1,0 +1,99 @@
+package server
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/rs/zerolog"
+
+	"github.com/windfall/uwu_service/internal/config"
+	httphandler "github.com/windfall/uwu_service/internal/handler/http"
+	wshandler "github.com/windfall/uwu_service/internal/handler/ws"
+	"github.com/windfall/uwu_service/internal/middleware"
+)
+
+// HTTPServer represents the HTTP server.
+type HTTPServer struct {
+	server *http.Server
+	log    zerolog.Logger
+}
+
+// NewHTTPServer creates a new HTTP server.
+func NewHTTPServer(
+	cfg *config.Config,
+	log zerolog.Logger,
+	healthHandler *httphandler.HealthHandler,
+	apiHandler *httphandler.APIHandler,
+	wsHandler *wshandler.Handler,
+	wsHub *WebSocketHub,
+) *HTTPServer {
+	r := chi.NewRouter()
+
+	// Global middleware
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.Logger(log))
+	r.Use(middleware.Recovery(log))
+	r.Use(chimiddleware.Compress(5))
+
+	// CORS
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   cfg.CORSAllowedOrigins,
+		AllowedMethods:   cfg.CORSAllowedMethods,
+		AllowedHeaders:   cfg.CORSAllowedHeaders,
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Health endpoints
+	r.Get("/health", healthHandler.Health)
+	r.Get("/ready", healthHandler.Ready)
+	r.Get("/live", healthHandler.Live)
+
+	// WebSocket endpoint
+	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+		wsHub.HandleWebSocket(w, r, wsHandler)
+	})
+
+	// API routes
+	r.Route("/api/v1", func(r chi.Router) {
+		// Example endpoints
+		r.Get("/example", apiHandler.GetExample)
+		r.Post("/example", apiHandler.CreateExample)
+
+		// AI endpoints
+		r.Post("/ai/chat", apiHandler.Chat)
+		r.Post("/ai/complete", apiHandler.Complete)
+	})
+
+	server := &http.Server{
+		Addr:         cfg.HTTPAddress(),
+		Handler:      r,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
+	}
+
+	return &HTTPServer{
+		server: server,
+		log:    log,
+	}
+}
+
+// Start starts the HTTP server.
+func (s *HTTPServer) Start() error {
+	s.log.Info().Str("addr", s.server.Addr).Msg("Starting HTTP server")
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+// Shutdown gracefully shuts down the HTTP server.
+func (s *HTTPServer) Shutdown(ctx context.Context) error {
+	s.log.Info().Msg("Shutting down HTTP server")
+	return s.server.Shutdown(ctx)
+}
