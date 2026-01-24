@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,7 +31,7 @@ func NewAzureSpeechClient(apiKey, region string) *AzureSpeechClient {
 
 // AnalyzeAudio sends an audio file to Azure Speech-to-Text API.
 // It accepts wav audio data and returns the raw JSON response.
-func (c *AzureSpeechClient) AnalyzeAudio(ctx context.Context, audioData []byte) (map[string]interface{}, error) {
+func (c *AzureSpeechClient) AnalyzeAudio(ctx context.Context, audioData []byte, referenceText string) (map[string]interface{}, error) {
 	if c.apiKey == "" || c.region == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
 	}
@@ -54,6 +55,26 @@ func (c *AzureSpeechClient) AnalyzeAudio(ctx context.Context, audioData []byte) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+
+	// 1. สร้าง Config Object สำหรับการตรวจ
+	pronAssessmentParams := map[string]interface{}{
+		"ReferenceText": referenceText, // เช่น "Apple"
+		"GradingSystem": "HundredMark", // คะแนนเต็ม 100
+		"Granularity":   "Phoneme",     // ขอรายละเอียดระดับตัวสะกด
+		"Dimension":     "Comprehensive",
+	}
+
+	// 2. แปลงเป็น JSON Bytes
+	jsonBytes, err := json.Marshal(pronAssessmentParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal params: %w", err)
+	}
+
+	// 3. แปลง JSON เป็น Base64 String
+	base64Params := base64.StdEncoding.EncodeToString(jsonBytes)
+
+	// 4. ยัดใส่ Header "Pronunciation-Assessment"
+	req.Header.Set("Pronunciation-Assessment", base64Params)
 
 	// Set headers
 	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)

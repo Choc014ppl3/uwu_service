@@ -20,10 +20,10 @@ func NewSpeechService(azureClient *client.AzureSpeechClient) *SpeechService {
 }
 
 // AnalyzeAudio orchestrates audio analysis.
-func (s *SpeechService) AnalyzeAudio(ctx context.Context, audioData []byte) (map[string]interface{}, error) {
+func (s *SpeechService) AnalyzeAudio(ctx context.Context, audioData []byte, rererenceText string) (map[string]interface{}, error) {
 	if s.azureClient == nil {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech client not configured")
 	}
 
-	return s.azureClient.AnalyzeAudio(ctx, audioData)
+	return s.azureClient.AnalyzeAudio(ctx, audioData, rererenceText)
 }

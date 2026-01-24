@@ -161,6 +161,8 @@ func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Get reference text
+	referenceText := r.FormValue("reference_text")
 	// Read file content
 	// In production, might want to check file type/magic bytes here
 	audioData := make([]byte, 0)
@@ -175,7 +177,7 @@ func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.speechService.AnalyzeAudio(ctx, audioData)
+	result, err := h.speechService.AnalyzeAudio(ctx, audioData, referenceText)
 	if err != nil {
 		h.handleError(w, err)
 		return
