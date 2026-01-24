@@ -70,6 +70,9 @@ func NewHTTPServer(
 
 		// Speech endpoints
 		r.Post("/speech/analyze", apiHandler.AnalyzeSpeech)
+
+		// Vocab endpoints
+		r.Get("/vocab/mock", apiHandler.GetMockVocab)
 	})
 
 	server := &http.Server{

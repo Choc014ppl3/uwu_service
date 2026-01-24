@@ -184,6 +184,35 @@ func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, result)
 }
 
+// GetMockVocab handles GET /api/v1/vocab/mock
+func (h *APIHandler) GetMockVocab(w http.ResponseWriter, r *http.Request) {
+	vocab := map[string]interface{}{
+		"id":   "vocab_101",
+		"word": "Apple",
+		"pronunciation": map[string]interface{}{
+			"ipa":            "/ˈæp.l/",
+			"simple_reading": "AP-pul",
+			"syllables":      []string{"ap", "ple"},
+			"stress_index":   0,
+		},
+		"part_of_speech": "noun",
+		"meanings": map[string]interface{}{
+			"target_lang": "A round fruit with red or green skin.",
+			"native_lang": "ผลไม้ชนิดหนึ่ง มีรสหวาน เปลือกสีแดงหรือเขียว",
+		},
+		"media": map[string]interface{}{
+			"image_url":         "https://cdn.yourservice.com/img/vocab/apple.jpg",
+			"thumbnail_url":     "https://cdn.yourservice.com/img/vocab/apple_thumb.jpg",
+			"word_audio_url":    "https://cdn.yourservice.com/audio/vocab/apple_en.mp3",
+			"meaning_audio_url": "https://cdn.yourservice.com/audio/meaning/apple_th.mp3",
+		},
+		"tags":             []string{"food", "fruit", "beginner", "A1"},
+		"difficulty_level": 1,
+	}
+
+	response.JSON(w, http.StatusOK, vocab)
+}
+
 func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	if appErr, ok := err.(*errors.AppError); ok {
 		response.Error(w, appErr.HTTPStatus(), appErr)
