@@ -64,13 +64,19 @@ func main() {
 		}
 	}
 
+	var azureSpeechClient *client.AzureSpeechClient
+	if cfg.AzureAISpeechKey != "" && cfg.AzureServiceRegion != "" {
+		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
+	}
+
 	// Initialize services
 	aiService := service.NewAIService(openaiClient, geminiClient)
 	exampleService := service.NewExampleService(storageClient, pubsubClient)
+	speechService := service.NewSpeechService(azureSpeechClient)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
-	apiHandler := http.NewAPIHandler(log, aiService, exampleService)
+	apiHandler := http.NewAPIHandler(log, aiService, exampleService, speechService)
 	wsHandler := ws.NewHandler(log)
 	grpcHandler := grpc.NewHandler(log, aiService, exampleService)
 

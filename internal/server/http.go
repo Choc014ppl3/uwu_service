@@ -67,6 +67,9 @@ func NewHTTPServer(
 		// AI endpoints
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)
+
+		// Speech endpoints
+		r.Post("/speech/analyze", apiHandler.AnalyzeSpeech)
 	})
 
 	server := &http.Server{

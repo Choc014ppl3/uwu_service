@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -29,6 +30,10 @@ type Config struct {
 	OpenAIAPIKey string `envconfig:"OPENAI_API_KEY"`
 	GeminiAPIKey string `envconfig:"GEMINI_API_KEY"`
 
+	// Azure AI Speech
+	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
+	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
+
 	// Google Cloud
 	GCPProjectID         string `envconfig:"GCP_PROJECT_ID"`
 	GCSBucketName        string `envconfig:"GCS_BUCKET_NAME"`
@@ -49,6 +54,9 @@ type Config struct {
 
 // Load loads configuration from environment variables.
 func Load() (*Config, error) {
+	// Load .env file if it exists (ignore error if not found)
+	_ = godotenv.Load()
+
 	var cfg Config
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("failed to process env config: %w", err)

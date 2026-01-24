@@ -16,6 +16,7 @@ type APIHandler struct {
 	log            zerolog.Logger
 	aiService      *service.AIService
 	exampleService *service.ExampleService
+	speechService  *service.SpeechService
 }
 
 // NewAPIHandler creates a new API handler.
@@ -23,11 +24,13 @@ func NewAPIHandler(
 	log zerolog.Logger,
 	aiService *service.AIService,
 	exampleService *service.ExampleService,
+	speechService *service.SpeechService,
 ) *APIHandler {
 	return &APIHandler{
 		log:            log,
 		aiService:      aiService,
 		exampleService: exampleService,
+		speechService:  speechService,
 	}
 }
 
@@ -138,6 +141,47 @@ func (h *APIHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		"completion": result,
 		"provider":   req.Provider,
 	})
+}
+
+// AnalyzeSpeech handles POST /api/v1/speech/analyze
+func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.handleError(w, errors.Validation("failed to parse multipart form"))
+		return
+	}
+
+	// Get file
+	file, _, err := r.FormFile("audio")
+	if err != nil {
+		h.handleError(w, errors.Validation("audio file is required"))
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	// In production, might want to check file type/magic bytes here
+	audioData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			audioData = append(audioData, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	result, err := h.speechService.AnalyzeAudio(ctx, audioData)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
 }
 
 func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
