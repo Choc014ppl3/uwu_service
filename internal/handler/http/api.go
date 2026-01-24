@@ -201,10 +201,9 @@ func (h *APIHandler) GetMockVocab(w http.ResponseWriter, r *http.Request) {
 			"native_lang": "ผลไม้ชนิดหนึ่ง มีรสหวาน เปลือกสีแดงหรือเขียว",
 		},
 		"media": map[string]interface{}{
-			"image_url":         "https://cdn.yourservice.com/img/vocab/apple.jpg",
-			"thumbnail_url":     "https://cdn.yourservice.com/img/vocab/apple_thumb.jpg",
-			"word_audio_url":    "https://cdn.yourservice.com/audio/vocab/apple_en.mp3",
-			"meaning_audio_url": "https://cdn.yourservice.com/audio/meaning/apple_th.mp3",
+			"image_url":         "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/image/apple.png",
+			"word_audio_url":    "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/apple-en.mp3",
+			"meaning_audio_url": "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/apple-meaning-th.mp3",
 		},
 		"tags":             []string{"food", "fruit", "beginner", "A1"},
 		"difficulty_level": 1,
