@@ -143,8 +143,8 @@ func (h *APIHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AnalyzeSpeech handles POST /api/v1/speech/analyze
-func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
+// AnalyzeVocab handles POST /api/v1/speech/analyze/vocab
+func (h *APIHandler) AnalyzeVocab(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Parse multipart form (10 MB max)
@@ -177,7 +177,51 @@ func (h *APIHandler) AnalyzeSpeech(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.speechService.AnalyzeAudio(ctx, audioData, referenceText)
+	result, err := h.speechService.AnalyzeVocabAudio(ctx, audioData, referenceText)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
+// AnalyzeShadowing handles POST /api/v1/speech/analyze/shadowing
+func (h *APIHandler) AnalyzeShadowing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.handleError(w, errors.Validation("failed to parse multipart form"))
+		return
+	}
+
+	// Get file
+	file, _, err := r.FormFile("audio")
+	if err != nil {
+		h.handleError(w, errors.Validation("audio file is required"))
+		return
+	}
+	defer file.Close()
+
+	// Get reference text and language
+	referenceText := r.FormValue("reference_text")
+	language := r.FormValue("language") // Optional, defaults to en-US
+
+	// Read file content
+	audioData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			audioData = append(audioData, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	result, err := h.speechService.AnalyzeShadowingAudio(ctx, audioData, referenceText, language)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -212,6 +256,38 @@ func (h *APIHandler) GetMockVocab(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, vocab)
+}
+
+// GetMockShadowing handles GET /api/v1/shadowing/mock
+func (h *APIHandler) GetMockShadowing(w http.ResponseWriter, r *http.Request) {
+	data := map[string]interface{}{
+		"id":               "shadow_205",
+		"difficulty_level": 1,
+		"tags":             []string{"daily-life", "food", "question"},
+		"content": map[string]interface{}{
+			"target_lang": "今天吃什么？",
+			"native_lang": "วันนี้กินอะไรดี?",
+			"phonetic": map[string]string{
+				"readable": "Jīntiān chī shénme?",
+				"ipa":      "/tɕin⁵⁵ tʰjɛn⁵⁵ tʂʰz̩⁵⁵ ʂən³⁵ mə/",
+			},
+		},
+		"media": map[string]string{
+			"image_url":          "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/image/shadowing-00000.png",
+			"meaning_audio_url":  "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/shadowing-th00000.mp3",
+			"sentence_audio_url": "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/shadowing-zh00000.mp3",
+		},
+		"grammar": map[string]interface{}{
+			"context": []string{"Casual", "Friendly"},
+			"breakdown": []map[string]string{
+				{"segment": "今天", "meaning": "วันนี้", "role": "เวลา"},
+				{"segment": "吃", "meaning": "กิน", "role": "กริยา"},
+				{"segment": "什么？", "meaning": "อะไร", "role": "กรรม/คำถาม"},
+			},
+		},
+	}
+
+	response.JSON(w, http.StatusOK, data)
 }
 
 func (h *APIHandler) handleError(w http.ResponseWriter, err error) {

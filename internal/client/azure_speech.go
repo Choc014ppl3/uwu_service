@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/windfall/uwu_service/internal/errors"
 )
@@ -25,13 +26,15 @@ func NewAzureSpeechClient(apiKey, region string) *AzureSpeechClient {
 	return &AzureSpeechClient{
 		apiKey: apiKey,
 		region: region,
-		client: &http.Client{},
+		client: &http.Client{
+			Timeout: 30 * time.Second, // 30 second timeout
+		},
 	}
 }
 
-// AnalyzeAudio sends an audio file to Azure Speech-to-Text API.
+// AnalyzeVocabAudio sends an audio file to Azure Speech-to-Text API for vocabulary practice.
 // It accepts wav audio data and returns the raw JSON response.
-func (c *AzureSpeechClient) AnalyzeAudio(ctx context.Context, audioData []byte, referenceText string) (map[string]interface{}, error) {
+func (c *AzureSpeechClient) AnalyzeVocabAudio(ctx context.Context, audioData []byte, referenceText string) (map[string]interface{}, error) {
 	if c.apiKey == "" || c.region == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
 	}
@@ -77,6 +80,83 @@ func (c *AzureSpeechClient) AnalyzeAudio(ctx context.Context, audioData []byte, 
 	req.Header.Set("Pronunciation-Assessment", base64Params)
 
 	// Set headers
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
+	req.Header.Set("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000")
+	req.Header.Set("Accept", "application/json;text/xml")
+
+	// Execute request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("azure speech api error %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse JSON response
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+// AnalyzeShadowingAudio sends an audio file to Azure Speech-to-Text API for shadowing practice.
+// It enables miscue detection (Insertion, Omission, Substitution).
+// Note: EnableMiscue is only fully supported for en-US in REST API.
+func (c *AzureSpeechClient) AnalyzeShadowingAudio(ctx context.Context, audioData []byte, referenceText, language string) (map[string]interface{}, error) {
+	if c.apiKey == "" || c.region == "" {
+		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
+	}
+
+	// Default to en-US if not specified (EnableMiscue works best with en-US)
+	if language == "" {
+		language = "en-US"
+	}
+
+	// Construct URL for Short Audio API
+	u := url.URL{
+		Scheme: "https",
+		Host:   fmt.Sprintf("%s.stt.speech.microsoft.com", c.region),
+		Path:   "/speech/recognition/conversation/cognitiveservices/v1",
+	}
+
+	// Query parameters
+	q := u.Query()
+	q.Set("language", language)
+	q.Set("format", "detailed")
+	u.RawQuery = q.Encode()
+
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(audioData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Config for Shadowing
+	pronAssessmentParams := map[string]interface{}{
+		"ReferenceText": referenceText, // 今天吃什么
+		"GradingSystem": "HundredMark",
+		"Granularity":   "Word", // Less granular than Phoneme
+		"EnableMiscue":  true,   // Enable Insertion, Omission, Substitution detection
+		"Dimension":     "Comprehensive",
+	}
+
+	// Marshal params
+	jsonBytes, err := json.Marshal(pronAssessmentParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal params: %w", err)
+	}
+
+	// Base64 encode
+	base64Params := base64.StdEncoding.EncodeToString(jsonBytes)
+
+	// Set headers
+	req.Header.Set("Pronunciation-Assessment", base64Params)
 	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
 	req.Header.Set("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000")
 	req.Header.Set("Accept", "application/json;text/xml")

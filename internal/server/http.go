@@ -69,10 +69,14 @@ func NewHTTPServer(
 		r.Post("/ai/complete", apiHandler.Complete)
 
 		// Speech endpoints
-		r.Post("/speech/analyze", apiHandler.AnalyzeSpeech)
+		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
+		r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)
 
 		// Vocab endpoints
 		r.Get("/vocab/mock", apiHandler.GetMockVocab)
+
+		// Shadowing endpoints
+		r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
 	})
 
 	server := &http.Server{
