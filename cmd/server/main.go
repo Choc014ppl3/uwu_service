@@ -30,36 +30,40 @@ func main() {
 	defer cancel()
 
 	// Initialize clients
-	var openaiClient *client.OpenAIClient
-	if cfg.OpenAIAPIKey != "" {
-		openaiClient = client.NewOpenAIClient(cfg.OpenAIAPIKey)
-	}
-
+	// Initialize clients
+	log.Info().Str("gemini_sa_path", cfg.GeminiServiceAccountPath).Str("project_id", cfg.GCPProjectID).Msg("Checking Gemini config")
 	var geminiClient *client.GeminiClient
-	if cfg.GeminiAPIKey != "" {
-		var err error
-		geminiClient, err = client.NewGeminiClient(ctx, cfg.GeminiAPIKey)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize Gemini client")
+
+	if cfg.GCPProjectID != "" && cfg.GCPLocation != "" {
+		// Try initializing with Service Account first
+		if cfg.GeminiServiceAccountPath != "" {
+			log.Info().Str("gemini_sa_path", cfg.GeminiServiceAccountPath).Msg("Initializing Gemini with Service Account")
+			var err error
+			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, cfg.GCPProjectID, cfg.GCPLocation, cfg.GeminiServiceAccountPath)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to initialize Gemini with Service Account, falling back to API Key")
+			} else {
+				log.Info().Msg("Gemini client initialized with Service Account")
+			}
 		}
+
+		// Fallback to API Key (using Vertex AI) if SA failed or was not provided
+		if geminiClient == nil && cfg.GeminiAPIKey != "" {
+			log.Info().Msg("Initializing Gemini with API Key")
+			var err error
+			geminiClient, err = client.NewGeminiClient(ctx, cfg.GCPProjectID, cfg.GCPLocation, cfg.GeminiAPIKey)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to initialize Gemini client with API Key")
+			} else {
+				log.Info().Msg("Gemini client initialized with API Key")
+			}
+		}
+	} else {
+		log.Warn().Msg("GCP Project ID or Location is missing, cannot initialize Vertex AI")
 	}
 
-	var storageClient *client.StorageClient
-	if cfg.GCPProjectID != "" && cfg.GCSBucketName != "" {
-		var err error
-		storageClient, err = client.NewStorageClient(ctx, cfg.GCSBucketName)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize storage client")
-		}
-	}
-
-	var pubsubClient *client.PubSubClient
-	if cfg.GCPProjectID != "" && cfg.PubSubTopicID != "" {
-		var err error
-		pubsubClient, err = client.NewPubSubClient(ctx, cfg.GCPProjectID, cfg.PubSubTopicID)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize pubsub client")
-		}
+	if geminiClient == nil {
+		log.Warn().Msg("Gemini client not initialized (no valid credentials)")
 	}
 
 	var azureSpeechClient *client.AzureSpeechClient
@@ -80,14 +84,13 @@ func main() {
 	}
 
 	// Initialize services
-	aiService := service.NewAIService(openaiClient, geminiClient)
-	exampleService := service.NewExampleService(storageClient, pubsubClient)
+	aiService := service.NewAIService(geminiClient)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
-	apiHandler := http.NewAPIHandler(log, aiService, exampleService, speechService)
+	apiHandler := http.NewAPIHandler(log, aiService, speechService)
 	// Initialize Speaking handler
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 
@@ -128,12 +131,6 @@ func main() {
 	}
 
 	// Close clients
-	if storageClient != nil {
-		storageClient.Close()
-	}
-	if pubsubClient != nil {
-		pubsubClient.Close()
-	}
 	if geminiClient != nil {
 		geminiClient.Close()
 	}

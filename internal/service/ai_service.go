@@ -15,11 +15,9 @@ type AIService struct {
 
 // NewAIService creates a new AI service.
 func NewAIService(
-	openaiClient *client.OpenAIClient,
 	geminiClient *client.GeminiClient,
 ) *AIService {
 	return &AIService{
-		openaiClient: openaiClient,
 		geminiClient: geminiClient,
 	}
 }

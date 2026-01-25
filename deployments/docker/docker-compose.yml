@@ -7,17 +7,16 @@ services:
       dockerfile: deployments/docker/Dockerfile
     ports:
       - "8080:8080"
-      - "50051:50051"
+
     environment:
       - SERVER_HOST=0.0.0.0
       - SERVER_HTTP_PORT=8080
-      - SERVER_GRPC_PORT=50051
+
       - SERVER_ENV=development
       - LOG_LEVEL=debug
       - LOG_FORMAT=console
       # Add your API keys here or use .env file
-      # - OPENAI_API_KEY=your-key
-      # - GEMINI_API_KEY=your-key
+      - GEMINI_API_KEY=your-key
     volumes:
       - ../../:/app:ro
     restart: unless-stopped

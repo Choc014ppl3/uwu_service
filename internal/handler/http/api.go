@@ -13,68 +13,22 @@ import (
 
 // APIHandler handles REST API endpoints.
 type APIHandler struct {
-	log            zerolog.Logger
-	aiService      *service.AIService
-	exampleService *service.ExampleService
-	speechService  *service.SpeechService
+	log           zerolog.Logger
+	aiService     *service.AIService
+	speechService *service.SpeechService
 }
 
 // NewAPIHandler creates a new API handler.
 func NewAPIHandler(
 	log zerolog.Logger,
 	aiService *service.AIService,
-	exampleService *service.ExampleService,
 	speechService *service.SpeechService,
 ) *APIHandler {
 	return &APIHandler{
-		log:            log,
-		aiService:      aiService,
-		exampleService: exampleService,
-		speechService:  speechService,
+		log:           log,
+		aiService:     aiService,
+		speechService: speechService,
 	}
-}
-
-// GetExample handles GET /api/v1/example
-func (h *APIHandler) GetExample(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	result, err := h.exampleService.GetExample(ctx, "example-id")
-	if err != nil {
-		h.handleError(w, err)
-		return
-	}
-
-	response.JSON(w, http.StatusOK, result)
-}
-
-// CreateExampleRequest represents the request body for creating an example.
-type CreateExampleRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-// CreateExample handles POST /api/v1/example
-func (h *APIHandler) CreateExample(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var req CreateExampleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleError(w, errors.Validation("invalid request body"))
-		return
-	}
-
-	if req.Name == "" {
-		h.handleError(w, errors.Validation("name is required"))
-		return
-	}
-
-	result, err := h.exampleService.CreateExample(ctx, req.Name, req.Description)
-	if err != nil {
-		h.handleError(w, err)
-		return
-	}
-
-	response.JSON(w, http.StatusCreated, result)
 }
 
 // ChatRequest represents the request body for AI chat.

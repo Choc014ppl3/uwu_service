@@ -55,10 +55,6 @@ func NewHTTPServer(
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Example endpoints
-		r.Get("/example", apiHandler.GetExample)
-		r.Post("/example", apiHandler.CreateExample)
-
 		// AI endpoints
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)

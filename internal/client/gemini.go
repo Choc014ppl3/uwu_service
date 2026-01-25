@@ -3,20 +3,38 @@ package client
 import (
 	"context"
 
-	"github.com/google/generative-ai-go/genai"
+	"cloud.google.com/go/vertexai/genai"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
-// GeminiClient wraps the Google Gemini API client.
+// GeminiClient wraps the Google Vertex AI Gemini client.
 type GeminiClient struct {
 	client *genai.Client
 	model  string
 }
 
-// NewGeminiClient creates a new Gemini client.
-func NewGeminiClient(ctx context.Context, apiKey string) (*GeminiClient, error) {
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+// NewGeminiClient creates a new Gemini client using Vertex AI.
+func NewGeminiClient(ctx context.Context, projectID, location string, apiKey string) (*GeminiClient, error) {
+	opts := []option.ClientOption{}
+	if apiKey != "" {
+		opts = append(opts, option.WithAPIKey(apiKey))
+	}
+
+	client, err := genai.NewClient(ctx, projectID, location, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GeminiClient{
+		client: client,
+		model:  "gemini-2.0-flash", // Vertex AI model name
+	}, nil
+}
+
+// NewGeminiClientWithServiceAccount creates a new Gemini client using a service account file.
+func NewGeminiClientWithServiceAccount(ctx context.Context, projectID, location, serviceAccountPath string) (*GeminiClient, error) {
+	client, err := genai.NewClient(ctx, projectID, location, option.WithCredentialsFile(serviceAccountPath))
 	if err != nil {
 		return nil, err
 	}
