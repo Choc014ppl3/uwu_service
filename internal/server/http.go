@@ -11,7 +11,6 @@ import (
 
 	"github.com/windfall/uwu_service/internal/config"
 	httphandler "github.com/windfall/uwu_service/internal/handler/http"
-	wshandler "github.com/windfall/uwu_service/internal/handler/ws"
 	"github.com/windfall/uwu_service/internal/middleware"
 )
 
@@ -27,8 +26,7 @@ func NewHTTPServer(
 	log zerolog.Logger,
 	healthHandler *httphandler.HealthHandler,
 	apiHandler *httphandler.APIHandler,
-	wsHandler *wshandler.Handler,
-	wsHub *WebSocketHub,
+
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -52,11 +50,6 @@ func NewHTTPServer(
 	r.Get("/health", healthHandler.Health)
 	r.Get("/ready", healthHandler.Ready)
 	r.Get("/live", healthHandler.Live)
-
-	// WebSocket endpoint
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHub.HandleWebSocket(w, r, wsHandler)
-	})
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
