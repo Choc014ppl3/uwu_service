@@ -27,6 +27,8 @@ func NewHTTPServer(
 	healthHandler *httphandler.HealthHandler,
 	apiHandler *httphandler.APIHandler,
 
+	speakingHandler *httphandler.SpeakingHandler,
+
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -70,6 +72,10 @@ func NewHTTPServer(
 
 		// Shadowing endpoints
 		r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
+
+		// Speaking async endpoints (2-step pattern)
+		r.Post("/speaking/analyze", speakingHandler.Analyze)
+		r.Get("/speaking/reply", speakingHandler.GetReply)
 	})
 
 	server := &http.Server{

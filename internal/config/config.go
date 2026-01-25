@@ -27,8 +27,9 @@ type Config struct {
 	LogFormat string `envconfig:"LOG_FORMAT" default:"json"`
 
 	// AI Services
-	OpenAIAPIKey string `envconfig:"OPENAI_API_KEY"`
-	GeminiAPIKey string `envconfig:"GEMINI_API_KEY"`
+	OpenAIAPIKey        string `envconfig:"OPENAI_API_KEY"`
+	GeminiAPIKey        string `envconfig:"GEMINI_API_KEY"`
+	GeminiFlashLitePath string `envconfig:"GEMINI_FLASH_LITE_PATH"`
 
 	// Azure AI Speech
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`

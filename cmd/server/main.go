@@ -67,17 +67,32 @@ func main() {
 		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
 	}
 
+	// Initialize Redis client
+	var redisClient *client.RedisClient
+	if cfg.RedisURL != "" {
+		var err error
+		redisClient, err = client.NewRedisClient(cfg.RedisURL)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to initialize Redis client")
+		} else {
+			log.Info().Msg("Redis client initialized")
+		}
+	}
+
 	// Initialize services
 	aiService := service.NewAIService(openaiClient, geminiClient)
 	exampleService := service.NewExampleService(storageClient, pubsubClient)
 	speechService := service.NewSpeechService(azureSpeechClient)
+	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
 	apiHandler := http.NewAPIHandler(log, aiService, exampleService, speechService)
+	// Initialize Speaking handler
+	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler)
 
 	// Start servers
 	go func() {
@@ -121,6 +136,9 @@ func main() {
 	}
 	if geminiClient != nil {
 		geminiClient.Close()
+	}
+	if redisClient != nil {
+		redisClient.Close()
 	}
 
 	log.Info().Msg("Server stopped")
