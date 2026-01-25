@@ -179,5 +179,115 @@ func (c *AzureSpeechClient) AnalyzeShadowingAudio(ctx context.Context, audioData
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	// Deduplicate words in the response
+	result = DeduplicateWords(result)
+
 	return result, nil
+}
+
+// DeduplicateWords processes the Azure Speech response to handle duplicated words.
+// When Azure returns the same word multiple times (e.g., one with "Insertion" error and one with other errors),
+// this function keeps only the word with "Insertion" error type and calculates the average AccuracyScore.
+func DeduplicateWords(result map[string]interface{}) map[string]interface{} {
+	nbestRaw, ok := result["NBest"]
+	if !ok {
+		return result
+	}
+
+	nbest, ok := nbestRaw.([]interface{})
+	if !ok || len(nbest) == 0 {
+		return result
+	}
+
+	// Process the first NBest entry (primary result)
+	firstNBest, ok := nbest[0].(map[string]interface{})
+	if !ok {
+		return result
+	}
+
+	wordsRaw, ok := firstNBest["Words"]
+	if !ok {
+		return result
+	}
+
+	words, ok := wordsRaw.([]interface{})
+	if !ok {
+		return result
+	}
+
+	// Group words by their Word value
+	wordGroups := make(map[string][]int) // word -> indices
+	for i, wordRaw := range words {
+		word, ok := wordRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		wordText, ok := word["Word"].(string)
+		if !ok {
+			continue
+		}
+		wordGroups[wordText] = append(wordGroups[wordText], i)
+	}
+
+	// Find duplicates and process them
+	indicesToRemove := make(map[int]bool)
+	for _, indices := range wordGroups {
+		if len(indices) <= 1 {
+			continue // Not a duplicate
+		}
+
+		// Find the Insertion index and calculate average AccuracyScore
+		var insertionIndex int = -1
+		var totalAccuracy float64 = 0
+		var count int = 0
+
+		for _, idx := range indices {
+			word := words[idx].(map[string]interface{})
+			errorType, _ := word["ErrorType"].(string)
+
+			if errorType == "Insertion" {
+				insertionIndex = idx
+			}
+
+			// Get AccuracyScore (could be float64 or json.Number)
+			var accuracy float64
+			switch v := word["AccuracyScore"].(type) {
+			case float64:
+				accuracy = v
+			case int:
+				accuracy = float64(v)
+			default:
+				continue
+			}
+			totalAccuracy += accuracy
+			count++
+		}
+
+		// If we found an Insertion, keep it and remove others
+		if insertionIndex != -1 && count > 0 {
+			// Calculate average and update the Insertion word
+			avgAccuracy := totalAccuracy / float64(count)
+			words[insertionIndex].(map[string]interface{})["AccuracyScore"] = avgAccuracy
+
+			// Mark other indices for removal
+			for _, idx := range indices {
+				if idx != insertionIndex {
+					indicesToRemove[idx] = true
+				}
+			}
+		}
+	}
+
+	// Build new words array without removed indices
+	if len(indicesToRemove) > 0 {
+		newWords := make([]interface{}, 0, len(words)-len(indicesToRemove))
+		for i, word := range words {
+			if !indicesToRemove[i] {
+				newWords = append(newWords, word)
+			}
+		}
+		firstNBest["Words"] = newWords
+	}
+
+	return result
 }
