@@ -11,9 +11,9 @@ import (
 // Config holds all configuration for the service.
 type Config struct {
 	// Server
-	Host        string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
-	HTTPPort    int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
-	GRPCPort    int    `envconfig:"SERVER_GRPC_PORT" default:"50051"`
+	Host     string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
+	HTTPPort int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
+
 	Environment string `envconfig:"SERVER_ENV" default:"development"`
 
 	// Timeouts
@@ -67,11 +67,6 @@ func Load() (*Config, error) {
 // HTTPAddress returns the HTTP server address.
 func (c *Config) HTTPAddress() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.HTTPPort)
-}
-
-// GRPCAddress returns the gRPC server address.
-func (c *Config) GRPCAddress() string {
-	return fmt.Sprintf("%s:%d", c.Host, c.GRPCPort)
 }
 
 // IsDevelopment returns true if running in development mode.

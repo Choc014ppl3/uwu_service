@@ -8,7 +8,6 @@ import (
 
 	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/config"
-	"github.com/windfall/uwu_service/internal/handler/grpc"
 	"github.com/windfall/uwu_service/internal/handler/http"
 	"github.com/windfall/uwu_service/internal/handler/ws"
 	"github.com/windfall/uwu_service/internal/logger"
@@ -78,7 +77,6 @@ func main() {
 	healthHandler := http.NewHealthHandler()
 	apiHandler := http.NewAPIHandler(log, aiService, exampleService, speechService)
 	wsHandler := ws.NewHandler(log)
-	grpcHandler := grpc.NewHandler(log, aiService, exampleService)
 
 	// Initialize WebSocket hub
 	wsHub := server.NewWebSocketHub(log)
@@ -86,9 +84,6 @@ func main() {
 
 	// Initialize HTTP server
 	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, wsHandler, wsHub)
-
-	// Initialize gRPC server
-	grpcServer := server.NewGRPCServer(cfg, log, grpcHandler)
 
 	// Start servers
 	go func() {
@@ -98,16 +93,8 @@ func main() {
 		}
 	}()
 
-	go func() {
-		if err := grpcServer.Start(); err != nil {
-			log.Error().Err(err).Msg("gRPC server error")
-			cancel()
-		}
-	}()
-
 	log.Info().
 		Str("http_addr", cfg.HTTPAddress()).
-		Str("grpc_addr", cfg.GRPCAddress()).
 		Msg("Servers started")
 
 	// Wait for shutdown signal
@@ -130,8 +117,6 @@ func main() {
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Error().Err(err).Msg("HTTP server shutdown error")
 	}
-
-	grpcServer.GracefulStop()
 
 	// Close clients
 	if storageClient != nil {
