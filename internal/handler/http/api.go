@@ -263,8 +263,12 @@ func (h *APIHandler) GenerateScenario(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Topic == "" || req.Difficulty == "" {
-		h.handleError(w, errors.Validation("topic and difficulty are required"))
+	if req.Topic == "" {
+		h.handleError(w, errors.Validation("topic is required"))
+		return
+	}
+	if req.TargetLang == "" || req.NativeLang == "" {
+		h.handleError(w, errors.Validation("target_lang and native_lang are required"))
 		return
 	}
 
