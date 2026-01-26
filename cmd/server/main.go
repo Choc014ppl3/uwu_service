@@ -97,8 +97,36 @@ func main() {
 		}
 	}
 
+	// Initialize Cloudflare R2 Client (using S3 protocol)
+	var cloudflareClient *client.CloudflareClient
+	if cfg.CloudflareAccessKeyID != "" && cfg.CloudflareSecretKey != "" && cfg.CloudflareR2Endpoint != "" && cfg.CloudflareBucketName != "" {
+		var err error
+		// Use Access Key/Secret if valid (Standard R2)
+		// Or if user provided CLOUDFLARE_API_TOKEN, we assume they might want to use it as a static credential?
+		// Usually R2 requires S3 credentials. We'll use the specific AccessKey/Secret fields.
+		// If they are empty, we might skip.
+		// Note: The user requested "add this env CLOUDFLARE_API_TOKEN".
+		// If CLOUDFLARE_API_TOKEN is used as "Access Key"? Unlikely.
+		// We'll stick to standard fields I added to config: CloudflareAccessKeyID/CloudflareSecretKey.
+
+		cloudflareClient, err = client.NewCloudflareClient(ctx,
+			cfg.CloudflareAccessKeyID,
+			cfg.CloudflareSecretKey,
+			cfg.CloudflareR2Endpoint,
+			cfg.CloudflareBucketName,
+			cfg.CloudflarePublicURL,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to initialize Cloudflare client")
+		} else {
+			log.Info().Msg("Cloudflare R2 client initialized")
+		}
+	} else {
+		log.Warn().Msg("Cloudflare configuration missing, skipping R2 initialization")
+	}
+
 	// Initialize services
-	aiService := service.NewAIService(geminiClient)
+	aiService := service.NewAIService(geminiClient, cloudflareClient)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 

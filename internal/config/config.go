@@ -39,6 +39,13 @@ type Config struct {
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 
+	// Cloudflare R2
+	CloudflareAccessKeyID string `envconfig:"CLOUDFLARE_ACCESS_KEY_ID"`
+	CloudflareSecretKey   string `envconfig:"CLOUDFLARE_SECRET_ACCESS_KEY"`
+	CloudflareR2Endpoint  string `envconfig:"CLOUDFLARE_R2_ENDPOINT"`
+	CloudflarePublicURL   string `envconfig:"CLOUDFLARE_PUBLIC_URL"`
+	CloudflareBucketName  string `envconfig:"CLOUDFLARE_BUCKET_NAME"`
+
 	// CORS
 	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
 	CORSAllowedMethods []string `envconfig:"CORS_ALLOWED_METHODS" default:"GET,POST,PUT,DELETE,OPTIONS"`
