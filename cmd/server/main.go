@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
@@ -38,8 +39,21 @@ func main() {
 		// Try initializing with Service Account first
 		if cfg.GeminiServiceAccountPath != "" {
 			log.Info().Str("gemini_sa_path", cfg.GeminiServiceAccountPath).Msg("Initializing Gemini with Service Account")
+
+			// Attempt to read project_id from the service account file
+			projectID := cfg.GCPProjectID
+			if saContent, err := os.ReadFile(cfg.GeminiServiceAccountPath); err == nil {
+				var sa struct {
+					ProjectID string `json:"project_id"`
+				}
+				if err := json.Unmarshal(saContent, &sa); err == nil && sa.ProjectID != "" {
+					projectID = sa.ProjectID
+					log.Info().Str("project_id", projectID).Msg("Using Project ID from Service Account file")
+				}
+			}
+
 			var err error
-			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, cfg.GCPProjectID, cfg.GCPLocation, cfg.GeminiServiceAccountPath)
+			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, projectID, cfg.GCPLocation, cfg.GeminiServiceAccountPath)
 			if err != nil {
 				log.Warn().Err(err).Msg("Failed to initialize Gemini with Service Account, falling back to API Key")
 			} else {

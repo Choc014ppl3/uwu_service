@@ -29,7 +29,7 @@ func NewGeminiFlashLiteClient(ctx context.Context, credentialsPath string) (*Gem
 
 	return &GeminiFlashLiteClient{
 		client: client,
-		model:  "gemini-2.0-flash-lite",
+		model:  "gemini-2.5-flash-lite",
 	}, nil
 }
 

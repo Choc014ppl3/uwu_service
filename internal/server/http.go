@@ -59,6 +59,9 @@ func NewHTTPServer(
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)
 
+		// Scenario endpoints
+		r.Post("/scenario/generate", apiHandler.GenerateScenario)
+
 		// Speech endpoints
 		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
 		r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)

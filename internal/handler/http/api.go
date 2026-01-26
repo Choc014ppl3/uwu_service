@@ -249,5 +249,30 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 		response.Error(w, appErr.HTTPStatus(), appErr)
 		return
 	}
+	h.log.Error().Err(err).Msg("Internal server error")
 	response.Error(w, http.StatusInternalServerError, errors.Internal("internal server error"))
+}
+
+// GenerateScenario handles POST /api/v1/scenario/generate
+func (h *APIHandler) GenerateScenario(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req service.GenerateScenarioReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleError(w, errors.Validation("invalid request body"))
+		return
+	}
+
+	if req.Topic == "" || req.Difficulty == "" {
+		h.handleError(w, errors.Validation("topic and difficulty are required"))
+		return
+	}
+
+	result, err := h.aiService.GenerateScenario(ctx, req)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
 }
