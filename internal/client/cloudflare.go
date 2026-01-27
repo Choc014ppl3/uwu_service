@@ -55,3 +55,8 @@ func (c *CloudflareClient) UploadImage(ctx context.Context, key string, data []b
 	// Return the public URL
 	return fmt.Sprintf("%s/%s", c.publicURL, key), nil
 }
+
+// PublicURL returns the configured public URL.
+func (c *CloudflareClient) PublicURL() string {
+	return c.publicURL
+}

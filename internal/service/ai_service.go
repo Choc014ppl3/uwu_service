@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/internal/client"
@@ -15,18 +14,21 @@ import (
 
 // AIService provides AI-related functionality.
 type AIService struct {
-	geminiClient     *client.GeminiClient
-	cloudflareClient *client.CloudflareClient
+	geminiClient      *client.GeminiClient
+	cloudflareClient  *client.CloudflareClient
+	azureSpeechClient *client.AzureSpeechClient
 }
 
 // NewAIService creates a new AI service.
 func NewAIService(
 	geminiClient *client.GeminiClient,
 	cloudflareClient *client.CloudflareClient,
+	azureSpeechClient *client.AzureSpeechClient,
 ) *AIService {
 	return &AIService{
-		geminiClient:     geminiClient,
-		cloudflareClient: cloudflareClient,
+		geminiClient:      geminiClient,
+		cloudflareClient:  cloudflareClient,
+		azureSpeechClient: azureSpeechClient,
 	}
 }
 
@@ -91,11 +93,10 @@ type GenerateScenarioReq struct {
 
 // DialogueItem represents a single line in the conversation.
 type DialogueItem struct {
-	Speaker   string   `json:"speaker"`         // "ai" or "user"
-	Objective string   `json:"objective"`       // only for ai
-	AudioURL  string   `json:"audio_url"`       // only for ai
-	Context   string   `json:"context"`         // hint for user with must have word
-	Vocabs    []string `json:"vocab,omitempty"` // [word1, word2] - mapped from mock vocabs
+	Speaker  string `json:"speaker"`        // "ai" or "user"
+	Text     string `json:"text,omitempty"` // AI's dialogue line
+	Task     string `json:"task,omitempty"` // User's specific task with blanks
+	AudioURL string `json:"audio_url,omitempty"`
 }
 
 // ScenarioResponse defines the structure of the AI-generated scenario.
@@ -114,7 +115,7 @@ func (s *AIService) GenerateScenario(ctx context.Context, req GenerateScenarioRe
 		return nil, errors.New(errors.ErrAIService, "Gemini client not configured")
 	}
 
-	// 1. Logic Mocks & Defaults
+	// 1. Logic defaults
 	duration := "20s-30s"
 	userGender := req.UserGender
 	if userGender == "" {
@@ -124,8 +125,6 @@ func (s *AIService) GenerateScenario(ctx context.Context, req GenerateScenarioRe
 	if aiGender == "" {
 		aiGender = "female"
 	}
-
-	mockVocabs := s.generateMockVocabs()
 
 	// 2. Construct Prompt
 	systemPrompt := fmt.Sprintf(`
@@ -137,8 +136,6 @@ Duration: %s
 User Gender: %s
 AI Gender: %s
 
-Must Have Vocabularies (User should use these): %v
-
 Output STRICTLY in raw JSON format (no markdown backticks).
 Structure the JSON to match the following schema:
 {
@@ -147,14 +144,14 @@ Structure the JSON to match the following schema:
   "script": [
     {
       "speaker": "ai" or "user",
-      "objective": "The objective of this turn (empty if user)",
-      "audio_url": "", (leave empty for now)
-      "context": "Hint/Context for user, must include target vocab if applicable"
+      "text": "The dialogue line (strictly for 'ai' speaker only)",
+      "task": "Specific task for the user with blanks for target language practice (strictly for 'user' speaker only), e.g., 'Say: I would like a ____ please.'",
+      "audio_url": "" 
     }
   ]
 }
-Ensure the script makes sense and incorporates the vocabularies naturally in the user's context/hints.
-`, req.Topic, req.NativeLang, req.TargetLang, duration, userGender, aiGender, mockVocabs)
+Ensure the script makes sense and creates a natural conversation flow.
+`, req.Topic, req.NativeLang, req.TargetLang, duration, userGender, aiGender)
 
 	// 3. Call Gemini
 	respStr, err := s.geminiClient.Chat(ctx, systemPrompt)
@@ -176,6 +173,9 @@ Ensure the script makes sense and incorporates the vocabularies naturally in the
 		return nil, fmt.Errorf("failed to parse AI response: %w. Raw: %s", err, cleanResp)
 	}
 
+	// WaitGroup for concurrent operations
+	var wg sync.WaitGroup
+
 	// 4. Trigger Image Generation (Async)
 	scenarioID := uuid.New().String()
 	imagePrompt := tempResp.ImagePrompt
@@ -183,33 +183,53 @@ Ensure the script makes sense and incorporates the vocabularies naturally in the
 		imagePrompt = req.Topic
 	}
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		// Use a detached context for async operations
 		bgCtx := context.Background()
 		if err := s.generateScenarioImage(bgCtx, scenarioID, imagePrompt); err != nil {
 			fmt.Printf("Failed to generate/upload image async: %v\n", err)
 		}
 	}()
 
-	// 5. Map Vocabularies
-	for i := range tempResp.Script {
-		item := &tempResp.Script[i]
-		item.Vocabs = []string{}
-		for _, vocab := range mockVocabs {
-			lowerVocab := strings.ToLower(vocab)
-			if strings.Contains(strings.ToLower(item.Context), lowerVocab) ||
-				strings.Contains(strings.ToLower(item.Objective), lowerVocab) {
-				item.Vocabs = append(item.Vocabs, vocab)
-			}
+	// 5. Generate Audio for AI lines (Concurrent)
+	script := tempResp.Script
+
+	for i := range script {
+		item := &script[i]
+		if item.Speaker == "ai" && item.Text != "" && s.azureSpeechClient != nil {
+			wg.Add(1)
+			go func(idx int, it *DialogueItem) {
+				defer wg.Done()
+				// Generate Audio
+				voiceName := "en-US-AvaMultilingualNeural"                                // Default dynamic voice
+				audioData, err := s.azureSpeechClient.Synthesize(ctx, it.Text, voiceName) // Use request ctx or bgCtx? Request ctx is safer for cancellation but might timeout if user disconnects.
+				if err != nil {
+					fmt.Printf("Failed to synthesize audio for %d: %v\n", idx, err)
+					return
+				}
+
+				// Upload to Cloudflare
+				if s.cloudflareClient != nil {
+					key := fmt.Sprintf("audio/scenario-%s-%d.mp3", scenarioID, idx)
+					url, err := s.cloudflareClient.UploadImage(ctx, key, audioData, "audio/mpeg")
+					if err != nil {
+						fmt.Printf("Failed to upload audio %d: %v\n", idx, err)
+						return
+					}
+					it.AudioURL = url
+				}
+			}(i, item)
 		}
 	}
+
+	wg.Wait()
 
 	// Construct Image URL
 	imageURL := ""
 	if s.cloudflareClient != nil {
-		imageURL = fmt.Sprintf("https://pub-d85099e9916143fcb172f661babc3497.r2.dev/image/scenario-%s.webp", scenarioID)
-	} else {
-		// Fallback for local
-		imageURL = fmt.Sprintf("/images/scenario-%s.webp", scenarioID)
+		imageURL = fmt.Sprintf("%s/image/scenario-%s.webp", s.cloudflareClient.PublicURL(), scenarioID)
 	}
 
 	// 6. Construct Response
@@ -218,20 +238,11 @@ Ensure the script makes sense and incorporates the vocabularies naturally in the
 		Topic:       req.Topic,
 		Description: tempResp.Description,
 		ImagePrompt: tempResp.ImagePrompt,
-		Script:      tempResp.Script,
+		Script:      script,
 		ImageURL:    imageURL,
 	}
 
 	return response, nil
-}
-
-// generateMockVocabs returns a 6-10 word mock list.
-func (s *AIService) generateMockVocabs() []string {
-	// For now, hardcoded list.
-	return []string{
-		"apple", "banana", "coffee", "please", "thank you",
-		"where", "how much", "delicious", "check", "bill",
-	}
 }
 
 // generateScenarioImage handles real image generation and saving.
@@ -242,8 +253,7 @@ func (s *AIService) generateScenarioImage(ctx context.Context, id, prompt string
 		return fmt.Errorf("gemini generate image error: %w", err)
 	}
 
-	// 2. Mock 'Convert' to webp (just use same data for now, assuming Gemini returned valid image bytes)
-	// Upload to Cloudflare R2
+	// 2. Upload to Cloudflare R2
 	if s.cloudflareClient != nil {
 		key := fmt.Sprintf("image/scenario-%s.webp", id)
 		url, err := s.cloudflareClient.UploadImage(ctx, key, imgData, "image/webp")
@@ -252,13 +262,6 @@ func (s *AIService) generateScenarioImage(ctx context.Context, id, prompt string
 		}
 		fmt.Printf("Image uploaded to: %s\n", url)
 	}
-
-	// 3. Keep local save for debugging if needed (optional)
-	dir := "images"
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		_ = os.MkdirAll(dir, 0755)
-	}
-	_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("scenario-%s.webp", id)), imgData, 0644)
 
 	return nil
 }

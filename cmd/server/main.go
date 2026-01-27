@@ -126,7 +126,7 @@ func main() {
 	}
 
 	// Initialize services
-	aiService := service.NewAIService(geminiClient, cloudflareClient)
+	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 
