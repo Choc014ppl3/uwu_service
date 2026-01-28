@@ -173,9 +173,6 @@ Ensure the script makes sense and creates a natural conversation flow.
 		return nil, fmt.Errorf("failed to parse AI response: %w. Raw: %s", err, cleanResp)
 	}
 
-	// WaitGroup for concurrent operations
-	var wg sync.WaitGroup
-
 	// 4. Trigger Image Generation (Async)
 	scenarioID := uuid.New().String()
 	imagePrompt := tempResp.ImagePrompt
@@ -183,9 +180,7 @@ Ensure the script makes sense and creates a natural conversation flow.
 		imagePrompt = req.Topic
 	}
 
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		// Use a detached context for async operations
 		bgCtx := context.Background()
 		if err := s.generateScenarioImage(bgCtx, scenarioID, imagePrompt); err != nil {
@@ -195,6 +190,9 @@ Ensure the script makes sense and creates a natural conversation flow.
 
 	// 5. Generate Audio for AI lines (Concurrent)
 	script := tempResp.Script
+
+	// WaitGroup for concurrent operations
+	var wg sync.WaitGroup
 
 	for i := range script {
 		item := &script[i]
