@@ -101,10 +101,10 @@ All configuration is done via environment variables:
 | SERVER_HTTP_PORT | 8080 | HTTP server port |
 | SERVER_GRPC_PORT | 50051 | gRPC server port |
 | LOG_LEVEL | info | Log level (debug, info, warn, error) |
-| OPENAI_API_KEY | - | OpenAI API key |
-| GEMINI_API_KEY | - | Google Gemini API key |
-| GCP_PROJECT_ID | - | Google Cloud project ID |
-| GCS_BUCKET_NAME | - | GCS bucket name |
+| GEMINI_SERVICE_ACCOUNT_PATH | - | Google Gemini service account path |
+| AZURE_AISPEECH_KEY | - | Azure AI Speech key |
+| AZURE_SERVICE_REGION | - | Azure service region |
+| REDIS_URL | - | Redis URL |
 
 ## Development
 

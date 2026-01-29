@@ -27,6 +27,8 @@ func NewHTTPServer(
 	healthHandler *httphandler.HealthHandler,
 	apiHandler *httphandler.APIHandler,
 
+	speakingHandler *httphandler.SpeakingHandler,
+
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -53,13 +55,12 @@ func NewHTTPServer(
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Example endpoints
-		r.Get("/example", apiHandler.GetExample)
-		r.Post("/example", apiHandler.CreateExample)
-
 		// AI endpoints
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)
+
+		// Scenario endpoints
+		r.Post("/scenario/generate", apiHandler.GenerateScenario)
 
 		// Speech endpoints
 		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
@@ -70,6 +71,10 @@ func NewHTTPServer(
 
 		// Shadowing endpoints
 		r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
+
+		// Speaking async endpoints (2-step pattern)
+		r.Post("/speaking/analyze", speakingHandler.Analyze)
+		r.Get("/speaking/reply", speakingHandler.GetReply)
 	})
 
 	server := &http.Server{

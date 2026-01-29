@@ -27,24 +27,24 @@ type Config struct {
 	LogFormat string `envconfig:"LOG_FORMAT" default:"json"`
 
 	// AI Services
-	OpenAIAPIKey string `envconfig:"OPENAI_API_KEY"`
-	GeminiAPIKey string `envconfig:"GEMINI_API_KEY"`
+	GeminiAPIKey             string `envconfig:"GEMINI_API_KEY"`
+	GeminiServiceAccountPath string `envconfig:"GEMINI_SERVICE_ACCOUNT_PATH"`
+	GCPProjectID             string `envconfig:"GCP_PROJECT_ID"`
+	GCPLocation              string `envconfig:"GCP_LOCATION" default:"asia-southeast1"`
 
 	// Azure AI Speech
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
 	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
 
-	// Google Cloud
-	GCPProjectID         string `envconfig:"GCP_PROJECT_ID"`
-	GCSBucketName        string `envconfig:"GCS_BUCKET_NAME"`
-	PubSubTopicID        string `envconfig:"PUBSUB_TOPIC_ID"`
-	PubSubSubscriptionID string `envconfig:"PUBSUB_SUBSCRIPTION_ID"`
-
-	// Database
-	DatabaseURL string `envconfig:"DATABASE_URL"`
-
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
+
+	// Cloudflare R2
+	CloudflareAccessKeyID string `envconfig:"CLOUDFLARE_ACCESS_KEY_ID"`
+	CloudflareSecretKey   string `envconfig:"CLOUDFLARE_SECRET_ACCESS_KEY"`
+	CloudflareR2Endpoint  string `envconfig:"CLOUDFLARE_R2_ENDPOINT"`
+	CloudflarePublicURL   string `envconfig:"CLOUDFLARE_PUBLIC_URL"`
+	CloudflareBucketName  string `envconfig:"CLOUDFLARE_BUCKET_NAME"`
 
 	// CORS
 	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`

@@ -25,6 +25,8 @@ const (
 	ErrAIService      ErrorCode = "AI_SERVICE_ERROR"
 	ErrStorageService ErrorCode = "STORAGE_SERVICE_ERROR"
 	ErrPubSubService  ErrorCode = "PUBSUB_SERVICE_ERROR"
+	ErrDatabase       ErrorCode = "DATABASE_ERROR"
+	ErrTimeout        ErrorCode = "TIMEOUT_ERROR"
 )
 
 // AppError represents an application error with code and metadata.
@@ -86,6 +88,8 @@ func (e *AppError) HTTPStatus() int {
 		return http.StatusConflict
 	case ErrRateLimit:
 		return http.StatusTooManyRequests
+	case ErrTimeout:
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}

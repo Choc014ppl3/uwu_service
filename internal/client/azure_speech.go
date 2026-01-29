@@ -291,3 +291,47 @@ func DeduplicateWords(result map[string]interface{}) map[string]interface{} {
 
 	return result
 }
+
+// Synthesize generates speech from text using Azure AI Speech Text-to-Speech API.
+func (c *AzureSpeechClient) Synthesize(ctx context.Context, text, voice string) ([]byte, error) {
+	if c.apiKey == "" || c.region == "" {
+		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
+	}
+
+	u := url.URL{
+		Scheme: "https",
+		Host:   fmt.Sprintf("%s.tts.speech.microsoft.com", c.region),
+		Path:   "/cognitiveservices/v1",
+	}
+
+	// Construct SSML
+	// Use default or parameterized voice
+	if voice == "" {
+		voice = "en-US-AvaMultilingualNeural" // Default voice, can be changed
+	}
+
+	ssml := fmt.Sprintf(`<speak version='1.0' xml:lang='en-US'><voice xml:lang='en-US' xml:gender='Female' name='%s'>%s</voice></speak>`, voice, text)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewBufferString(ssml))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
+	req.Header.Set("Content-Type", "application/ssml+xml")
+	req.Header.Set("X-Microsoft-OutputFormat", "audio-16khz-128kbitrate-mono-mp3")
+	req.Header.Set("User-Agent", "uwu_service")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("azure tts api error %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
