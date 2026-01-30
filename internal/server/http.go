@@ -28,7 +28,7 @@ func NewHTTPServer(
 	apiHandler *httphandler.APIHandler,
 
 	speakingHandler *httphandler.SpeakingHandler,
-
+	learningItemHandler *httphandler.LearningItemHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -75,6 +75,9 @@ func NewHTTPServer(
 		// Speaking async endpoints (2-step pattern)
 		r.Post("/speaking/analyze", speakingHandler.Analyze)
 		r.Get("/speaking/reply", speakingHandler.GetReply)
+
+		// Learning Items endpoints
+		r.Post("/learning-items", learningItemHandler.Create)
 	})
 
 	server := &http.Server{

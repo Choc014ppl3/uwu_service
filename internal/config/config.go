@@ -39,6 +39,9 @@ type Config struct {
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 
+	// Database
+	DatabaseURL string `envconfig:"DATABASE_URL"`
+
 	// Cloudflare R2
 	CloudflareAccessKeyID string `envconfig:"CLOUDFLARE_ACCESS_KEY_ID"`
 	CloudflareSecretKey   string `envconfig:"CLOUDFLARE_SECRET_ACCESS_KEY"`

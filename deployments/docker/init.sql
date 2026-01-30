@@ -1,39 +1,49 @@
--- 1. Enable UUID extension (if not exists)
+-- Enable UUID extension (if not exists)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. Create ENUM types for Data Consistency
+-- Create ENUM types for Data Consistency
+CREATE TYPE lang_code_enum AS ENUM (
+    'en-US',  -- English (US)
+    'zh-CN'   -- Chinese (Simplified)
+);
 CREATE TYPE item_type_enum AS ENUM ('word', 'character', 'phrase', 'sentence');
 CREATE TYPE interaction_type_enum AS ENUM ('speech', 'chat');
 
--- 3. Table learning_items (for vocabulary/grammar)
+-- Table learning_items (for vocabulary/grammar)
 CREATE TABLE IF NOT EXISTS learning_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     
-    -- Content Core
-    content TEXT NOT NULL,                  -- The word/sentence (e.g., "Hello", "猫")
-    meaning TEXT NOT NULL,                  -- Meaning in native language
-    reading_simple TEXT,                    -- Simple reading (e.g., "Neko")
-    reading_ipa TEXT,                       -- IPA reading (e.g., "/neko/")
+    -- 1. Content (Target Language) - ยังคงเป็น Text เพราะคือภาษาเป้าหมาย
+    content TEXT NOT NULL,                      -- e.g., "Water"
+    lang_code lang_code_enum NOT NULL,          -- e.g., "en" (Target Language)
+
+    -- 2. Meanings (Native Language Support) - ปรับเป็น JSONB
+    -- Structure: { "th": "น้ำ", "cn": "水", "jp": "水" }
+    meanings JSONB DEFAULT '{}'::jsonb NOT NULL, 
+
+    -- 3. Readings (Target Language Standard)
+    -- Structure: { "ipa": "/ˈwɔːtər/", "standard": "wǒ ter" }
+    reading JSONB DEFAULT '{}'::jsonb,
     
-    -- Classification
-    type item_type_enum NOT NULL,           -- Type (word, character, etc.)
-    tags TEXT[],                            -- Tags for categorization (e.g., ['HSK1', 'Food'])
+    -- 4. Classification
+    type item_type_enum NOT NULL,
+    tags TEXT[],        -- e.g., ["food", "drink", "common"]
     
-    -- Rich Data (JSONB for flexibility)
-    media_assets JSONB DEFAULT '{}',        -- Images, audio (Structure: {image_url: "", audio_url: ""})
-    metadata JSONB DEFAULT '{}',            -- Grammar, POS, components (Structure: {pos: "noun", tone: 3, components: []})
+    -- 5. Rich Data
+    -- Media: { "image": "...", "audio": "..." } (ยังคงเป็น Universal มักใช้ร่วมกัน)
+    media JSONB DEFAULT '{}'::jsonb, 
     
-    -- System fields
+    -- Metadata: Hard Facts (โครงสร้างภาษาที่ไม่เปลี่ยนตามคนเรียน)
+    -- { "pos": "noun", "plural": "waters" }
+    metadata JSONB DEFAULT '{}'::jsonb,
+
+    -- System
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Indexing for JSONB (Important for searching in metadata)
-CREATE INDEX IF NOT EXISTS idx_learning_items_metadata ON learning_items USING GIN (metadata);
-CREATE INDEX IF NOT EXISTS idx_learning_items_content ON learning_items (content);
-
--- 4. Table conversation_scenarios (for conversation scenarios)
+-- Table conversation_scenarios (for conversation scenarios)
 CREATE TABLE IF NOT EXISTS conversation_scenarios (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     

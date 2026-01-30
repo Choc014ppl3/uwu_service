@@ -11,6 +11,7 @@ import (
 	"github.com/windfall/uwu_service/internal/config"
 	"github.com/windfall/uwu_service/internal/handler/http"
 	"github.com/windfall/uwu_service/internal/logger"
+	"github.com/windfall/uwu_service/internal/repository"
 	"github.com/windfall/uwu_service/internal/server"
 	"github.com/windfall/uwu_service/internal/service"
 )
@@ -125,19 +126,37 @@ func main() {
 		log.Warn().Msg("Cloudflare configuration missing, skipping R2 initialization")
 	}
 
+	// Initialize Postgres Client
+	var postgresClient *client.PostgresClient
+	if cfg.DatabaseURL != "" {
+		var err error
+		postgresClient, err = client.NewPostgresClient(ctx, cfg.DatabaseURL)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to initialize Postgres client")
+		} else {
+			log.Info().Msg("Postgres client initialized")
+		}
+	} else {
+		log.Warn().Msg("DatabaseURL missing, skipping Postgres initialization")
+	}
+
+	// Initialize Repositories
+	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
+
 	// Initialize services
 	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
+	learningService := service.NewLearningService(aiService, learningItemRepo)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
 	apiHandler := http.NewAPIHandler(log, aiService, speechService)
-	// Initialize Speaking handler
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
+	learningItemHandler := http.NewLearningItemHandler(learningService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler)
 
 	// Start servers
 	go func() {
@@ -178,6 +197,9 @@ func main() {
 	}
 	if redisClient != nil {
 		redisClient.Close()
+	}
+	if postgresClient != nil {
+		postgresClient.Close()
 	}
 
 	log.Info().Msg("Server stopped")
