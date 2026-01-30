@@ -91,7 +91,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 
 	// 5. Async Media Generation (if active)
 	if req.IsActive {
-		go s.generateMediaAsync(newItem.ID, itemData.Media.ImagePrompt, req.Context, itemData.Meanings, req.NativeLang, itemData.Media)
+		go s.generateMediaAsync(newItem.ID, itemData.Media.ImagePrompt, req.Context, req.LangCode, itemData.Meanings, req.NativeLang, itemData.Media)
 	}
 
 	return newItem, nil
@@ -99,7 +99,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 
 func (s *LearningService) generateMediaAsync(
 	id uuid.UUID,
-	imagePrompt, content string,
+	imagePrompt, content, langCode string,
 	meaningsRaw json.RawMessage,
 	nativeLang string,
 	currentMedia struct {
@@ -117,11 +117,12 @@ func (s *LearningService) generateMediaAsync(
 	updateMedia := func(infoType, url string) {
 		mu.Lock()
 		defer mu.Unlock()
-		if infoType == "image" {
+		switch infoType {
+		case "image":
 			currentMedia.ImageURL = url
-		} else if infoType == "audio" {
+		case "audio":
 			currentMedia.AudioURL = url
-		} else if infoType == "meaning_audio" {
+		case "meaning_audio":
 			currentMedia.MeaningAudioURL = url
 		}
 	}
@@ -155,8 +156,14 @@ func (s *LearningService) generateMediaAsync(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Select voice based on langCode
 			voice := "en-US-AvaMultilingualNeural" // Default
-			// TODO: Map LangCode to specific voices if needed
+			switch langCode {
+			case "zh-CN":
+				voice = "zh-CN-XiaoxiaoNeural"
+			case "en-US":
+				voice = "en-US-AvaMultilingualNeural"
+			}
 			audioData, err := s.ai.azureSpeechClient.Synthesize(ctx, content, voice)
 			if err != nil {
 				fmt.Printf("Async Content Audio error: %v\n", err)
@@ -185,8 +192,12 @@ func (s *LearningService) generateMediaAsync(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Use Multilingual voice which supports many languages
-			voice := "en-US-AvaMultilingualNeural"
+			// Select voice based on nativeLang
+			voice := "en-US-AvaMultilingualNeural" // Default
+			switch nativeLang {
+			case "th":
+				voice = "th-TH-PremwadeeNeural"
+			}
 			audioData, err := s.ai.azureSpeechClient.Synthesize(ctx, meaningText, voice)
 			if err != nil {
 				fmt.Printf("Async Meaning Audio error: %v\n", err)

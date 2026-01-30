@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 
@@ -181,7 +182,8 @@ func (c *GeminiClient) GenerateImage(ctx context.Context, prompt string) ([]byte
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("imagen api error: status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("imagen api error: status %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var result map[string]interface{}
