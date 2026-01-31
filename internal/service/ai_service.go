@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
-	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/errors"
 )
@@ -109,159 +106,182 @@ type ScenarioResponse struct {
 	Script      []DialogueItem `json:"script"`
 }
 
-// GenerateScenario generates a roleplay scenario.
-func (s *AIService) GenerateScenario(ctx context.Context, req GenerateScenarioReq) (*ScenarioResponse, error) {
+// GenerateScenarioContentReq defines the request for generating scenario content.
+type GenerateScenarioContentReq struct {
+	Topic           string `json:"topic"`
+	Description     string `json:"description"`
+	InteractionType string `json:"interaction_type"` // "chat", "speech"
+	EstimatedTurns  string `json:"estimate_turns"`
+	TargetLang      string `json:"target_lang"`
+}
+
+// GenerateScenarioContent generates the text content for a scenario.
+func (s *AIService) GenerateScenarioContent(ctx context.Context, req GenerateScenarioContentReq) (string, error) {
 	if s.geminiClient == nil {
-		return nil, errors.New(errors.ErrAIService, "Gemini client not configured")
+		return "", errors.New(errors.ErrAIService, "Gemini client not configured")
 	}
 
-	// 1. Logic defaults
-	duration := "20s-30s"
-	userGender := req.UserGender
-	if userGender == "" {
-		userGender = "male"
-	}
-	aiGender := req.AIGender
-	if aiGender == "" {
-		aiGender = "female"
-	}
+	promptTemplate := `Role: You are a specialized Language Learning Content Generator.
+Your task is to generate a valid JSON object for a language learning database based on the provided template type.
 
-	// 2. Construct Prompt
-	systemPrompt := fmt.Sprintf(`
-You are a creative scenario generator.
-Create a roleplay scenario about "%s".
-Native Language: %s
-Target Language: %s
-Duration: %s
-User Gender: %s
-AI Gender: %s
+Input Parameters:
+- Topic: "{{topic}}" (The content to analyze)
+- Description: "{{description}}" (Context details)
+- Interaction Type: "{{interaction_type}}" (chat, speech)
+- Estimate Turns: "{{estimate_turns}}" (Integer or Range)
+- Target Language: "{{target_lang}}" (The language being learned)
 
-Output STRICTLY in raw JSON format (no markdown backticks).
-Structure the JSON to match the following schema:
+Strict Constraints:
+1. Language: All generated text, including hints, objectives, and instructions, MUST be in "{{target_lang}}". Absolutely NO any other language allowed.
+2. Data Integrity: If a field is not applicable, you must explicitly set it to null.
+3. Format: Output ONLY a valid JSON object. Do not include the comments ( //) in the final output. No prose, no markdown code blocks.
+4. Minimum Turn Count: The total number of objects in the script array must be at least 6, otherwise, you must generate more turns.
+5. Maximum Turn Count: The total number of objects in the script array must be at most 24, otherwise, you must generate less turns.
+6. Image Prompt: The "image_prompt" field MUST be in English. It should be a highly detailed visual description suitable for a text-to-image AI (like DALL-E 3 or Imagen). Describe the setting, characters, action, lighting, and mood. Specify "high quality, educational vector art style" and "no text in image".
+---
+
+### If Interaction Type is "speech"
+Generate the JSON following these Flow Rules:
+1. **Starting Turn:** You may start with either "ai" or "user", whichever fits the context best.
+2. **Turn Sequence:** Do NOT force strict alternation (A-B-A-B). Allow natural pauses or multi-part thoughts.
+3. **Consecutive Limit:** A single speaker can have consecutive turns, but NO MORE than 2 turns in a row.
+4. **Total Length:** The total number of objects in the script array must match "{{estimate_turns}}".
+5. **Script Object Structure:** The "script" array must contain all types of user turns (context_hint, partial_blank, predictive_blank) and ai turns.
+
 {
-  "description": "Brief scenario description",
-  "image_prompt": "A vivid prompt to generate a background image for this scene",
-  "script": [
-    {
-      "speaker": "ai" or "user",
-      "text": "The dialogue line (strictly for 'ai' speaker only)",
-      "task": "Specific task for the user with blanks for target language practice (strictly for 'user' speaker only), e.g., 'Say: I would like a ____ please.'",
-      "audio_url": "" 
+    "interaction_type": "speech",
+    "difficulty_level": 1, // Estimate the difficulty level (1-5) based on the vocabulary and grammar used.
+    "image_prompt": "...", // Generate a detailed English description of the scene. e.g., 'Two people talking in a cozy coffee shop, warm lighting, vector art style, educational illustration.'
+    "script": [
+        {
+            "speaker": "...", // "ai" or "user"
+            
+            // Logic for 'text':
+            // - If speaker is "ai": Content in {{target_lang}}.
+            // - If speaker is "user" AND type is "partial_blank": Content in {{target_lang}} with '_____' placeholders.
+            // - Otherwise: null.
+            "text": "...", 
+
+            "user_turn_details": { 
+                // Required if speaker is "user", set to null if "ai".
+                
+                "type": "...", 
+                // CRITICAL: YOU MUST SELECT ONE TYPE. DO NOT LEAVE BLANK.
+                // 1. "context_hint": User must formulate the full sentence themselves. (Used for: Roleplay, asking questions, expressing needs).
+                // 2. "partial_blank": User fills in specific missing words. (Used for: Vocabulary checks, grammar focus).
+                // 3. "predictive_blank": User gives a short, obvious response implied by context with just a few hints.
+
+                "hint": "...", 
+                // - Required for "context_hint": Instruction in {{target_lang}} (e.g., "Ask for the price").
+                // - Optional for "partial_blank": Clue for the missing word.
+                // - Set to null for "predictive_blank".
+
+                "missing_words": ["..."] 
+                // - Required for "partial_blank" and "predictive_blank": Array of words filling the '_____' in order.
+                // - Set to null for others.
+            }
+        }
+    ]
+}
+
+---
+
+### If Interaction Type is "chat"
+Generate the JSON using this logic.
+
+{
+    "interaction_type": "chat",
+    "image_prompt": "...", // Generate a detailed English description of the chat context. e.g. 'A smartphone screen showing a chat app interface, with a background of a busy office, flat design, modern ui.'
+    "objectives": {
+        "requirements": [ 
+            // Generate 3-5 items
+            "...", 
+            // Definition: Task-oriented goals.
+            // Examples: "Use the word 'receipt'", "Ask for the warranty period", "Mention specifically that you are in a hurry".
+        ],
+        "persuasion": [ 
+            // Generate 1-3 items
+            "...", 
+            // Definition: The "Winning Condition" or ultimate outcome.
+            // Examples: "Convince the shopkeeper to give a 10% discount", "Get the manager to approve the refund".
+        ],
+        "constraints": [ 
+            // Generate 1-3 items
+            "...", 
+            // Definition: Tone, Manner, or Restrictions.
+            // Examples: "Must use formal language (Keigo)", "Do not use emojis", "Remain polite even if the AI is rude".
+        ]
     }
-  ]
-}
-Ensure the script makes sense and creates a natural conversation flow.
-`, req.Topic, req.NativeLang, req.TargetLang, duration, userGender, aiGender)
+}`
 
-	// 3. Call Gemini
-	respStr, err := s.geminiClient.Chat(ctx, systemPrompt)
-	if err != nil {
-		return nil, err
-	}
+	prompt := strings.ReplaceAll(promptTemplate, "{{topic}}", req.Topic)
+	prompt = strings.ReplaceAll(prompt, "{{description}}", req.Description)
+	prompt = strings.ReplaceAll(prompt, "{{interaction_type}}", req.InteractionType)
+	prompt = strings.ReplaceAll(prompt, "{{estimate_turns}}", req.EstimatedTurns)
+	prompt = strings.ReplaceAll(prompt, "{{target_lang}}", req.TargetLang)
 
-	cleanResp := strings.TrimSpace(respStr)
-	cleanResp = strings.TrimPrefix(cleanResp, "```json")
-	cleanResp = strings.TrimPrefix(cleanResp, "```")
-	cleanResp = strings.TrimSuffix(cleanResp, "```")
-
-	var tempResp struct {
-		Description string         `json:"description"`
-		ImagePrompt string         `json:"image_prompt"`
-		Script      []DialogueItem `json:"script"`
-	}
-	if err := json.Unmarshal([]byte(cleanResp), &tempResp); err != nil {
-		return nil, fmt.Errorf("failed to parse AI response: %w. Raw: %s", err, cleanResp)
-	}
-
-	// 4. Trigger Image Generation (Async)
-	scenarioID := uuid.New().String()
-	imagePrompt := tempResp.ImagePrompt
-	if imagePrompt == "" {
-		imagePrompt = req.Topic
-	}
-
-	go func() {
-		// Use a detached context for async operations
-		bgCtx := context.Background()
-		if err := s.generateScenarioImage(bgCtx, scenarioID, imagePrompt); err != nil {
-			fmt.Printf("Failed to generate/upload image async: %v\n", err)
-		}
-	}()
-
-	// 5. Generate Audio for AI lines (Concurrent)
-	script := tempResp.Script
-
-	// WaitGroup for concurrent operations
-	var wg sync.WaitGroup
-
-	for i := range script {
-		item := &script[i]
-		if item.Speaker == "ai" && item.Text != "" && s.azureSpeechClient != nil {
-			wg.Add(1)
-			go func(idx int, it *DialogueItem) {
-				defer wg.Done()
-				// Generate Audio
-				voiceName := "en-US-AvaMultilingualNeural"                                // Default dynamic voice
-				audioData, err := s.azureSpeechClient.Synthesize(ctx, it.Text, voiceName) // Use request ctx or bgCtx? Request ctx is safer for cancellation but might timeout if user disconnects.
-				if err != nil {
-					fmt.Printf("Failed to synthesize audio for %d: %v\n", idx, err)
-					return
-				}
-
-				// Upload to Cloudflare
-				if s.cloudflareClient != nil {
-					key := fmt.Sprintf("audio/scenario-%s-%d.mp3", scenarioID, idx)
-					url, err := s.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
-					if err != nil {
-						fmt.Printf("Failed to upload audio %d: %v\n", idx, err)
-						return
-					}
-					it.AudioURL = url
-				}
-			}(i, item)
-		}
-	}
-
-	wg.Wait()
-
-	// Construct Image URL
-	imageURL := ""
-	if s.cloudflareClient != nil {
-		imageURL = fmt.Sprintf("%s/image/scenario-%s.webp", s.cloudflareClient.PublicURL(), scenarioID)
-	}
-
-	// 6. Construct Response
-	response := &ScenarioResponse{
-		ScenarioID:  scenarioID,
-		Topic:       req.Topic,
-		Description: tempResp.Description,
-		ImagePrompt: tempResp.ImagePrompt,
-		Script:      script,
-		ImageURL:    imageURL,
-	}
-
-	return response, nil
+	return s.geminiClient.Chat(ctx, prompt)
 }
 
-// generateScenarioImage handles real image generation and saving.
-func (s *AIService) generateScenarioImage(ctx context.Context, id, prompt string) error {
+// GenerateAndUploadImage generates an image and uploads it to Cloudflare R2.
+func (s *AIService) GenerateAndUploadImage(ctx context.Context, id, prompt string) (string, error) {
+	if s.geminiClient == nil {
+		return "", errors.New(errors.ErrAIService, "Gemini client not configured")
+	}
+	if s.cloudflareClient == nil {
+		return "", errors.New(errors.ErrAIService, "Cloudflare client not configured")
+	}
+
 	// 1. Generate Image
 	imgData, err := s.geminiClient.GenerateImage(ctx, prompt)
 	if err != nil {
-		return fmt.Errorf("gemini generate image error: %w", err)
+		return "", fmt.Errorf("gemini generate image error: %w", err)
 	}
 
 	// 2. Upload to Cloudflare R2
-	if s.cloudflareClient != nil {
-		key := fmt.Sprintf("image/scenario-%s.webp", id)
-		url, err := s.cloudflareClient.UploadR2Object(ctx, key, imgData, "image/webp")
-		if err != nil {
-			return fmt.Errorf("cloudflare upload error: %w", err)
-		}
-		fmt.Printf("Image uploaded to: %s\n", url)
+	key := fmt.Sprintf("conversation-scenarios/%s-image.webp", id)
+	url, err := s.cloudflareClient.UploadR2Object(ctx, key, imgData, "image/webp")
+	if err != nil {
+		return "", fmt.Errorf("cloudflare upload error: %w", err)
 	}
 
-	return nil
+	return url, nil
+}
+
+// GenerateAndUploadAudio generates audio and uploads it to Cloudflare R2.
+func (s *AIService) GenerateAndUploadAudio(ctx context.Context, id string, index int, text, lang string) (string, error) {
+	if s.azureSpeechClient == nil {
+		return "", errors.New(errors.ErrAIService, "Azure Speech client not configured")
+	}
+	if s.cloudflareClient == nil {
+		return "", errors.New(errors.ErrAIService, "Cloudflare client not configured")
+	}
+
+	// Dynamic Voice Selection
+	voiceName := "en-US-AvaMultilingualNeural" // Default
+	switch {
+	case strings.HasPrefix(lang, "zh"):
+		voiceName = "zh-CN-XiaoxiaoNeural"
+	case strings.HasPrefix(lang, "th"):
+		voiceName = "th-TH-PremwadeeNeural"
+	case strings.HasPrefix(lang, "ja"):
+		voiceName = "ja-JP-NanamiNeural"
+	case strings.HasPrefix(lang, "ko"):
+		voiceName = "ko-KR-SunHiNeural"
+	}
+
+	audioData, err := s.azureSpeechClient.Synthesize(ctx, text, voiceName)
+	if err != nil {
+		return "", fmt.Errorf("azure speech synthesize error: %w", err)
+	}
+
+	key := fmt.Sprintf("conversation-scenarios/%s-ai-script-%d.mp3", id, index)
+	url, err := s.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
+	if err != nil {
+		return "", fmt.Errorf("cloudflare upload error: %w", err)
+	}
+
+	return url, nil
 }
 
 // GenerateLearningItemReq defines the request for generating a learning item.
@@ -296,7 +316,7 @@ Input Parameters:
 Strict Rules:
 1. Output MUST be valid JSON only. No markdown formatting or conversational text.
 2. Field "meanings": Must contain ONLY the translation in the Native Language ("{{native_lang}}").
-3. Field "media_prompts": Write the image prompt in English (as it is the standard for Image Gen AI).
+3. Field "media.image_prompt": Write the image prompt in English (Standard for Image Gen AI). It must be DETAILED and DESCRIPTIVE. Include subject details, background, lighting, and style (e.g. "minimalist vector art", "educational illustration"). DO NOT just copy the context word.
 4. All other fields (metadata, tags, examples, synonyms): MUST be in the Target Language ("{{lang_code}}"). DO NOT translate these into Native Language.
 5. If specific data is not applicable, use null.
 
@@ -314,7 +334,7 @@ Return this JSON structure: {
     "..."
   ], // e.g., ["vowel", "consonant"] or ["radical", "hsk1"] in Target Lang
   "media": {
-    "image_prompt": "A minimalist, high-contrast educational illustration of the character '{{context}}', vector style, white background."
+    "image_prompt": "..." // English prompt. e.g. "A stylized vector illustration of the chinese character '水' (water) composed of blue flowing lines, white background, minimalist educational art."
   },
   "metadata": {
     // For English/European Languages:
@@ -343,7 +363,7 @@ Return this JSON structure: {
     "..."
   ], // Parts of speech, Category, Level (e.g., "noun", "food", "A1") in Target Lang
   "media": {
-    "image_prompt": "A clear, iconic illustration representing '{{context}}', isolated on white background, cartoon style suitable for learning."
+    "image_prompt": "..." // English prompt. e.g. "A delicious red apple sitting on a wooden table, soft sunlight, high quality vector art, isolated on white."
   },
   "metadata": {
     "pos": "...", // Part of Speech in Target Lang (e.g. "noun", "verb")
@@ -373,7 +393,7 @@ Return this JSON structure: {
     "..."
   ], // Grammar topic, Situation (e.g., "greeting", "past_tense") in Target Lang
   "media": {
-    "image_prompt": "A scene depicting the situation: '{{context}}', expressive characters, vector art style."
+    "image_prompt": "..." // English prompt. e.g. "A scene of a person buying a train ticket at a station kiosk, busy atmosphere, flat vector illustration."
   },
   "metadata": {
     "structure_pattern": "...", // e.g., "S + V + O" or Grammar pattern

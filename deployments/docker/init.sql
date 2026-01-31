@@ -1,13 +1,24 @@
--- Enable UUID extension (if not exists)
+-- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create ENUM types for Data Consistency
-CREATE TYPE lang_code_enum AS ENUM (
-    'en-US',  -- English (US)
-    'zh-CN'   -- Chinese (Simplified)
-);
-CREATE TYPE item_type_enum AS ENUM ('word', 'character', 'phrase', 'sentence');
-CREATE TYPE interaction_type_enum AS ENUM ('speech', 'chat');
+-- 1. Create ENUMs (แก้ Syntax Comma แล้ว)
+DO $$ BEGIN
+    CREATE TYPE lang_code_enum AS ENUM ('en-US', 'zh-CN');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE item_type_enum AS ENUM ('word', 'character', 'phrase', 'sentence');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE interaction_type_enum AS ENUM ('speech', 'chat');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Table learning_items (for vocabulary/grammar)
 CREATE TABLE IF NOT EXISTS learning_items (
@@ -38,7 +49,7 @@ CREATE TABLE IF NOT EXISTS learning_items (
     metadata JSONB DEFAULT '{}'::jsonb,
 
     -- System
-    is_active BOOLEAN DEFAULT true,
+    is_active BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -47,18 +58,24 @@ CREATE TABLE IF NOT EXISTS learning_items (
 CREATE TABLE IF NOT EXISTS conversation_scenarios (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     
-    -- Scenario Details
-    topic TEXT NOT NULL,                    -- Topic (e.g., "Ordering Food")
-    description TEXT,                       -- Scenario description
-    interaction_type interaction_type_enum NOT NULL, -- Type (speech/chat)
+    -- --- INPUTS (ใช้สำหรับส่งเข้า Prompt) ---
+    topic TEXT NOT NULL,                    -- หัวข้อ (Prompt: Topic)
+    description TEXT,                       -- รายละเอียดบริบท (Prompt: Description)
+    interaction_type interaction_type_enum NOT NULL, -- ประเภท (Prompt: Scenario Type)
     
-    -- Meta Data for Scenario
-    scenario_meta JSONB DEFAULT '{}',       -- Script, Objective (Structure: {objectives: [], script: [{role: "A", text: "..."}]})
+    target_lang lang_code_enum NOT NULL DEFAULT 'en-US', -- ภาษาที่เรียน (Prompt: Target Language)
     
-    -- Difficulty Level
-    difficulty_level INTEGER DEFAULT 1,     -- Difficulty level 1-5
+    estimated_turns VARCHAR(50),            -- ความยาวบทสนทนา เก็บเป็น String เพื่อรองรับ Range ได้ (เช่น "10" หรือ "8-12")
+    difficulty_level INTEGER DEFAULT 1,     -- ระดับความยาก (1-5)
     
-    -- System fields
+    -- --- OUTPUTS (เก็บผลลัพธ์จาก AI) ---
+    -- เก็บ JSON Response ทั้งก้อนที่ AI ส่งกลับมา
+    -- Structure Speech: { "type": "speech", "image_prompt": "...", "script": [...] }
+    -- Structure Chat:   { "type": "chat", "image_prompt": "...", "objectives": {...} }
+    metadata JSONB DEFAULT '{}'::jsonb,
+    
+    -- --- SYSTEM ---
+    is_active BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

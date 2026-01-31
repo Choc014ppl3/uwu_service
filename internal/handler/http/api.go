@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/windfall/uwu_service/internal/errors"
@@ -13,9 +15,10 @@ import (
 
 // APIHandler handles REST API endpoints.
 type APIHandler struct {
-	log           zerolog.Logger
-	aiService     *service.AIService
-	speechService *service.SpeechService
+	log             zerolog.Logger
+	aiService       *service.AIService
+	speechService   *service.SpeechService
+	scenarioService *service.ScenarioService
 }
 
 // NewAPIHandler creates a new API handler.
@@ -23,12 +26,68 @@ func NewAPIHandler(
 	log zerolog.Logger,
 	aiService *service.AIService,
 	speechService *service.SpeechService,
+	scenarioService *service.ScenarioService,
 ) *APIHandler {
 	return &APIHandler{
-		log:           log,
-		aiService:     aiService,
-		speechService: speechService,
+		log:             log,
+		aiService:       aiService,
+		speechService:   speechService,
+		scenarioService: scenarioService,
 	}
+}
+
+// ... (existing struct and method codes)
+
+// CreateConversationScenario handles POST /api/v1/conversation-scenarios
+func (h *APIHandler) CreateConversationScenario(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req service.CreateScenarioReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleError(w, errors.Validation("invalid request body"))
+		return
+	}
+
+	if req.Topic == "" {
+		h.handleError(w, errors.Validation("topic is required"))
+		return
+	}
+	if req.TargetLang == "" {
+		h.handleError(w, errors.Validation("target_lang is required"))
+		return
+	}
+	if req.InteractionType == "" {
+		h.handleError(w, errors.Validation("interaction_type is required"))
+		return
+	}
+
+	result, err := h.scenarioService.CreateScenario(ctx, req)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
+// GetConversationScenario handles GET /api/v1/conversation-scenarios/{id}
+func (h *APIHandler) GetConversationScenario(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.handleError(w, errors.Validation("invalid scenario id"))
+		return
+	}
+
+	result, err := h.scenarioService.GetScenario(ctx, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
 }
 
 // ChatRequest represents the request body for AI chat.
@@ -251,32 +310,4 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	}
 	h.log.Error().Err(err).Msg("Internal server error")
 	response.Error(w, http.StatusInternalServerError, errors.Internal("internal server error"))
-}
-
-// GenerateScenario handles POST /api/v1/scenario/generate
-func (h *APIHandler) GenerateScenario(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var req service.GenerateScenarioReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleError(w, errors.Validation("invalid request body"))
-		return
-	}
-
-	if req.Topic == "" {
-		h.handleError(w, errors.Validation("topic is required"))
-		return
-	}
-	if req.TargetLang == "" || req.NativeLang == "" {
-		h.handleError(w, errors.Validation("target_lang and native_lang are required"))
-		return
-	}
-
-	result, err := h.aiService.GenerateScenario(ctx, req)
-	if err != nil {
-		h.handleError(w, err)
-		return
-	}
-
-	response.JSON(w, http.StatusOK, result)
 }

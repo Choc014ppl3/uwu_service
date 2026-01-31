@@ -59,9 +59,6 @@ func NewHTTPServer(
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)
 
-		// Scenario endpoints
-		r.Post("/scenario/generate", apiHandler.GenerateScenario)
-
 		// Speech endpoints
 		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
 		r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)
@@ -79,8 +76,13 @@ func NewHTTPServer(
 		// Learning Items endpoints
 		r.Post("/learning-items", learningItemHandler.Create)
 		r.Get("/learning-items", learningItemHandler.List)
+		r.Get("/learning-items/{id}", learningItemHandler.Get)
 		r.Put("/learning-items/{id}", learningItemHandler.Update)
 		r.Delete("/learning-items/{id}", learningItemHandler.Delete)
+
+		// Conversation Scenarios endpoints
+		r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
+		r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
 	})
 
 	server := &http.Server{

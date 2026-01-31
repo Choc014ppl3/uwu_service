@@ -144,6 +144,10 @@ func (s *LearningService) DeleteLearningItem(ctx context.Context, id uuid.UUID) 
 	return s.repo.Delete(ctx, id)
 }
 
+func (s *LearningService) GetLearningItem(ctx context.Context, id uuid.UUID) (*repository.LearningItem, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
 func (s *LearningService) generateMediaAsync(
 	id uuid.UUID,
 	imagePrompt, content, langCode string,
@@ -187,7 +191,7 @@ func (s *LearningService) generateMediaAsync(
 			}
 			// Upload
 			if s.ai.cloudflareClient != nil {
-				key := fmt.Sprintf("learning-items/%s/image.webp", id)
+				key := fmt.Sprintf("learning-items/%s-image.webp", id)
 				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, imgData, "image/webp")
 				if err != nil {
 					fmt.Printf("Async Image Upload Error: %v\n", err)
@@ -218,7 +222,7 @@ func (s *LearningService) generateMediaAsync(
 			}
 			// Upload
 			if s.ai.cloudflareClient != nil {
-				key := fmt.Sprintf("learning-items/%s/audio.mp3", id)
+				key := fmt.Sprintf("learning-items/%s-context.mp3", id)
 				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
 				if err != nil {
 					fmt.Printf("Async Content Audio Upload Error: %v\n", err)
@@ -252,7 +256,7 @@ func (s *LearningService) generateMediaAsync(
 			}
 			// Upload
 			if s.ai.cloudflareClient != nil {
-				key := fmt.Sprintf("learning-items/%s/meaning_audio.mp3", id)
+				key := fmt.Sprintf("learning-items/%s-meaning.mp3", id)
 				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
 				if err != nil {
 					fmt.Printf("Async Meaning Audio Upload Error: %v\n", err)
