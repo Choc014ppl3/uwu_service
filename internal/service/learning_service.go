@@ -188,7 +188,7 @@ func (s *LearningService) generateMediaAsync(
 			// Upload
 			if s.ai.cloudflareClient != nil {
 				key := fmt.Sprintf("learning-items/%s/image.webp", id)
-				url, err := s.ai.cloudflareClient.UploadImage(ctx, key, imgData, "image/webp")
+				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, imgData, "image/webp")
 				if err != nil {
 					fmt.Printf("Async Image Upload Error: %v\n", err)
 					return
@@ -219,7 +219,7 @@ func (s *LearningService) generateMediaAsync(
 			// Upload
 			if s.ai.cloudflareClient != nil {
 				key := fmt.Sprintf("learning-items/%s/audio.mp3", id)
-				url, err := s.ai.cloudflareClient.UploadImage(ctx, key, audioData, "audio/mpeg")
+				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
 				if err != nil {
 					fmt.Printf("Async Content Audio Upload Error: %v\n", err)
 					return
@@ -253,7 +253,7 @@ func (s *LearningService) generateMediaAsync(
 			// Upload
 			if s.ai.cloudflareClient != nil {
 				key := fmt.Sprintf("learning-items/%s/meaning_audio.mp3", id)
-				url, err := s.ai.cloudflareClient.UploadImage(ctx, key, audioData, "audio/mpeg")
+				url, err := s.ai.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
 				if err != nil {
 					fmt.Printf("Async Meaning Audio Upload Error: %v\n", err)
 					return

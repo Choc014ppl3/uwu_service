@@ -32,49 +32,41 @@ func main() {
 	defer cancel()
 
 	// Initialize clients
-	// Initialize clients
-	log.Info().Str("gemini_sa_path", cfg.GeminiServiceAccountPath).Str("project_id", cfg.GCPProjectID).Msg("Checking Gemini config")
+	log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Checking Gemini config")
 	var geminiClient *client.GeminiClient
 
-	if cfg.GCPProjectID != "" && cfg.GCPLocation != "" {
-		// Try initializing with Service Account first
-		if cfg.GeminiServiceAccountPath != "" {
-			log.Info().Str("gemini_sa_path", cfg.GeminiServiceAccountPath).Msg("Initializing Gemini with Service Account")
+	if cfg.GeminiSAPath != "" {
+		log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Initializing Gemini with Service Account")
 
-			// Attempt to read project_id from the service account file
-			projectID := cfg.GCPProjectID
-			if saContent, err := os.ReadFile(cfg.GeminiServiceAccountPath); err == nil {
-				var sa struct {
-					ProjectID string `json:"project_id"`
-				}
-				if err := json.Unmarshal(saContent, &sa); err == nil && sa.ProjectID != "" {
-					projectID = sa.ProjectID
-					log.Info().Str("project_id", projectID).Msg("Using Project ID from Service Account file")
-				}
+		// Read project_id from the service account file
+		var projectID string
+		location := cfg.GCPLocation
+		if saContent, err := os.ReadFile(cfg.GeminiSAPath); err == nil {
+			var sa struct {
+				ProjectID string `json:"project_id"`
 			}
+			if err := json.Unmarshal(saContent, &sa); err == nil && sa.ProjectID != "" {
+				projectID = sa.ProjectID
+				log.Info().Str("project_id", projectID).Str("location", location).Msg("Extracted Project ID from Service Account file")
+			}
+		} else {
+			log.Error().Err(err).Msg("Failed to read Service Account file")
+		}
 
+		if projectID != "" {
+			log.Debug().Str("project_id", projectID).Str("location", location).Msg("ProjectID exists, initializing Gemini client")
 			var err error
-			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, projectID, cfg.GCPLocation, cfg.GeminiServiceAccountPath)
+			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, projectID, location, cfg.GeminiSAPath)
 			if err != nil {
-				log.Warn().Err(err).Msg("Failed to initialize Gemini with Service Account, falling back to API Key")
+				log.Error().Err(err).Msg("Failed to initialize Gemini with Service Account")
 			} else {
 				log.Info().Msg("Gemini client initialized with Service Account")
 			}
-		}
-
-		// Fallback to API Key (using Vertex AI) if SA failed or was not provided
-		if geminiClient == nil && cfg.GeminiAPIKey != "" {
-			log.Info().Msg("Initializing Gemini with API Key")
-			var err error
-			geminiClient, err = client.NewGeminiClient(ctx, cfg.GCPProjectID, cfg.GCPLocation, cfg.GeminiAPIKey)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to initialize Gemini client with API Key")
-			} else {
-				log.Info().Msg("Gemini client initialized with API Key")
-			}
+		} else {
+			log.Warn().Msg("Could not extract project_id from service account file")
 		}
 	} else {
-		log.Warn().Msg("GCP Project ID or Location is missing, cannot initialize Vertex AI")
+		log.Warn().Msg("GEMINI_SA_PATH not set, skipping Gemini initialization")
 	}
 
 	if geminiClient == nil {

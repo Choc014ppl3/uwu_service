@@ -211,7 +211,7 @@ Ensure the script makes sense and creates a natural conversation flow.
 				// Upload to Cloudflare
 				if s.cloudflareClient != nil {
 					key := fmt.Sprintf("audio/scenario-%s-%d.mp3", scenarioID, idx)
-					url, err := s.cloudflareClient.UploadImage(ctx, key, audioData, "audio/mpeg")
+					url, err := s.cloudflareClient.UploadR2Object(ctx, key, audioData, "audio/mpeg")
 					if err != nil {
 						fmt.Printf("Failed to upload audio %d: %v\n", idx, err)
 						return
@@ -254,7 +254,7 @@ func (s *AIService) generateScenarioImage(ctx context.Context, id, prompt string
 	// 2. Upload to Cloudflare R2
 	if s.cloudflareClient != nil {
 		key := fmt.Sprintf("image/scenario-%s.webp", id)
-		url, err := s.cloudflareClient.UploadImage(ctx, key, imgData, "image/webp")
+		url, err := s.cloudflareClient.UploadR2Object(ctx, key, imgData, "image/webp")
 		if err != nil {
 			return fmt.Errorf("cloudflare upload error: %w", err)
 		}

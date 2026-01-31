@@ -39,8 +39,8 @@ func NewCloudflareClient(ctx context.Context, accessKeyID, secretKey, endpoint, 
 	}, nil
 }
 
-// UploadImage uploads an image to R2 and returns the public URL.
-func (c *CloudflareClient) UploadImage(ctx context.Context, key string, data []byte, contentType string) (string, error) {
+// UploadR2Object uploads an object to R2 and returns the public URL.
+func (c *CloudflareClient) UploadR2Object(ctx context.Context, key string, data []byte, contentType string) (string, error) {
 	// PutObject API
 	_, err := c.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(c.bucket),
