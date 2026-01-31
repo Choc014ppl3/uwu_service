@@ -78,6 +78,9 @@ func NewHTTPServer(
 
 		// Learning Items endpoints
 		r.Post("/learning-items", learningItemHandler.Create)
+		r.Get("/learning-items", learningItemHandler.List)
+		r.Put("/learning-items/{id}", learningItemHandler.Update)
+		r.Delete("/learning-items/{id}", learningItemHandler.Delete)
 	})
 
 	server := &http.Server{

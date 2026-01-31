@@ -97,6 +97,53 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 	return newItem, nil
 }
 
+func (s *LearningService) ListLearningItems(ctx context.Context, page, limit int) ([]*repository.LearningItem, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	return s.repo.List(ctx, limit, offset)
+}
+
+type UpdateLearningItemReq struct {
+	Content  string          `json:"content"`
+	LangCode string          `json:"lang_code"`
+	Meanings json.RawMessage `json:"meanings"`
+	Reading  json.RawMessage `json:"reading"`
+	Type     string          `json:"type"`
+	Tags     []string        `json:"tags"`
+	Media    json.RawMessage `json:"media"`
+	Metadata json.RawMessage `json:"metadata"`
+	IsActive bool            `json:"is_active"`
+}
+
+func (s *LearningService) UpdateLearningItem(ctx context.Context, id uuid.UUID, req UpdateLearningItemReq) (*repository.LearningItem, error) {
+	item := &repository.LearningItem{
+		ID:       id,
+		Content:  req.Content,
+		LangCode: req.LangCode,
+		Meanings: req.Meanings,
+		Reading:  req.Reading,
+		Type:     req.Type,
+		Tags:     req.Tags,
+		Media:    req.Media,
+		Metadata: req.Metadata,
+		IsActive: req.IsActive,
+	}
+
+	if err := s.repo.Update(ctx, item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *LearningService) DeleteLearningItem(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
+}
+
 func (s *LearningService) generateMediaAsync(
 	id uuid.UUID,
 	imagePrompt, content, langCode string,
