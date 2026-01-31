@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/windfall/uwu_service/internal/errors"
@@ -13,29 +15,53 @@ import (
 
 // APIHandler handles REST API endpoints.
 type APIHandler struct {
-	log            zerolog.Logger
-	aiService      *service.AIService
-	exampleService *service.ExampleService
+	log             zerolog.Logger
+	aiService       *service.AIService
+	speechService   *service.SpeechService
+	scenarioService *service.ScenarioService
 }
 
 // NewAPIHandler creates a new API handler.
 func NewAPIHandler(
 	log zerolog.Logger,
 	aiService *service.AIService,
-	exampleService *service.ExampleService,
+	speechService *service.SpeechService,
+	scenarioService *service.ScenarioService,
 ) *APIHandler {
 	return &APIHandler{
-		log:            log,
-		aiService:      aiService,
-		exampleService: exampleService,
+		log:             log,
+		aiService:       aiService,
+		speechService:   speechService,
+		scenarioService: scenarioService,
 	}
 }
 
-// GetExample handles GET /api/v1/example
-func (h *APIHandler) GetExample(w http.ResponseWriter, r *http.Request) {
+// ... (existing struct and method codes)
+
+// CreateConversationScenario handles POST /api/v1/conversation-scenarios
+func (h *APIHandler) CreateConversationScenario(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result, err := h.exampleService.GetExample(ctx, "example-id")
+	var req service.CreateScenarioReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleError(w, errors.Validation("invalid request body"))
+		return
+	}
+
+	if req.Topic == "" {
+		h.handleError(w, errors.Validation("topic is required"))
+		return
+	}
+	if req.TargetLang == "" {
+		h.handleError(w, errors.Validation("target_lang is required"))
+		return
+	}
+	if req.InteractionType == "" {
+		h.handleError(w, errors.Validation("interaction_type is required"))
+		return
+	}
+
+	result, err := h.scenarioService.CreateScenario(ctx, req)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -44,34 +70,24 @@ func (h *APIHandler) GetExample(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, result)
 }
 
-// CreateExampleRequest represents the request body for creating an example.
-type CreateExampleRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-// CreateExample handles POST /api/v1/example
-func (h *APIHandler) CreateExample(w http.ResponseWriter, r *http.Request) {
+// GetConversationScenario handles GET /api/v1/conversation-scenarios/{id}
+func (h *APIHandler) GetConversationScenario(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
 
-	var req CreateExampleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.handleError(w, errors.Validation("invalid request body"))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.handleError(w, errors.Validation("invalid scenario id"))
 		return
 	}
 
-	if req.Name == "" {
-		h.handleError(w, errors.Validation("name is required"))
-		return
-	}
-
-	result, err := h.exampleService.CreateExample(ctx, req.Name, req.Description)
+	result, err := h.scenarioService.GetScenario(ctx, id)
 	if err != nil {
 		h.handleError(w, err)
 		return
 	}
 
-	response.JSON(w, http.StatusCreated, result)
+	response.JSON(w, http.StatusOK, result)
 }
 
 // ChatRequest represents the request body for AI chat.
@@ -140,10 +156,158 @@ func (h *APIHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// AnalyzeVocab handles POST /api/v1/speech/analyze/vocab
+func (h *APIHandler) AnalyzeVocab(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.handleError(w, errors.Validation("failed to parse multipart form"))
+		return
+	}
+
+	// Get file
+	file, _, err := r.FormFile("audio")
+	if err != nil {
+		h.handleError(w, errors.Validation("audio file is required"))
+		return
+	}
+	defer file.Close()
+
+	// Get reference text
+	referenceText := r.FormValue("reference_text")
+	// Read file content
+	// In production, might want to check file type/magic bytes here
+	audioData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			audioData = append(audioData, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	result, err := h.speechService.AnalyzeVocabAudio(ctx, audioData, referenceText)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
+// AnalyzeShadowing handles POST /api/v1/speech/analyze/shadowing
+func (h *APIHandler) AnalyzeShadowing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.handleError(w, errors.Validation("failed to parse multipart form"))
+		return
+	}
+
+	// Get file
+	file, _, err := r.FormFile("audio")
+	if err != nil {
+		h.handleError(w, errors.Validation("audio file is required"))
+		return
+	}
+	defer file.Close()
+
+	// Get reference text and language
+	referenceText := r.FormValue("reference_text")
+	language := r.FormValue("language") // Optional, defaults to en-US
+
+	// Read file content
+	audioData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			audioData = append(audioData, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	result, err := h.speechService.AnalyzeShadowingAudio(ctx, audioData, referenceText, language)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
+// GetMockVocab handles GET /api/v1/vocab/mock
+func (h *APIHandler) GetMockVocab(w http.ResponseWriter, r *http.Request) {
+	vocab := map[string]interface{}{
+		"id":   "vocab_101",
+		"word": "Apple",
+		"pronunciation": map[string]interface{}{
+			"ipa":            "/ˈæp.l/",
+			"simple_reading": "AP-pul",
+			"syllables":      []string{"ap", "ple"},
+			"stress_index":   0,
+		},
+		"part_of_speech": "noun",
+		"meanings": map[string]interface{}{
+			"target_lang": "A round fruit with red or green skin.",
+			"native_lang": "ผลไม้ชนิดหนึ่ง มีรสหวาน เปลือกสีแดงหรือเขียว",
+		},
+		"media": map[string]interface{}{
+			"image_url":         "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/image/apple.png",
+			"word_audio_url":    "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/apple-en.mp3",
+			"meaning_audio_url": "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/apple-meaning-th.mp3",
+		},
+		"tags":             []string{"food", "fruit", "beginner", "A1"},
+		"difficulty_level": 1,
+	}
+
+	response.JSON(w, http.StatusOK, vocab)
+}
+
+// GetMockShadowing handles GET /api/v1/shadowing/mock
+func (h *APIHandler) GetMockShadowing(w http.ResponseWriter, r *http.Request) {
+	data := map[string]interface{}{
+		"id":               "shadow_205",
+		"difficulty_level": 1,
+		"tags":             []string{"daily-life", "food", "question"},
+		"content": map[string]interface{}{
+			"target_lang": "今天吃什么？",
+			"native_lang": "วันนี้กินอะไรดี?",
+			"phonetic": map[string]string{
+				"readable": "Jīntiān chī shénme?",
+				"ipa":      "/tɕin⁵⁵ tʰjɛn⁵⁵ tʂʰz̩⁵⁵ ʂən³⁵ mə/",
+			},
+		},
+		"media": map[string]string{
+			"image_url":          "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/image/shadowing-00000.png",
+			"meaning_audio_url":  "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/shadowing-th00000.mp3",
+			"sentence_audio_url": "https://pub-d85099e9916143fcb172f661babc3497.r2.dev/audio/shadowing-zh00000.mp3",
+		},
+		"grammar": map[string]interface{}{
+			"context": []string{"Casual", "Friendly"},
+			"breakdown": []map[string]string{
+				{"segment": "今天", "meaning": "วันนี้", "role": "เวลา"},
+				{"segment": "吃", "meaning": "กิน", "role": "กริยา"},
+				{"segment": "什么？", "meaning": "อะไร", "role": "กรรม/คำถาม"},
+			},
+		},
+	}
+
+	response.JSON(w, http.StatusOK, data)
+}
+
 func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	if appErr, ok := err.(*errors.AppError); ok {
 		response.Error(w, appErr.HTTPStatus(), appErr)
 		return
 	}
+	h.log.Error().Err(err).Msg("Internal server error")
 	response.Error(w, http.StatusInternalServerError, errors.Internal("internal server error"))
 }

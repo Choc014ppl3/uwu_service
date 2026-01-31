@@ -12,9 +12,7 @@ GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GOVET=$(GOCMD) vet
 
-# Proto variables
-PROTO_DIR=api/proto
-PROTO_OUT=internal/pb
+
 
 # Docker variables
 DOCKER_IMAGE=uwu_service
@@ -58,19 +56,13 @@ tidy:
 	@echo "Tidying..."
 	$(GOMOD) tidy
 
-## proto: Generate protobuf code
-proto:
-	@echo "Generating protobuf..."
-	@mkdir -p $(PROTO_OUT)
-	protoc --go_out=$(PROTO_OUT) --go_opt=paths=source_relative \
-		--go-grpc_out=$(PROTO_OUT) --go-grpc_opt=paths=source_relative \
-		-I $(PROTO_DIR) $(PROTO_DIR)/*.proto
+
 
 ## clean: Clean build artifacts
 clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
-	@rm -rf $(PROTO_OUT)/*.pb.go
+
 
 ## docker-build: Build Docker image
 docker-build:

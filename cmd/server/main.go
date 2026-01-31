@@ -2,16 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/config"
-	"github.com/windfall/uwu_service/internal/handler/grpc"
 	"github.com/windfall/uwu_service/internal/handler/http"
-	"github.com/windfall/uwu_service/internal/handler/ws"
 	"github.com/windfall/uwu_service/internal/logger"
+	"github.com/windfall/uwu_service/internal/repository"
 	"github.com/windfall/uwu_service/internal/server"
 	"github.com/windfall/uwu_service/internal/service"
 )
@@ -32,57 +32,125 @@ func main() {
 	defer cancel()
 
 	// Initialize clients
-	var openaiClient *client.OpenAIClient
-	if cfg.OpenAIAPIKey != "" {
-		openaiClient = client.NewOpenAIClient(cfg.OpenAIAPIKey)
-	}
-
+	log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Checking Gemini config")
 	var geminiClient *client.GeminiClient
-	if cfg.GeminiAPIKey != "" {
+
+	if cfg.GeminiSAPath != "" {
+		log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Initializing Gemini with Service Account")
+
+		// Read project_id from the service account file
+		var projectID string
+		location := cfg.GCPLocation
+		if saContent, err := os.ReadFile(cfg.GeminiSAPath); err == nil {
+			var sa struct {
+				ProjectID string `json:"project_id"`
+			}
+			if err := json.Unmarshal(saContent, &sa); err == nil && sa.ProjectID != "" {
+				projectID = sa.ProjectID
+				log.Info().Str("project_id", projectID).Str("location", location).Msg("Extracted Project ID from Service Account file")
+			}
+		} else {
+			log.Error().Err(err).Msg("Failed to read Service Account file")
+		}
+
+		if projectID != "" {
+			log.Debug().Str("project_id", projectID).Str("location", location).Msg("ProjectID exists, initializing Gemini client")
+			var err error
+			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, projectID, location, cfg.GeminiSAPath)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to initialize Gemini with Service Account")
+			} else {
+				log.Info().Msg("Gemini client initialized with Service Account")
+			}
+		} else {
+			log.Warn().Msg("Could not extract project_id from service account file")
+		}
+	} else {
+		log.Warn().Msg("GEMINI_SA_PATH not set, skipping Gemini initialization")
+	}
+
+	if geminiClient == nil {
+		log.Warn().Msg("Gemini client not initialized (no valid credentials)")
+	}
+
+	var azureSpeechClient *client.AzureSpeechClient
+	if cfg.AzureAISpeechKey != "" && cfg.AzureServiceRegion != "" {
+		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
+	}
+
+	// Initialize Redis client
+	var redisClient *client.RedisClient
+	if cfg.RedisURL != "" {
 		var err error
-		geminiClient, err = client.NewGeminiClient(ctx, cfg.GeminiAPIKey)
+		redisClient, err = client.NewRedisClient(cfg.RedisURL)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize Gemini client")
+			log.Error().Err(err).Msg("Failed to initialize Redis client")
+		} else {
+			log.Info().Msg("Redis client initialized")
 		}
 	}
 
-	var storageClient *client.StorageClient
-	if cfg.GCPProjectID != "" && cfg.GCSBucketName != "" {
+	// Initialize Cloudflare R2 Client (using S3 protocol)
+	var cloudflareClient *client.CloudflareClient
+	if cfg.CloudflareAccessKeyID != "" && cfg.CloudflareSecretKey != "" && cfg.CloudflareR2Endpoint != "" && cfg.CloudflareBucketName != "" {
 		var err error
-		storageClient, err = client.NewStorageClient(ctx, cfg.GCSBucketName)
+		// Use Access Key/Secret if valid (Standard R2)
+		// Or if user provided CLOUDFLARE_API_TOKEN, we assume they might want to use it as a static credential?
+		// Usually R2 requires S3 credentials. We'll use the specific AccessKey/Secret fields.
+		// If they are empty, we might skip.
+		// Note: The user requested "add this env CLOUDFLARE_API_TOKEN".
+		// If CLOUDFLARE_API_TOKEN is used as "Access Key"? Unlikely.
+		// We'll stick to standard fields I added to config: CloudflareAccessKeyID/CloudflareSecretKey.
+
+		cloudflareClient, err = client.NewCloudflareClient(ctx,
+			cfg.CloudflareAccessKeyID,
+			cfg.CloudflareSecretKey,
+			cfg.CloudflareR2Endpoint,
+			cfg.CloudflareBucketName,
+			cfg.CloudflarePublicURL,
+		)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize storage client")
+			log.Error().Err(err).Msg("Failed to initialize Cloudflare client")
+		} else {
+			log.Info().Msg("Cloudflare R2 client initialized")
 		}
+	} else {
+		log.Warn().Msg("Cloudflare configuration missing, skipping R2 initialization")
 	}
 
-	var pubsubClient *client.PubSubClient
-	if cfg.GCPProjectID != "" && cfg.PubSubTopicID != "" {
+	// Initialize Postgres Client
+	var postgresClient *client.PostgresClient
+	if cfg.DatabaseURL != "" {
 		var err error
-		pubsubClient, err = client.NewPubSubClient(ctx, cfg.GCPProjectID, cfg.PubSubTopicID)
+		postgresClient, err = client.NewPostgresClient(ctx, cfg.DatabaseURL)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize pubsub client")
+			log.Error().Err(err).Msg("Failed to initialize Postgres client")
+		} else {
+			log.Info().Msg("Postgres client initialized")
 		}
+	} else {
+		log.Warn().Msg("DatabaseURL missing, skipping Postgres initialization")
 	}
+
+	// Initialize Repositories
+	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
+	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
 
 	// Initialize services
-	aiService := service.NewAIService(openaiClient, geminiClient)
-	exampleService := service.NewExampleService(storageClient, pubsubClient)
+	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
+	scenarioService := service.NewScenarioService(aiService, scenarioRepo)
+	speechService := service.NewSpeechService(azureSpeechClient)
+	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
+	learningService := service.NewLearningService(aiService, learningItemRepo)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
-	apiHandler := http.NewAPIHandler(log, aiService, exampleService)
-	wsHandler := ws.NewHandler(log)
-	grpcHandler := grpc.NewHandler(log, aiService, exampleService)
-
-	// Initialize WebSocket hub
-	wsHub := server.NewWebSocketHub(log)
-	go wsHub.Run(ctx)
+	apiHandler := http.NewAPIHandler(log, aiService, speechService, scenarioService)
+	speakingHandler := http.NewSpeakingHandler(log, speakingService)
+	learningItemHandler := http.NewLearningItemHandler(learningService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, wsHandler, wsHub)
-
-	// Initialize gRPC server
-	grpcServer := server.NewGRPCServer(cfg, log, grpcHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler)
 
 	// Start servers
 	go func() {
@@ -92,16 +160,8 @@ func main() {
 		}
 	}()
 
-	go func() {
-		if err := grpcServer.Start(); err != nil {
-			log.Error().Err(err).Msg("gRPC server error")
-			cancel()
-		}
-	}()
-
 	log.Info().
 		Str("http_addr", cfg.HTTPAddress()).
-		Str("grpc_addr", cfg.GRPCAddress()).
 		Msg("Servers started")
 
 	// Wait for shutdown signal
@@ -125,17 +185,15 @@ func main() {
 		log.Error().Err(err).Msg("HTTP server shutdown error")
 	}
 
-	grpcServer.GracefulStop()
-
 	// Close clients
-	if storageClient != nil {
-		storageClient.Close()
-	}
-	if pubsubClient != nil {
-		pubsubClient.Close()
-	}
 	if geminiClient != nil {
 		geminiClient.Close()
+	}
+	if redisClient != nil {
+		redisClient.Close()
+	}
+	if postgresClient != nil {
+		postgresClient.Close()
 	}
 
 	log.Info().Msg("Server stopped")

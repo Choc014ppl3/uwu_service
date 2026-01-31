@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
 
 // Config holds all configuration for the service.
 type Config struct {
 	// Server
-	Host        string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
-	HTTPPort    int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
-	GRPCPort    int    `envconfig:"SERVER_GRPC_PORT" default:"50051"`
+	Host     string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
+	HTTPPort int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
+
 	Environment string `envconfig:"SERVER_ENV" default:"development"`
 
 	// Timeouts
@@ -26,20 +27,25 @@ type Config struct {
 	LogFormat string `envconfig:"LOG_FORMAT" default:"json"`
 
 	// AI Services
-	OpenAIAPIKey string `envconfig:"OPENAI_API_KEY"`
-	GeminiAPIKey string `envconfig:"GEMINI_API_KEY"`
+	GeminiSAPath string `envconfig:"GEMINI_SA_PATH"`
+	GCPLocation  string `envconfig:"GCP_LOCATION" default:"asia-southeast1"`
 
-	// Google Cloud
-	GCPProjectID         string `envconfig:"GCP_PROJECT_ID"`
-	GCSBucketName        string `envconfig:"GCS_BUCKET_NAME"`
-	PubSubTopicID        string `envconfig:"PUBSUB_TOPIC_ID"`
-	PubSubSubscriptionID string `envconfig:"PUBSUB_SUBSCRIPTION_ID"`
+	// Azure AI Speech
+	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
+	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
+
+	// Redis
+	RedisURL string `envconfig:"REDIS_URL"`
 
 	// Database
 	DatabaseURL string `envconfig:"DATABASE_URL"`
 
-	// Redis
-	RedisURL string `envconfig:"REDIS_URL"`
+	// Cloudflare R2
+	CloudflareAccessKeyID string `envconfig:"CLOUDFLARE_ACCESS_KEY_ID"`
+	CloudflareSecretKey   string `envconfig:"CLOUDFLARE_SECRET_ACCESS_KEY"`
+	CloudflareR2Endpoint  string `envconfig:"CLOUDFLARE_R2_ENDPOINT"`
+	CloudflarePublicURL   string `envconfig:"CLOUDFLARE_PUBLIC_URL"`
+	CloudflareBucketName  string `envconfig:"CLOUDFLARE_BUCKET_NAME"`
 
 	// CORS
 	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
@@ -49,6 +55,9 @@ type Config struct {
 
 // Load loads configuration from environment variables.
 func Load() (*Config, error) {
+	// Load .env file if it exists (ignore error if not found)
+	_ = godotenv.Load()
+
 	var cfg Config
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("failed to process env config: %w", err)
@@ -59,11 +68,6 @@ func Load() (*Config, error) {
 // HTTPAddress returns the HTTP server address.
 func (c *Config) HTTPAddress() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.HTTPPort)
-}
-
-// GRPCAddress returns the gRPC server address.
-func (c *Config) GRPCAddress() string {
-	return fmt.Sprintf("%s:%d", c.Host, c.GRPCPort)
 }
 
 // IsDevelopment returns true if running in development mode.

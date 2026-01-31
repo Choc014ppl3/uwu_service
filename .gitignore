@@ -45,3 +45,6 @@ internal/pb/*.pb.go
 # Temporary files
 tmp/
 temp/
+
+# Service account
+*.json

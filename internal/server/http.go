@@ -11,7 +11,6 @@ import (
 
 	"github.com/windfall/uwu_service/internal/config"
 	httphandler "github.com/windfall/uwu_service/internal/handler/http"
-	wshandler "github.com/windfall/uwu_service/internal/handler/ws"
 	"github.com/windfall/uwu_service/internal/middleware"
 )
 
@@ -27,8 +26,9 @@ func NewHTTPServer(
 	log zerolog.Logger,
 	healthHandler *httphandler.HealthHandler,
 	apiHandler *httphandler.APIHandler,
-	wsHandler *wshandler.Handler,
-	wsHub *WebSocketHub,
+
+	speakingHandler *httphandler.SpeakingHandler,
+	learningItemHandler *httphandler.LearningItemHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -53,20 +53,36 @@ func NewHTTPServer(
 	r.Get("/ready", healthHandler.Ready)
 	r.Get("/live", healthHandler.Live)
 
-	// WebSocket endpoint
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHub.HandleWebSocket(w, r, wsHandler)
-	})
-
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Example endpoints
-		r.Get("/example", apiHandler.GetExample)
-		r.Post("/example", apiHandler.CreateExample)
-
 		// AI endpoints
 		r.Post("/ai/chat", apiHandler.Chat)
 		r.Post("/ai/complete", apiHandler.Complete)
+
+		// Speech endpoints
+		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
+		r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)
+
+		// Vocab endpoints
+		r.Get("/vocab/mock", apiHandler.GetMockVocab)
+
+		// Shadowing endpoints
+		r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
+
+		// Speaking async endpoints (2-step pattern)
+		r.Post("/speaking/analyze", speakingHandler.Analyze)
+		r.Get("/speaking/reply", speakingHandler.GetReply)
+
+		// Learning Items endpoints
+		r.Post("/learning-items", learningItemHandler.Create)
+		r.Get("/learning-items", learningItemHandler.List)
+		r.Get("/learning-items/{id}", learningItemHandler.Get)
+		r.Put("/learning-items/{id}", learningItemHandler.Update)
+		r.Delete("/learning-items/{id}", learningItemHandler.Delete)
+
+		// Conversation Scenarios endpoints
+		r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
+		r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
 	})
 
 	server := &http.Server{
