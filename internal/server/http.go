@@ -74,11 +74,11 @@ func NewHTTPServer(
 		r.Get("/speaking/reply", speakingHandler.GetReply)
 
 		// Learning Items endpoints
-		r.Post("/learning-items", learningItemHandler.Create)
-		r.Get("/learning-items", learningItemHandler.List)
-		r.Get("/learning-items/{id}", learningItemHandler.Get)
-		r.Put("/learning-items/{id}", learningItemHandler.Update)
-		r.Delete("/learning-items/{id}", learningItemHandler.Delete)
+		r.Post("/learning-items", learningItemHandler.CreateLearningItem)
+		r.Get("/learning-items", learningItemHandler.ListLearningItems)
+		r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
+		r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
+		r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
 
 		// Conversation Scenarios endpoints
 		r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)

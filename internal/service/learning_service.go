@@ -25,20 +25,18 @@ func NewLearningService(ai *AIService, repo repository.LearningItemRepository) *
 }
 
 type CreateLearningItemReq struct {
-	Context     string `json:"context"`
-	ContextType string `json:"context_type"`
-	LangCode    string `json:"lang_code"`
-	NativeLang  string `json:"native_lang"`
-	IsActive    bool   `json:"is_active"`
+	Context    string `json:"context"`
+	LangCode   string `json:"lang_code"`
+	NativeLang string `json:"native_lang"`
+	IsActive   bool   `json:"is_active"`
 }
 
 func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLearningItemReq) (*repository.LearningItem, error) {
 	// 1. Generate Content via AI
 	aiResp, err := s.ai.GenerateLearningItem(ctx, GenerateLearningItemReq{
-		Context:     req.Context,
-		ContextType: req.ContextType,
-		LangCode:    req.LangCode,
-		NativeLang:  req.NativeLang,
+		Context:    req.Context,
+		LangCode:   req.LangCode,
+		NativeLang: req.NativeLang,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate AI content: %w", err)
@@ -52,10 +50,11 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 	cleanResp = strings.TrimSuffix(cleanResp, "```")
 
 	var itemData struct {
-		Meanings json.RawMessage `json:"meanings"`
-		Reading  json.RawMessage `json:"reading"`
-		Tags     []string        `json:"tags"`
-		Media    struct {
+		ContextType string          `json:"context_type"`
+		Meanings    json.RawMessage `json:"meanings"`
+		Reading     json.RawMessage `json:"reading"`
+		Tags        []string        `json:"tags"`
+		Media       struct {
 			ImagePrompt     string `json:"image_prompt"`
 			ImageURL        string `json:"image_url,omitempty"`
 			AudioURL        string `json:"audio_url,omitempty"`         // Content Audio
@@ -75,7 +74,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 		LangCode:  req.LangCode,
 		Meanings:  itemData.Meanings,
 		Reading:   itemData.Reading,
-		Type:      req.ContextType,
+		Type:      itemData.ContextType, // Use AI-inferred context_type
 		Tags:      itemData.Tags,
 		Media:     mediaBytes,
 		Metadata:  itemData.Metadata,

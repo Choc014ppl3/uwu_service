@@ -18,7 +18,7 @@ func NewLearningItemHandler(service *service.LearningService) *LearningItemHandl
 	return &LearningItemHandler{service: service}
 }
 
-func (h *LearningItemHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *LearningItemHandler) CreateLearningItem(w http.ResponseWriter, r *http.Request) {
 	var req service.CreateLearningItemReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -35,7 +35,7 @@ func (h *LearningItemHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(item)
 }
 
-func (h *LearningItemHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *LearningItemHandler) ListLearningItems(w http.ResponseWriter, r *http.Request) {
 	pageStr := r.URL.Query().Get("page")
 	limitStr := r.URL.Query().Get("limit")
 
@@ -71,7 +71,7 @@ func (h *LearningItemHandler) List(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (h *LearningItemHandler) Get(w http.ResponseWriter, r *http.Request) {
+func (h *LearningItemHandler) GetLearningItem(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -89,7 +89,7 @@ func (h *LearningItemHandler) Get(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(item)
 }
 
-func (h *LearningItemHandler) Update(w http.ResponseWriter, r *http.Request) {
+func (h *LearningItemHandler) UpdateLearningItem(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -113,7 +113,7 @@ func (h *LearningItemHandler) Update(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(item)
 }
 
-func (h *LearningItemHandler) Delete(w http.ResponseWriter, r *http.Request) {
+func (h *LearningItemHandler) DeleteLearningItem(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {

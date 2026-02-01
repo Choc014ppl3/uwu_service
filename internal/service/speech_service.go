@@ -20,19 +20,19 @@ func NewSpeechService(azureClient *client.AzureSpeechClient) *SpeechService {
 }
 
 // AnalyzeVocabAudio orchestrates audio analysis for vocabulary.
-func (s *SpeechService) AnalyzeVocabAudio(ctx context.Context, audioData []byte, referenceText string) (map[string]interface{}, error) {
+func (s *SpeechService) AnalyzeVocabAudio(ctx context.Context, audioData []byte, referenceText, langCode string) (map[string]interface{}, error) {
 	if s.azureClient == nil {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech client not configured")
 	}
 
-	return s.azureClient.AnalyzeVocabAudio(ctx, audioData, referenceText)
+	return s.azureClient.AnalyzeVocabAudio(ctx, audioData, referenceText, langCode)
 }
 
 // AnalyzeShadowingAudio orchestrates audio analysis for shadowing.
-func (s *SpeechService) AnalyzeShadowingAudio(ctx context.Context, audioData []byte, referenceText, language string) (map[string]interface{}, error) {
+func (s *SpeechService) AnalyzeShadowingAudio(ctx context.Context, audioData []byte, referenceText, langCode string) (map[string]interface{}, error) {
 	if s.azureClient == nil {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech client not configured")
 	}
 
-	return s.azureClient.AnalyzeShadowingAudio(ctx, audioData, referenceText, language)
+	return s.azureClient.AnalyzeShadowingAudio(ctx, audioData, referenceText, langCode)
 }
