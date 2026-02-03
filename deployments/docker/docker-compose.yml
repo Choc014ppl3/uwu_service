@@ -1,55 +1,83 @@
-version: '3.8'
-
 services:
   uwu_service:
     build:
       context: ../..
       dockerfile: deployments/docker/Dockerfile
+    env_file:
+      - .env
     ports:
-      - "8080:8080"
-
+      - "${SERVER_HTTP_PORT:-8080}:${SERVER_HTTP_PORT:-8080}"
     environment:
-      - SERVER_HOST=0.0.0.0
-      - SERVER_HTTP_PORT=8080
-
-      - SERVER_ENV=development
-      - LOG_LEVEL=debug
-      - LOG_FORMAT=console
-      # Add your API keys here or use .env file
-      - GEMINI_API_KEY=your-key
-    volumes:
-      - ../../:/app:ro
+      # Server
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_HTTP_PORT=${SERVER_HTTP_PORT:-8080}
+      - SERVER_ENV=${SERVER_ENV:-development}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+      - LOG_FORMAT=${LOG_FORMAT:-console}
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-postgres://uwu_user:uwu_password@postgres:5432/uwu_service?sslmode=disable}
+      # AI Services
+      - GEMINI_SA_PATH=${GEMINI_SA_PATH}
+      - GCP_LOCATION=${GCP_LOCATION}
+      # Azure AI Speech
+      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}
+      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
+      # Cloudflare R2
+      - CLOUDFLARE_ACCESS_KEY=${CLOUDFLARE_ACCESS_KEY}
+      - CLOUDFLARE_SECRET_KEY=${CLOUDFLARE_SECRET_KEY}
+      - CLOUDFLARE_ENDPOINT=${CLOUDFLARE_ENDPOINT}
+      - CLOUDFLARE_BUCKET=${CLOUDFLARE_BUCKET}
+      - CLOUDFLARE_PUBLIC_URL=${CLOUDFLARE_PUBLIC_URL}
+      # Redis
+      - REDIS_ADDR=${REDIS_ADDR:-redis:6379}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_HTTP_PORT:-8080}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  # Optional: Redis for caching
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
-  # Optional: PostgreSQL database
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
-      - POSTGRES_USER=uwu_user
-      - POSTGRES_PASSWORD=uwu_password
-      - POSTGRES_DB=uwu_service
+      - POSTGRES_USER=${POSTGRES_USER:-uwu_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-uwu_password}
+      - POSTGRES_DB=${POSTGRES_DB:-uwu_service}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uwu_user} -d ${POSTGRES_DB:-uwu_service}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   redis_data:
   postgres_data:
+
+
