@@ -1,62 +1,17 @@
-services:
-  uwu_service:
-    build:
-      context: ../..
-      dockerfile: deployments/docker/Dockerfile
-    env_file:
-      - .env
-    ports:
-      - "${SERVER_HTTP_PORT:-8080}:${SERVER_HTTP_PORT:-8080}"
-    environment:
-      # Server
-      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
-      - SERVER_HTTP_PORT=${SERVER_HTTP_PORT:-8080}
-      - SERVER_ENV=${SERVER_ENV:-development}
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-debug}
-      - LOG_FORMAT=${LOG_FORMAT:-console}
-      # Database
-      - DATABASE_URL=${DATABASE_URL:-postgres://uwu_user:uwu_password@postgres:5432/uwu_service?sslmode=disable}
-      # AI Services
-      - GEMINI_SA_BASE64=${GEMINI_SA_BASE64}
-      - GCP_LOCATION=${GCP_LOCATION}
-      # Azure AI Speech
-      - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}
-      - AZURE_SPEECH_REGION=${AZURE_SPEECH_REGION}
-      # Cloudflare R2
-      - CLOUDFLARE_ACCESS_KEY=${CLOUDFLARE_ACCESS_KEY}
-      - CLOUDFLARE_SECRET_KEY=${CLOUDFLARE_SECRET_KEY}
-      - CLOUDFLARE_ENDPOINT=${CLOUDFLARE_ENDPOINT}
-      - CLOUDFLARE_BUCKET=${CLOUDFLARE_BUCKET}
-      - CLOUDFLARE_PUBLIC_URL=${CLOUDFLARE_PUBLIC_URL}
-      # Redis
-      - REDIS_ADDR=${REDIS_ADDR:-redis:6379}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${SERVER_HTTP_PORT:-8080}/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+version: '3.8'
 
+services:
   redis:
     image: redis:7-alpine
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
-      - redis_data:/data
-    restart: unless-stopped
+      - redis_data_local:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
 
   postgres:
     image: postgres:16-alpine
@@ -67,17 +22,13 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-uwu_password}
       - POSTGRES_DB=${POSTGRES_DB:-uwu_service}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+      - postgres_data_local:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uwu_user} -d ${POSTGRES_DB:-uwu_service}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
 
 volumes:
-  redis_data:
-  postgres_data:
-
-
+  redis_data_local:
+  postgres_data_local:
