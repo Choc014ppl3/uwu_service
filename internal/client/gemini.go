@@ -26,21 +26,23 @@ type GeminiClient struct {
 
 // NewGeminiClientWithServiceAccount creates a new Gemini client using a service account file.
 func NewGeminiClientWithServiceAccount(ctx context.Context, projectID, location, serviceAccountPath string) (*GeminiClient, error) {
-	// 1. อ่านไฟล์ JSON ออกมาเป็น bytes ก่อน (จำเป็นสำหรับ google.CredentialsFromJSON)
+	// Read the SA file
 	jsonKey, err := os.ReadFile(serviceAccountPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service account file: %w", err)
 	}
+	return NewGeminiClientWithCredentials(ctx, projectID, location, jsonKey)
+}
 
-	// 2. แปลง bytes เป็น Credentials Object
-	// (เก็บใส่ตัวแปร creds ไว้ เพื่อยัดใส่ Struct บรรทัดสุดท้าย)
+// NewGeminiClientWithCredentials creates a new Gemini client using service account JSON bytes.
+func NewGeminiClientWithCredentials(ctx context.Context, projectID, location string, jsonKey []byte) (*GeminiClient, error) {
+	// Create Credentials from JSON bytes
 	creds, err := google.CredentialsFromJSON(ctx, jsonKey, "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create credentials from json: %w", err)
 	}
 
-	// 3. สร้าง Client ของ genai (Chat)
-	// สังเกต: เราส่ง option.WithCredentials(creds) เข้าไปได้เลย ไม่ต้องอ่านไฟล์ซ้ำ
+	// Create genai Client
 	client, err := genai.NewClient(ctx, projectID, location, option.WithCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vertex ai client: %w", err)

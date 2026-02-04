@@ -87,6 +87,16 @@ dev:
 ## all: Build and test
 all: tidy vet lint test build
 
+## deps: Run local dependencies (Postgres & Redis)
+deps:
+	@echo "Starting dependencies..."
+	docker-compose -f deployments/docker/docker-compose.yml up -d redis postgres
+
+## deps-down: Stop local dependencies
+deps-down:
+	@echo "Stopping dependencies..."
+	docker-compose -f deployments/docker/docker-compose.yml stop redis postgres
+
 # ==================== Migration Commands ====================
 
 ## migrate-up: Run all pending migrations

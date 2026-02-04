@@ -18,7 +18,7 @@ services:
       # Database
       - DATABASE_URL=${DATABASE_URL:-postgres://uwu_user:uwu_password@postgres:5432/uwu_service?sslmode=disable}
       # AI Services
-      - GEMINI_SA_PATH=${GEMINI_SA_PATH}
+      - GEMINI_SA_BASE64=${GEMINI_SA_BASE64}
       - GCP_LOCATION=${GCP_LOCATION}
       # Azure AI Speech
       - AZURE_SPEECH_KEY=${AZURE_SPEECH_KEY}

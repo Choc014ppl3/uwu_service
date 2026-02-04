@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/signal"
@@ -32,41 +33,35 @@ func main() {
 	defer cancel()
 
 	// Initialize clients
-	log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Checking Gemini config")
 	var geminiClient *client.GeminiClient
 
-	if cfg.GeminiSAPath != "" {
-		log.Info().Str("gemini_sa_path", cfg.GeminiSAPath).Msg("Initializing Gemini with Service Account")
+	if cfg.GeminiSABase64 != "" {
+		log.Info().Msg("Initializing Gemini with Base64 Service Account")
 
-		// Read project_id from the service account file
-		var projectID string
-		location := cfg.GCPLocation
-		if saContent, err := os.ReadFile(cfg.GeminiSAPath); err == nil {
+		// Decode base64 service account
+		saJSON, err := base64.StdEncoding.DecodeString(cfg.GeminiSABase64)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decode GEMINI_SA_BASE64")
+		} else {
+			// Extract project_id from JSON
 			var sa struct {
 				ProjectID string `json:"project_id"`
 			}
-			if err := json.Unmarshal(saContent, &sa); err == nil && sa.ProjectID != "" {
-				projectID = sa.ProjectID
-				log.Info().Str("project_id", projectID).Str("location", location).Msg("Extracted Project ID from Service Account file")
-			}
-		} else {
-			log.Error().Err(err).Msg("Failed to read Service Account file")
-		}
+			if err := json.Unmarshal(saJSON, &sa); err == nil && sa.ProjectID != "" {
+				log.Info().Str("project_id", sa.ProjectID).Str("location", cfg.GCPLocation).Msg("Extracted Project ID from Service Account")
 
-		if projectID != "" {
-			log.Debug().Str("project_id", projectID).Str("location", location).Msg("ProjectID exists, initializing Gemini client")
-			var err error
-			geminiClient, err = client.NewGeminiClientWithServiceAccount(ctx, projectID, location, cfg.GeminiSAPath)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to initialize Gemini with Service Account")
+				geminiClient, err = client.NewGeminiClientWithCredentials(ctx, sa.ProjectID, cfg.GCPLocation, saJSON)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to initialize Gemini client")
+				} else {
+					log.Info().Msg("Gemini client initialized successfully")
+				}
 			} else {
-				log.Info().Msg("Gemini client initialized with Service Account")
+				log.Error().Msg("Could not extract project_id from service account JSON")
 			}
-		} else {
-			log.Warn().Msg("Could not extract project_id from service account file")
 		}
 	} else {
-		log.Warn().Msg("GEMINI_SA_PATH not set, skipping Gemini initialization")
+		log.Warn().Msg("GEMINI_SA_BASE64 not set, skipping Gemini initialization")
 	}
 
 	if geminiClient == nil {

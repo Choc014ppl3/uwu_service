@@ -27,8 +27,8 @@ type Config struct {
 	LogFormat string `envconfig:"LOG_FORMAT" default:"json"`
 
 	// AI Services
-	GeminiSAPath string `envconfig:"GEMINI_SA_PATH"`
-	GCPLocation  string `envconfig:"GCP_LOCATION" default:"asia-southeast1"`
+	GeminiSABase64 string `envconfig:"GEMINI_SA_BASE64"` // Base64-encoded service account JSON
+	GCPLocation    string `envconfig:"GCP_LOCATION" default:"asia-southeast1"`
 
 	// Azure AI Speech
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
