@@ -1,4 +1,4 @@
-.PHONY: build run test lint proto clean docker-build docker-run
+.PHONY: build run test lint proto clean docker-build docker-run migrate-up migrate-down migrate-down-all migrate-force
 
 # Build variables
 BINARY_NAME=uwu_service
@@ -86,3 +86,36 @@ dev:
 
 ## all: Build and test
 all: tidy vet lint test build
+
+## deps: Run local dependencies (Postgres & Redis)
+deps:
+	@echo "Starting dependencies..."
+	docker-compose -f deployments/docker/docker-compose.yml up -d redis postgres
+
+## deps-down: Stop local dependencies
+deps-down:
+	@echo "Stopping dependencies..."
+	docker-compose -f deployments/docker/docker-compose.yml stop redis postgres
+
+# ==================== Migration Commands ====================
+
+## migrate-up: Run all pending migrations
+migrate-up:
+	@echo "Running migrations up..."
+	$(GOCMD) run ./cmd/migrate -direction=up -path=migrations
+
+## migrate-down: Rollback last migration
+migrate-down:
+	@echo "Rolling back last migration..."
+	$(GOCMD) run ./cmd/migrate -direction=down -steps=1 -path=migrations
+
+## migrate-down-all: Rollback all migrations
+migrate-down-all:
+	@echo "Rolling back all migrations..."
+	$(GOCMD) run ./cmd/migrate -direction=down -path=migrations
+
+## migrate-force: Force migration version (use with VERSION=n)
+migrate-force:
+	@echo "Forcing migration version $(VERSION)..."
+	$(GOCMD) run ./cmd/migrate -direction=force -steps=$(VERSION) -path=migrations
+

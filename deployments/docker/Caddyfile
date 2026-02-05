@@ -1,0 +1,30 @@
+# Caddyfile - Automatic HTTPS reverse proxy
+# Replace {$DOMAIN} with your actual domain or set DOMAIN env var
+
+{$DOMAIN:localhost} {
+    # Reverse proxy to uwu_service
+    reverse_proxy uwu_service:8080
+
+    # Health check endpoint
+    handle /health {
+        respond 200
+    }
+
+    # Enable compression
+    encode gzip zstd
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+}

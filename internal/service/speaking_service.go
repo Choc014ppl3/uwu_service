@@ -74,7 +74,7 @@ func (s *SpeakingService) AnalyzeSpeaking(ctx context.Context, audioData []byte)
 
 	// Step 1: Call Azure STT to get transcript and score immediately
 	// Using empty reference text - we just want the transcript
-	result, err := s.azureClient.AnalyzeVocabAudio(ctx, audioData, "")
+	result, err := s.azureClient.AnalyzeVocabAudio(ctx, audioData, "", "en-US")
 	if err != nil {
 		return nil, errors.Wrap(errors.ErrAIService, "failed to analyze audio", err)
 	}

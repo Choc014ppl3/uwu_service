@@ -1,0 +1,174 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -cover ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployments/docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          # 1. ระบุชื่อตัวแปรที่ต้องการส่งเข้าไปใน VPS
+          envs: >-
+            GITHUB_TOKEN,
+            GITHUB_ACTOR,
+            GITHUB_REPOSITORY,
+            DOMAIN,
+            POSTGRES_USER,
+            POSTGRES_PASSWORD,
+            POSTGRES_DB,
+            GEMINI_SA_BASE64,
+            GCP_LOCATION,
+            AZURE_AI_SPEECH_KEY,
+            AZURE_SERVICE_REGION,
+            CLOUDFLARE_ACCESS_KEY_ID,
+            CLOUDFLARE_SECRET_ACCESS_KEY,
+            CLOUDFLARE_R2_ENDPOINT,
+            CLOUDFLARE_BUCKET_NAME,
+            CLOUDFLARE_PUBLIC_URL,
+            REDIS_URL
+          script: |
+            # 2. Login GHCR (ใช้ตัวแปรที่ส่งเข้ามา)
+            echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+            
+            # 3. เตรียมโฟลเดอร์ (ไม่ต้อง git pull ทั้งโปรเจกต์ก็ได้ ถ้าเราแคร์แค่ compose file)
+            # แต่ถ้าใช้ git pull เพื่อดึง docker-compose.prod.yml ก็สะดวกดีครับ
+            mkdir -p ~/github/uwu_service
+            cd ~/github/uwu_service
+            git pull origin main || git clone https://github.com/${{ github.repository }}.git .
+            
+            cd deployments/docker
+
+            # 4. Pull Image ล่าสุด
+            docker compose -f docker-compose.prod.yml pull
+
+            # 5. สั่ง Up โดยค่า Env ต่างๆ จะถูกส่งมาจาก `envs` ข้างบนโดยอัตโนมัติ
+            docker compose -f docker-compose.prod.yml up -d
+
+            # 6. รอให้ DB พร้อม (Healthcheck ใน Compose ดีกว่า sleep)
+            sleep 10
+            
+            # 7. Migrate Database
+            docker compose -f docker-compose.prod.yml exec -T uwu_service /app/migrate -direction=up -path=/app/migrations
+
+            # 8. ล้าง Image เก่า
+            docker image prune -f
+
+        # 9. จับคู่ค่าจาก GitHub Secrets เข้ากับชื่อตัวแปร Env
+        env:
+          # GitHub
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+          # App Configs
+          DOMAIN: ${{ vars.DOMAIN }}
+          
+          # AI Services
+          GEMINI_SA_BASE64: ${{ secrets.GEMINI_SA_BASE64 }}
+          GCP_LOCATION: ${{ vars.GCP_LOCATION }}
+          
+          # Redis
+          REDIS_URL: ${{ vars.REDIS_URL }}
+
+          # Database
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+
+          # Azure
+          AZURE_AI_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SERVICE_REGION: ${{ vars.AZURE_SERVICE_REGION }}
+
+          # Cloudflare
+          CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY }}
+          CLOUDFLARE_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_SECRET_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ vars.CLOUDFLARE_ENDPOINT }}
+          CLOUDFLARE_BUCKET_NAME: ${{ vars.CLOUDFLARE_BUCKET }}
+          CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+          

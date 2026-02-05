@@ -48,3 +48,7 @@ temp/
 
 # Service account
 *.json
+
+# Deployment key
+deploy_key
+deploy_key.pub

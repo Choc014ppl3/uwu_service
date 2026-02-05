@@ -34,9 +34,14 @@ func NewAzureSpeechClient(apiKey, region string) *AzureSpeechClient {
 
 // AnalyzeVocabAudio sends an audio file to Azure Speech-to-Text API for vocabulary practice.
 // It accepts wav audio data and returns the raw JSON response.
-func (c *AzureSpeechClient) AnalyzeVocabAudio(ctx context.Context, audioData []byte, referenceText string) (map[string]interface{}, error) {
+func (c *AzureSpeechClient) AnalyzeVocabAudio(ctx context.Context, audioData []byte, referenceText, langCode string) (map[string]interface{}, error) {
 	if c.apiKey == "" || c.region == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
+	}
+
+	// Default to en-US if empty
+	if langCode == "" {
+		langCode = "en-US"
 	}
 
 	// Construct URL for Short Audio API (REST)
@@ -49,7 +54,7 @@ func (c *AzureSpeechClient) AnalyzeVocabAudio(ctx context.Context, audioData []b
 
 	// Query parameters
 	q := u.Query()
-	q.Set("language", "en-US")  // Default to English, can be parameterized if needed
+	q.Set("language", langCode) // Use provided language code
 	q.Set("format", "detailed") // Request detailed output
 	u.RawQuery = q.Encode()
 
@@ -108,14 +113,14 @@ func (c *AzureSpeechClient) AnalyzeVocabAudio(ctx context.Context, audioData []b
 // AnalyzeShadowingAudio sends an audio file to Azure Speech-to-Text API for shadowing practice.
 // It enables miscue detection (Insertion, Omission, Substitution).
 // Note: EnableMiscue is only fully supported for en-US in REST API.
-func (c *AzureSpeechClient) AnalyzeShadowingAudio(ctx context.Context, audioData []byte, referenceText, language string) (map[string]interface{}, error) {
+func (c *AzureSpeechClient) AnalyzeShadowingAudio(ctx context.Context, audioData []byte, referenceText, langCode string) (map[string]interface{}, error) {
 	if c.apiKey == "" || c.region == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
 	}
 
 	// Default to en-US if not specified (EnableMiscue works best with en-US)
-	if language == "" {
-		language = "en-US"
+	if langCode == "" {
+		langCode = "en-US"
 	}
 
 	// Construct URL for Short Audio API
@@ -127,7 +132,7 @@ func (c *AzureSpeechClient) AnalyzeShadowingAudio(ctx context.Context, audioData
 
 	// Query parameters
 	q := u.Query()
-	q.Set("language", language)
+	q.Set("language", langCode)
 	q.Set("format", "detailed")
 	u.RawQuery = q.Encode()
 

@@ -1,0 +1,9 @@
+.git
+.env
+bin/
+tmp/
+vendor/
+docker-compose.yml
+deployments/
+Dockerfile
+README.md

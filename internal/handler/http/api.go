@@ -176,6 +176,8 @@ func (h *APIHandler) AnalyzeVocab(w http.ResponseWriter, r *http.Request) {
 
 	// Get reference text
 	referenceText := r.FormValue("reference_text")
+	langCode := r.FormValue("lang_code") // "en-US", etc.
+
 	// Read file content
 	// In production, might want to check file type/magic bytes here
 	audioData := make([]byte, 0)
@@ -190,7 +192,7 @@ func (h *APIHandler) AnalyzeVocab(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.speechService.AnalyzeVocabAudio(ctx, audioData, referenceText)
+	result, err := h.speechService.AnalyzeVocabAudio(ctx, audioData, referenceText, langCode)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -219,7 +221,7 @@ func (h *APIHandler) AnalyzeShadowing(w http.ResponseWriter, r *http.Request) {
 
 	// Get reference text and language
 	referenceText := r.FormValue("reference_text")
-	language := r.FormValue("language") // Optional, defaults to en-US
+	langCode := r.FormValue("lang_code") // Optional, defaults to en-US
 
 	// Read file content
 	audioData := make([]byte, 0)
@@ -234,7 +236,7 @@ func (h *APIHandler) AnalyzeShadowing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.speechService.AnalyzeShadowingAudio(ctx, audioData, referenceText, language)
+	result, err := h.speechService.AnalyzeShadowingAudio(ctx, audioData, referenceText, langCode)
 	if err != nil {
 		h.handleError(w, err)
 		return
