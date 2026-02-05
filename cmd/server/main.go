@@ -115,16 +115,17 @@ func main() {
 
 	// Initialize Postgres Client
 	var postgresClient *client.PostgresClient
-	if cfg.DatabaseURL != "" {
+	dbURL := cfg.DatabaseURL()
+	if dbURL != "" {
 		var err error
-		postgresClient, err = client.NewPostgresClient(ctx, cfg.DatabaseURL)
+		postgresClient, err = client.NewPostgresClient(ctx, dbURL)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to initialize Postgres client")
 		} else {
 			log.Info().Msg("Postgres client initialized")
 		}
 	} else {
-		log.Warn().Msg("DatabaseURL missing, skipping Postgres initialization")
+		log.Warn().Msg("DatabaseURL construction failed, skipping Postgres initialization")
 	}
 
 	// Initialize Repositories

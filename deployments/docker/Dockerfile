@@ -66,9 +66,7 @@ USER appuser
 # Environment defaults
 ENV SERVER_HOST=0.0.0.0 \
     SERVER_HTTP_PORT=8080 \
-    SERVER_ENV=production \
-    LOG_LEVEL=info \
-    LOG_FORMAT=json
+    SERVER_ENV=production
 
 # Expose ports
 EXPOSE 8080

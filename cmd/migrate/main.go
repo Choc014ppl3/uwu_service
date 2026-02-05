@@ -29,8 +29,34 @@ func main() {
 	if dbURL == "" {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
+
+	// If still empty, try to construct from components
 	if dbURL == "" {
-		log.Fatal("Database URL is required. Set -db flag or DATABASE_URL env var")
+		host := os.Getenv("POSTGRES_HOST")
+		if host == "" {
+			host = "localhost"
+		}
+		port := os.Getenv("POSTGRES_PORT")
+		if port == "" {
+			port = "5432"
+		}
+		user := os.Getenv("POSTGRES_USER")
+		if user == "" {
+			user = "uwu_user"
+		}
+		pass := os.Getenv("POSTGRES_PASSWORD")
+		if pass == "" {
+			pass = "uwu_password"
+		}
+		dbname := os.Getenv("POSTGRES_DB")
+		if dbname == "" {
+			dbname = "uwu_service"
+		}
+		dbURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, pass, host, port, dbname)
+	}
+
+	if dbURL == "" {
+		log.Fatal("Database URL is required. Set -db flag, DATABASE_URL env var, or POSTGRES_* env vars")
 	}
 
 	// Create migrate instance

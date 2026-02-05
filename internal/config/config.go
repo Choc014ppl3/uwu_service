@@ -38,7 +38,11 @@ type Config struct {
 	RedisURL string `envconfig:"REDIS_URL"`
 
 	// Database
-	DatabaseURL string `envconfig:"DATABASE_URL"`
+	PostgresUser     string `envconfig:"POSTGRES_USER" default:"uwu_user"`
+	PostgresPassword string `envconfig:"POSTGRES_PASSWORD" default:"uwu_password"`
+	PostgresHost     string `envconfig:"POSTGRES_HOST" default:"localhost"`
+	PostgresPort     int    `envconfig:"POSTGRES_PORT" default:"5432"`
+	PostgresDB       string `envconfig:"POSTGRES_DB" default:"uwu_service"`
 
 	// Cloudflare R2
 	CloudflareAccessKeyID string `envconfig:"CLOUDFLARE_ACCESS_KEY_ID"`
@@ -75,7 +79,13 @@ func (c *Config) IsDevelopment() bool {
 	return c.Environment == "development"
 }
 
-// IsProduction returns true if running in production mode.
-func (c *Config) IsProduction() bool {
-	return c.Environment == "production"
+// DatabaseURL returns the constructed database URL.
+func (c *Config) DatabaseURL() string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		c.PostgresUser,
+		c.PostgresPassword,
+		c.PostgresHost,
+		c.PostgresPort,
+		c.PostgresDB,
+	)
 }
