@@ -21,14 +21,8 @@ func main() {
 
 	flag.StringVar(&direction, "direction", "up", "Migration direction: up, down, or force")
 	flag.IntVar(&steps, "steps", 0, "Number of migrations to run (0 = all)")
-	flag.StringVar(&dbURL, "db", "", "Database URL (or set DATABASE_URL env var)")
 	flag.StringVar(&path, "path", "migrations", "Path to migration files")
 	flag.Parse()
-
-	// Get database URL from flag or environment
-	if dbURL == "" {
-		dbURL = os.Getenv("DATABASE_URL")
-	}
 
 	// If still empty, try to construct from components
 	if dbURL == "" {
@@ -56,7 +50,7 @@ func main() {
 	}
 
 	if dbURL == "" {
-		log.Fatal("Database URL is required. Set -db flag, DATABASE_URL env var, or POSTGRES_* env vars")
+		log.Fatal("Database URL is required. Set POSTGRES_* env vars")
 	}
 
 	// Create migrate instance
