@@ -110,8 +110,8 @@ jobs:
             CLOUDFLARE_ACCESS_KEY_ID,
             CLOUDFLARE_SECRET_ACCESS_KEY,
             CLOUDFLARE_R2_ENDPOINT,
-            CLOUDFLARE_BUCKET_NAME,
             CLOUDFLARE_PUBLIC_URL,
+            CLOUDFLARE_BUCKET_NAME,
             REDIS_URL
           script: |
             # 2. Login GHCR (ใช้ตัวแปรที่ส่งเข้ามา)
@@ -174,9 +174,9 @@ jobs:
           AZURE_SERVICE_REGION: ${{ vars.AZURE_SERVICE_REGION }}
 
           # Cloudflare
-          CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY }}
-          CLOUDFLARE_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_SECRET_KEY }}
-          CLOUDFLARE_R2_ENDPOINT: ${{ vars.CLOUDFLARE_ENDPOINT }}
-          CLOUDFLARE_BUCKET_NAME: ${{ vars.CLOUDFLARE_BUCKET }}
+          CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY_ID }}
+          CLOUDFLARE_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_ENDPOINT }}
           CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
+          CLOUDFLARE_BUCKET_NAME: ${{ vars.CLOUDFLARE_BUCKET_NAME }}
           
