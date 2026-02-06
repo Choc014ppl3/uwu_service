@@ -73,7 +73,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:${SERVER_HTTP_PORT}/health || exit 1
+    CMD wget --no-verbose --tries=1 -q -O - http://localhost:${SERVER_HTTP_PORT}/health || exit 1
 
 # Run the application
 ENTRYPOINT ["/app/server"]

@@ -117,19 +117,26 @@ jobs:
             # 2. Login GHCR (ใช้ตัวแปรที่ส่งเข้ามา)
             echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
             
-            # 3. เตรียมโฟลเดอร์ (ไม่ต้อง git pull ทั้งโปรเจกต์ก็ได้ ถ้าเราแคร์แค่ compose file)
-            # แต่ถ้าใช้ git pull เพื่อดึง docker-compose.prod.yml ก็สะดวกดีครับ
+            # 3. เตรียมโฟลเดอร์ & บังคับดึง Code ล่าสุดเสมอ
             mkdir -p ~/github/uwu_service
             cd ~/github/uwu_service
-            git pull origin main || git clone https://github.com/${{ github.repository }}.git .
+            
+            # ถ้ายังไม่มีโฟลเดอร์ .git ให้ clone ใหม่
+            if [ ! -d .git ]; then
+                git clone https://github.com/${{ github.repository }}.git .
+            fi
+
+            # บังคับดึงของใหม่มาทับเลย (ไม่ต้องกลัว Conflict)
+            git fetch origin main
+            git reset --hard origin/main
             
             cd deployments/docker
 
             # 4. Pull Image ล่าสุด
             docker compose -f docker-compose.prod.yml pull
 
-            # 5. สั่ง Up โดยค่า Env ต่างๆ จะถูกส่งมาจาก `envs` ข้างบนโดยอัตโนมัติ
-            docker compose -f docker-compose.prod.yml up -d
+            # 5. สั่ง Up (เพิ่ม --remove-orphans เพื่อลบ service ที่เราเลิกใช้แล้ว)
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             # 6. รอให้ DB พร้อม (Healthcheck ใน Compose ดีกว่า sleep)
             sleep 10
