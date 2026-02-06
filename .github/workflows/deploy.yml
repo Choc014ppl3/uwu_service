@@ -170,7 +170,7 @@ jobs:
           POSTGRES_DB: ${{ vars.POSTGRES_DB }}
 
           # Azure
-          AZURE_AI_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_AI_SPEECH_KEY: ${{ secrets.AZURE_AI_SPEECH_KEY }}
           AZURE_SERVICE_REGION: ${{ vars.AZURE_SERVICE_REGION }}
 
           # Cloudflare
