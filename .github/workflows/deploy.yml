@@ -124,8 +124,11 @@ jobs:
             
             # ถ้ายังไม่มีโฟลเดอร์ .git ให้ clone ใหม่
             if [ ! -d .git ]; then
-                git clone https://github.com/${{ github.repository }}.git .
+                git clone https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git .
             fi
+
+            # อัพเดท remote URL ให้มี token สำหรับ private repo
+            git remote set-url origin https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
 
             # บังคับดึงของใหม่มาทับเลย (ไม่ต้องกลัว Conflict)
             git fetch origin main
