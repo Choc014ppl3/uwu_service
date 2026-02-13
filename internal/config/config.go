@@ -55,6 +55,9 @@ type Config struct {
 	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
 	CORSAllowedMethods []string `envconfig:"CORS_ALLOWED_METHODS" default:"GET,POST,PUT,DELETE,OPTIONS"`
 	CORSAllowedHeaders []string `envconfig:"CORS_ALLOWED_HEADERS" default:"Accept,Authorization,Content-Type,X-Request-ID"`
+
+	// JWT
+	JWTSecret string `envconfig:"JWT_SECRET" default:"jwt-secret"`
 }
 
 // Load loads configuration from environment variables.

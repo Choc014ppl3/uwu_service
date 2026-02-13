@@ -112,7 +112,8 @@ jobs:
             CLOUDFLARE_R2_ENDPOINT,
             CLOUDFLARE_PUBLIC_URL,
             CLOUDFLARE_BUCKET_NAME,
-            REDIS_URL
+            REDIS_URL,
+            JWT_SECRET
           script: |
             # 2. Login GHCR (ใช้ตัวแปรที่ส่งเข้ามา)
             echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
@@ -179,4 +180,7 @@ jobs:
           CLOUDFLARE_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_ENDPOINT }}
           CLOUDFLARE_PUBLIC_URL: ${{ vars.CLOUDFLARE_PUBLIC_URL }}
           CLOUDFLARE_BUCKET_NAME: ${{ vars.CLOUDFLARE_BUCKET_NAME }}
+
+          # JWT
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           
