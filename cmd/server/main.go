@@ -131,6 +131,7 @@ func main() {
 	// Initialize Repositories
 	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
 	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
+	userRepo := repository.NewPostgresUserRepository(postgresClient)
 
 	// Initialize services
 	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
@@ -138,15 +139,17 @@ func main() {
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 	learningService := service.NewLearningService(aiService, learningItemRepo)
+	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
 	apiHandler := http.NewAPIHandler(log, aiService, speechService, scenarioService)
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 	learningItemHandler := http.NewLearningItemHandler(learningService)
+	authHandler := http.NewAuthHandler(log, authService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService)
 
 	// Start servers
 	go func() {

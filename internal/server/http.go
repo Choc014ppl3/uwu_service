@@ -12,6 +12,7 @@ import (
 	"github.com/windfall/uwu_service/internal/config"
 	httphandler "github.com/windfall/uwu_service/internal/handler/http"
 	"github.com/windfall/uwu_service/internal/middleware"
+	"github.com/windfall/uwu_service/internal/service"
 )
 
 // HTTPServer represents the HTTP server.
@@ -29,6 +30,8 @@ func NewHTTPServer(
 
 	speakingHandler *httphandler.SpeakingHandler,
 	learningItemHandler *httphandler.LearningItemHandler,
+	authHandler *httphandler.AuthHandler,
+	authService *service.AuthService,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -48,41 +51,50 @@ func NewHTTPServer(
 		MaxAge:           300,
 	}))
 
-	// Health endpoints
+	// Health endpoints (public)
 	r.Get("/health", healthHandler.Health)
 	r.Get("/ready", healthHandler.Ready)
 	r.Get("/live", healthHandler.Live)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// AI endpoints
-		r.Post("/ai/chat", apiHandler.Chat)
-		r.Post("/ai/complete", apiHandler.Complete)
+		// Public auth endpoints
+		r.Post("/auth/register", authHandler.Register)
+		r.Post("/auth/login", authHandler.Login)
 
-		// Speech endpoints
-		r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
-		r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)
+		// Protected endpoints (require JWT)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(authService))
 
-		// Vocab endpoints
-		r.Get("/vocab/mock", apiHandler.GetMockVocab)
+			// AI endpoints
+			r.Post("/ai/chat", apiHandler.Chat)
+			r.Post("/ai/complete", apiHandler.Complete)
 
-		// Shadowing endpoints
-		r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
+			// Speech endpoints
+			r.Post("/speech/analyze/vocab", apiHandler.AnalyzeVocab)
+			r.Post("/speech/analyze/shadowing", apiHandler.AnalyzeShadowing)
 
-		// Speaking async endpoints (2-step pattern)
-		r.Post("/speaking/analyze", speakingHandler.Analyze)
-		r.Get("/speaking/reply", speakingHandler.GetReply)
+			// Vocab endpoints
+			r.Get("/vocab/mock", apiHandler.GetMockVocab)
 
-		// Learning Items endpoints
-		r.Post("/learning-items", learningItemHandler.CreateLearningItem)
-		r.Get("/learning-items", learningItemHandler.ListLearningItems)
-		r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
-		r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
-		r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
+			// Shadowing endpoints
+			r.Get("/shadowing/mock", apiHandler.GetMockShadowing)
 
-		// Conversation Scenarios endpoints
-		r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
-		r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
+			// Speaking async endpoints (2-step pattern)
+			r.Post("/speaking/analyze", speakingHandler.Analyze)
+			r.Get("/speaking/reply", speakingHandler.GetReply)
+
+			// Learning Items endpoints
+			r.Post("/learning-items", learningItemHandler.CreateLearningItem)
+			r.Get("/learning-items", learningItemHandler.ListLearningItems)
+			r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
+			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
+			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
+
+			// Conversation Scenarios endpoints
+			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
+			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
+		})
 	})
 
 	server := &http.Server{

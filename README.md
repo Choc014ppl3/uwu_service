@@ -92,20 +92,6 @@ Message format:
 
 See `api/proto/service.proto` for service definitions.
 
-## Configuration
-
-All configuration is done via environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| SERVER_HTTP_PORT | 8080 | HTTP server port |
-| SERVER_GRPC_PORT | 50051 | gRPC server port |
-| LOG_LEVEL | info | Log level (debug, info, warn, error) |
-| GEMINI_SERVICE_ACCOUNT_PATH | - | Google Gemini service account path |
-| AZURE_AISPEECH_KEY | - | Azure AI Speech key |
-| AZURE_SERVICE_REGION | - | Azure service region |
-| REDIS_URL | - | Redis URL |
-
 ## Development
 
 ### Generate Protobuf
@@ -124,6 +110,20 @@ make test
 
 ```bash
 make lint
+```
+
+## Backup Database (Don't Forget)
+
+```bash
+# สั่ง dump ข้อมูลออกมาเป็นไฟล์ SQL เก็บไว้ในเครื่อง VPS
+docker exec -t <ชื่อ_db_container> pg_dump -U <db_user> <db_name> > backup_manual_$(date +%F).sql
+```
+
+## Restore Database (Don't Forget)
+
+```bash
+# สั่ง restore ข้อมูลจากไฟล์ SQL เก็บไว้ในเครื่อง VPS
+docker exec -t <ชื่อ_db_container> psql -U <db_user> <db_name> < backup_manual_$(date +%F).sql
 ```
 
 ## License
