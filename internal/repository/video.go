@@ -27,8 +27,39 @@ type Video struct {
 	RawResponse      json.RawMessage     `json:"raw_response,omitempty"`
 	DetectedLanguage string              `json:"detected_language"`
 	ProcessingStatus string              `json:"processing_status"`
+	QuizData         *json.RawMessage    `json:"quiz_data,omitempty"`
+	QuizGeneratedAt  *time.Time          `json:"quiz_generated_at,omitempty"`
 	CreatedAt        time.Time           `json:"created_at"`
 	UpdatedAt        time.Time           `json:"updated_at"`
+}
+
+// QuizOption represents an option in a quiz question.
+type QuizOption struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	IsCorrect bool   `json:"is_correct,omitempty"`
+}
+
+// QuizItem represents a single quiz question.
+type QuizItem struct {
+	ID           int          `json:"id"`
+	Category     string       `json:"category"`
+	Type         string       `json:"type"`
+	Question     string       `json:"question"`
+	Options      []QuizOption `json:"options,omitempty"`
+	CorrectOrder []string     `json:"correct_order,omitempty"`
+}
+
+// RetellItem represents an item in the retelling checklist.
+type RetellItem struct {
+	ID    int    `json:"id"`
+	Point string `json:"point"`
+}
+
+// QuizContent represents the structure of the generated quiz data.
+type QuizContent struct {
+	Quiz        []QuizItem   `json:"quiz"`
+	RetellCheck []RetellItem `json:"retell_check"`
 }
 
 // VideoRepository defines the interface for video data access.
@@ -36,6 +67,7 @@ type VideoRepository interface {
 	Create(ctx context.Context, video *Video) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status, videoURL string) error
 	UpdateTranscript(ctx context.Context, id uuid.UUID, segments []TranscriptSegment, rawResponse json.RawMessage, detectedLanguage, processingStatus string) error
+	UpdateQuizData(ctx context.Context, id uuid.UUID, quizData json.RawMessage) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Video, error)
 }
 
@@ -114,6 +146,25 @@ func (r *PostgresVideoRepository) UpdateTranscript(ctx context.Context, id uuid.
 	return nil
 }
 
+// UpdateQuizData stores the generated quiz JSON and sets quiz_generated_at.
+func (r *PostgresVideoRepository) UpdateQuizData(ctx context.Context, id uuid.UUID, quizData json.RawMessage) error {
+	if r.db == nil || r.db.Pool == nil {
+		return fmt.Errorf("database not configured")
+	}
+
+	query := `UPDATE videos SET quiz_data = $1, quiz_generated_at = NOW(), updated_at = NOW() WHERE id = $2`
+	result, err := r.db.Pool.Exec(ctx, query, quizData, id)
+	if err != nil {
+		return fmt.Errorf("failed to update quiz data: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("video not found: %s", id)
+	}
+
+	return nil
+}
+
 // GetByID retrieves a video by its ID.
 func (r *PostgresVideoRepository) GetByID(ctx context.Context, id uuid.UUID) (*Video, error) {
 	if r.db == nil || r.db.Pool == nil {
@@ -121,7 +172,7 @@ func (r *PostgresVideoRepository) GetByID(ctx context.Context, id uuid.UUID) (*V
 	}
 
 	query := `
-		SELECT id, user_id, video_url, status, transcript, raw_response, detected_language, processing_status, created_at, updated_at
+		SELECT id, user_id, video_url, status, transcript, raw_response, detected_language, processing_status, quiz_data, quiz_generated_at, created_at, updated_at
 		FROM videos
 		WHERE id = $1
 	`
@@ -139,6 +190,8 @@ func (r *PostgresVideoRepository) GetByID(ctx context.Context, id uuid.UUID) (*V
 		&rawResponseJSON,
 		&video.DetectedLanguage,
 		&video.ProcessingStatus,
+		&video.QuizData,
+		&video.QuizGeneratedAt,
 		&video.CreatedAt,
 		&video.UpdatedAt,
 	)

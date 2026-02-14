@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -19,12 +19,70 @@ import (
 	"github.com/windfall/uwu_service/internal/repository"
 )
 
+// quizSystemPrompt is the system prompt used to generate quiz content from a transcript.
+const quizSystemPrompt = `# Role
+You are an expert Educational Content Creator and Developer. Your task is to analyze the video transcript and generate a quiz and a checklist in a strict JSON format.
+
+# Instructions
+You must analyze the transcript and generate a quiz.
+
+## CRITICAL STEP: THOUGHT PROCESS
+Before generating the JSON, you must identify the chronological order of events for the "Sequence" question to ensure accuracy.
+1. Identify 4 key events.
+2. Verify their order in the transcript.
+3. Only then, map them to the JSON output.
+
+## Part 1: Gist Quiz (Total 4-5 Questions)
+1.  **Context/Tone (2-3 Questions):**
+    * category: "context"
+    * type: "multiple_response"
+    * Must have 1-3 correct options (set is_correct: true).
+2.  **Objective (1 Question):**
+    * category: "objective"
+    * type: "single_choice"
+    * Only 1 correct option.
+3.  **Sequence (1 Question):**
+    * category: "sequence"
+    * type: "ordering"
+    * Provide 4 events in options (shuffled/random order).
+    * Provide the correct_order array containing the correct sequence of Option IDs (e.g., ["B", "A", "C", "D"]).
+
+## Part 2: Retell Check
+* Create a list of "Mission Points" that cover the flow of the story based on the correct answers from Part 1.
+
+# Output Format (STRICT JSON)
+Do not output any markdown text, introductory phrases, or code blocks. Output ONLY the raw JSON object.
+Use the structure below:
+
+{
+  "quiz": [
+    {
+      "id": 1,
+      "category": "string (context | objective | sequence)",
+      "type": "string (multiple_response | single_choice | ordering)",
+      "question": "string",
+      "options": [
+        { "id": "A", "text": "string", "is_correct": true }
+      ],
+      "correct_order": ["string"]
+    }
+  ],
+  "retell_check": [
+    { "id": 1, "point": "string" }
+  ]
+}
+
+* Ensure the JSON is valid and parsable.
+`
+
 // VideoService handles video upload and processing.
 type VideoService struct {
 	repo          repository.VideoRepository
 	r2Client      *client.CloudflareClient
 	azureSpeech   *client.AzureSpeechClient
 	whisperClient *client.AzureWhisperClient
+	azureChat     *client.AzureChatClient
+	geminiClient  *client.GeminiClient
 	batchService  *BatchService
 	log           zerolog.Logger
 }
@@ -35,6 +93,8 @@ func NewVideoService(
 	r2Client *client.CloudflareClient,
 	azureSpeech *client.AzureSpeechClient,
 	whisperClient *client.AzureWhisperClient,
+	azureChat *client.AzureChatClient,
+	geminiClient *client.GeminiClient,
 	batchService *BatchService,
 	log zerolog.Logger,
 ) *VideoService {
@@ -43,6 +103,8 @@ func NewVideoService(
 		r2Client:      r2Client,
 		azureSpeech:   azureSpeech,
 		whisperClient: whisperClient,
+		azureChat:     azureChat,
+		geminiClient:  geminiClient,
 		batchService:  batchService,
 		log:           log,
 	}
@@ -140,7 +202,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 }
 
 // processSubtitles runs in a background goroutine:
-// extract audio via FFmpeg → transcribe via Azure OpenAI Whisper → update DB → mock quiz.
+// extract audio via FFmpeg → transcribe via Azure OpenAI Whisper → update DB → generate quiz.
 func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string, batchID string) {
 	// CRITICAL: cleanup temp files when done
 	defer os.Remove(videoPath)
@@ -158,6 +220,7 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string, bat
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to extract audio")
 		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
 		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "skipped: transcript failed")
 		return
 	}
 
@@ -167,6 +230,7 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string, bat
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
 		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
 		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "skipped: transcript failed")
 		return
 	}
 
@@ -188,24 +252,100 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string, bat
 		Float64("duration_sec", result.Duration).
 		Msg("Subtitle generation completed (Whisper)")
 
-	// --- Quiz Job (mock) ---
-	s.generateQuiz(ctx, videoID, batchID)
+	// --- Quiz Job ---
+	s.generateQuiz(ctx, videoID, batchID, segments, detectedLang)
 }
 
-// generateQuiz is a mock quiz generation job.
-// TODO: Replace with real quiz generation logic.
-func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batchID string) {
+// generateQuiz calls Azure OpenAI Chat Completion to generate quiz content from the transcript.
+// If Azure fails or is not configured, it falls back to Gemini.
+// The result is validated and stored in the database.
+func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) {
 	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "processing", "")
 
-	// Simulate quiz generation work
-	time.Sleep(2 * time.Second)
+	// Build transcript text from segments
+	var sb strings.Builder
+	for _, seg := range segments {
+		sb.WriteString(seg.Text)
+		sb.WriteString(" ")
+	}
+	transcriptText := strings.TrimSpace(sb.String())
+
+	if transcriptText == "" {
+		s.log.Warn().Str("video_id", videoID.String()).Msg("Empty transcript, skipping quiz generation")
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "empty transcript")
+		return
+	}
+
+	// Build user message with transcript and language hint
+	userMessage := fmt.Sprintf("Transcript:\n\"\"\"\n%s\n\"\"\"\n\nLanguage: %s", transcriptText, detectedLang)
+
+	// Try Azure Chat first, then fallback to Gemini
+	responseText, provider, err := s.callQuizAI(ctx, videoID, userMessage)
+	if err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Quiz generation failed (all providers)")
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", err.Error())
+		return
+	}
+
+	// Clean response — strip possible markdown code fences
+	responseText = strings.TrimSpace(responseText)
+	responseText = strings.TrimPrefix(responseText, "```json")
+	responseText = strings.TrimPrefix(responseText, "```")
+	responseText = strings.TrimSuffix(responseText, "```")
+	responseText = strings.TrimSpace(responseText)
+
+	// Validate JSON by unmarshalling into QuizContent
+	var quizContent repository.QuizContent
+	if err := json.Unmarshal([]byte(responseText), &quizContent); err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Str("raw_response", responseText).Msg("Invalid quiz JSON from AI")
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "invalid JSON response: "+err.Error())
+		return
+	}
+
+	// Store validated JSON in the database
+	quizJSON := json.RawMessage(responseText)
+	if err := s.repo.UpdateQuizData(ctx, videoID, quizJSON); err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to save quiz data")
+		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", err.Error())
+		return
+	}
 
 	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "completed", "")
 
 	s.log.Info().
 		Str("video_id", videoID.String()).
 		Str("batch_id", batchID).
-		Msg("Quiz generation completed (mock)")
+		Str("provider", provider).
+		Int("quiz_questions", len(quizContent.Quiz)).
+		Int("retell_points", len(quizContent.RetellCheck)).
+		Msg("Quiz generation completed")
+}
+
+// callQuizAI tries Azure Chat first, then falls back to Gemini.
+// Returns the response text, the provider name used, and any error.
+func (s *VideoService) callQuizAI(ctx context.Context, videoID uuid.UUID, userMessage string) (string, string, error) {
+	// Try Azure Chat first
+	if s.azureChat != nil {
+		responseText, err := s.azureChat.ChatCompletion(ctx, quizSystemPrompt, userMessage)
+		if err == nil {
+			return responseText, "azure", nil
+		}
+		s.log.Warn().Err(err).Str("video_id", videoID.String()).Msg("Azure Chat failed, falling back to Gemini")
+	}
+
+	// Fallback to Gemini
+	if s.geminiClient != nil {
+		// Gemini Chat takes a single message, so combine system prompt + user message
+		fullPrompt := quizSystemPrompt + "\n" + userMessage
+		responseText, err := s.geminiClient.Chat(ctx, fullPrompt)
+		if err == nil {
+			return responseText, "gemini", nil
+		}
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Gemini fallback also failed")
+		return "", "", fmt.Errorf("all AI providers failed: gemini: %w", err)
+	}
+
+	return "", "", fmt.Errorf("no AI provider configured for quiz generation")
 }
 
 // whisperResponseToSegments converts Whisper word-level data to TranscriptSegments.

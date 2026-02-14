@@ -80,6 +80,13 @@ func main() {
 		log.Info().Msg("Azure Whisper client initialized")
 	}
 
+	// Initialize Azure OpenAI Chat client (for quiz generation)
+	var azureChatClient *client.AzureChatClient
+	if cfg.AzureOpenAIEndpoint != "" && cfg.AzureOpenAIKey != "" && cfg.AzureOpenAIChatModel != "" {
+		azureChatClient = client.NewAzureChatClient(cfg.AzureOpenAIEndpoint, cfg.AzureOpenAIKey, cfg.AzureOpenAIChatModel)
+		log.Info().Msg("Azure OpenAI Chat client initialized")
+	}
+
 	// Initialize Redis client
 	var redisClient *client.RedisClient
 	if cfg.RedisURL != "" {
@@ -149,7 +156,7 @@ func main() {
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 	batchService := service.NewBatchService(redisClient, log)
-	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, batchService, log)
+	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()

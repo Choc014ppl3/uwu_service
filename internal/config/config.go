@@ -40,6 +40,11 @@ type Config struct {
 	AzureWhisperRegion   string `envconfig:"AZURE_WHISPER_REGION"`
 	AzureWhisperModel    string `envconfig:"AZURE_WHISPER_MODEL"`
 
+	// Azure OpenAI Chat Completion (for quiz generation)
+	AzureOpenAIEndpoint  string `envconfig:"AZURE_OPENAI_ENDPOINT"`
+	AzureOpenAIKey       string `envconfig:"AZURE_OPENAI_KEY"`
+	AzureOpenAIChatModel string `envconfig:"AZURE_OPENAI_CHAT_MODEL"`
+
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 
