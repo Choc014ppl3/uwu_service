@@ -42,6 +42,7 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     wget \
+    ffmpeg \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user

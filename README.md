@@ -73,6 +73,21 @@ uwu_service/
 | POST   | /api/v1/example   | Create example      |
 | POST   | /api/v1/ai/chat   | AI chat             |
 | POST   | /api/v1/ai/complete | AI completion     |
+| POST   | /api/v1/videos/upload | Upload video      |
+| GET    | /api/v1/videos/{id} | Get video (Protected: Bearer) |
+
+### Video Upload Example
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/upload \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -F "video=@/path/to/video.mp4"
+```
+
+### Video Get Example
+```bash
+curl -H "Authorization: Bearer <your_jwt_token>" \
+  http://localhost:8080/api/v1/videos/{video_id}
+```
 
 ### WebSocket
 

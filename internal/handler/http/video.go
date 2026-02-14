@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 
 	"github.com/windfall/uwu_service/internal/errors"
@@ -84,6 +85,23 @@ func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Created(w, result)
+}
+
+// Get handles GET /api/v1/videos/{videoID}
+func (h *VideoHandler) Get(w http.ResponseWriter, r *http.Request) {
+	videoID := chi.URLParam(r, "videoID")
+	if videoID == "" {
+		response.BadRequest(w, "video ID is required")
+		return
+	}
+
+	video, err := h.videoService.GetVideo(r.Context(), videoID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, video)
 }
 
 func (h *VideoHandler) handleError(w http.ResponseWriter, err error) {

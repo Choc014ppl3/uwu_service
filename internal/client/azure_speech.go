@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/windfall/uwu_service/internal/errors"
@@ -19,6 +20,32 @@ type AzureSpeechClient struct {
 	apiKey string
 	region string
 	client *http.Client
+}
+
+// AzureResponse is the detailed response from Azure Speech STT API.
+type AzureResponse struct {
+	RecognitionStatus string  `json:"RecognitionStatus"`
+	Offset            int64   `json:"Offset"`   // Ticks (100ns units)
+	Duration          int64   `json:"Duration"` // Ticks (100ns units)
+	DisplayText       string  `json:"DisplayText"`
+	NBest             []NBest `json:"NBest"`
+}
+
+// NBest represents a candidate recognition result.
+type NBest struct {
+	Confidence float64      `json:"Confidence"`
+	Lexical    string       `json:"Lexical"`
+	ITN        string       `json:"ITN"`
+	MaskedITN  string       `json:"MaskedITN"`
+	Display    string       `json:"Display"`
+	Words      []WordDetail `json:"Words,omitempty"`
+}
+
+// WordDetail represents a single recognized word with timing.
+type WordDetail struct {
+	Word     string `json:"Word"`
+	Offset   int64  `json:"Offset"`   // Ticks (100ns units)
+	Duration int64  `json:"Duration"` // Ticks (100ns units)
 }
 
 // NewAzureSpeechClient creates a new Azure Speech client.
@@ -339,4 +366,65 @@ func (c *AzureSpeechClient) Synthesize(ctx context.Context, text, voice string) 
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+// RecognizeFromFile performs speech-to-text on a WAV audio file using Azure REST Short Audio API.
+// Returns the full AzureResponse with word-level timing data.
+func (c *AzureSpeechClient) RecognizeFromFile(ctx context.Context, wavPath string, lang string) (*AzureResponse, error) {
+	if c.apiKey == "" || c.region == "" {
+		return nil, errors.New(errors.ErrAIService, "Azure Speech credentials not configured")
+	}
+
+	if lang == "" {
+		lang = "en-US"
+	}
+
+	// Read the WAV file
+	audioData, err := os.ReadFile(wavPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read audio file: %w", err)
+	}
+
+	// Construct URL for Short Audio API
+	u := url.URL{
+		Scheme: "https",
+		Host:   fmt.Sprintf("%s.stt.speech.microsoft.com", c.region),
+		Path:   "/speech/recognition/conversation/cognitiveservices/v1",
+	}
+
+	q := u.Query()
+	q.Set("language", lang)
+	q.Set("format", "detailed")
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(audioData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
+	req.Header.Set("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("azure speech api error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result AzureResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.RecognitionStatus != "Success" {
+		return nil, nil // No speech recognized
+	}
+
+	return &result, nil
 }

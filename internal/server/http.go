@@ -98,6 +98,7 @@ func NewHTTPServer(
 
 			// Video endpoints
 			r.Post("/videos/upload", videoHandler.Upload)
+			r.Get("/videos/{videoID}", videoHandler.Get)
 		})
 	})
 
