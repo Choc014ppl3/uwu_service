@@ -148,7 +148,8 @@ func main() {
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, log)
+	batchService := service.NewBatchService(redisClient, log)
+	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, batchService, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
@@ -156,7 +157,7 @@ func main() {
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 	learningItemHandler := http.NewLearningItemHandler(learningService)
 	authHandler := http.NewAuthHandler(log, authService)
-	videoHandler := http.NewVideoHandler(log, videoService)
+	videoHandler := http.NewVideoHandler(log, videoService, batchService)
 
 	// Initialize HTTP server
 	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler)

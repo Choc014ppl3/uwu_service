@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -24,6 +25,7 @@ type VideoService struct {
 	r2Client      *client.CloudflareClient
 	azureSpeech   *client.AzureSpeechClient
 	whisperClient *client.AzureWhisperClient
+	batchService  *BatchService
 	log           zerolog.Logger
 }
 
@@ -33,6 +35,7 @@ func NewVideoService(
 	r2Client *client.CloudflareClient,
 	azureSpeech *client.AzureSpeechClient,
 	whisperClient *client.AzureWhisperClient,
+	batchService *BatchService,
 	log zerolog.Logger,
 ) *VideoService {
 	return &VideoService{
@@ -40,13 +43,15 @@ func NewVideoService(
 		r2Client:      r2Client,
 		azureSpeech:   azureSpeech,
 		whisperClient: whisperClient,
+		batchService:  batchService,
 		log:           log,
 	}
 }
 
 // VideoUploadResult is returned after a successful upload.
 type VideoUploadResult struct {
-	Video *repository.Video `json:"video"`
+	Video   *repository.Video `json:"video"`
+	BatchID string            `json:"batch_id"`
 }
 
 // GetVideo retrieves a video by its ID string.
@@ -73,14 +78,16 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	}
 
 	videoID := uuid.New()
+	batchID := uuid.New().String()
 	inputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_input.mp4", videoID))
 
-	// NOTE: Do NOT defer os.Remove here — the background goroutine needs the file.
-	// Cleanup is handled inside processSubtitles.
+	// Create batch in Redis
+	_ = s.batchService.CreateBatch(ctx, batchID, videoID.String(), userID)
 
 	// Step 1: Save uploaded file to temp
 	if err := s.saveTempFile(inputPath, file); err != nil {
-		os.Remove(inputPath) // Clean up on early failure
+		os.Remove(inputPath)
+		_ = s.batchService.UpdateJob(ctx, batchID, "upload", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to save temp file", err)
 	}
 
@@ -92,6 +99,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	}
 	if err := s.repo.Create(ctx, video); err != nil {
 		os.Remove(inputPath)
+		_ = s.batchService.UpdateJob(ctx, batchID, "upload", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to create video record", err)
 	}
 
@@ -101,34 +109,39 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	if err != nil {
 		os.Remove(inputPath)
 		_ = s.repo.UpdateStatus(ctx, video.ID, "failed", "")
+		_ = s.batchService.UpdateJob(ctx, batchID, "upload", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to upload video to storage", err)
 	}
 
 	// Step 4: Update DB record with URL and "ready" status
 	if err := s.repo.UpdateStatus(ctx, video.ID, "ready", videoURL); err != nil {
 		os.Remove(inputPath)
+		_ = s.batchService.UpdateJob(ctx, batchID, "upload", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to update video record", err)
 	}
 
 	video.VideoURL = videoURL
 	video.Status = "ready"
 
+	// Mark upload job as completed
+	_ = s.batchService.UpdateJob(ctx, batchID, "upload", "completed", "")
+
 	s.log.Info().
 		Str("video_id", video.ID.String()).
 		Str("user_id", userID).
+		Str("batch_id", batchID).
 		Str("video_url", videoURL).
 		Msg("Video upload completed, starting subtitle processing")
 
-	// Step 5: Spawn async subtitle processing goroutine
-	// The goroutine owns the temp file from this point — it handles cleanup.
-	go s.processSubtitles(video.ID, inputPath)
+	// Step 5: Spawn async subtitle + quiz processing goroutine
+	go s.processSubtitles(video.ID, inputPath, batchID)
 
-	return &VideoUploadResult{Video: video}, nil
+	return &VideoUploadResult{Video: video, BatchID: batchID}, nil
 }
 
 // processSubtitles runs in a background goroutine:
-// extract audio via FFmpeg → transcribe via Azure OpenAI Whisper → update DB.
-func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
+// extract audio via FFmpeg → transcribe via Azure OpenAI Whisper → update DB → mock quiz.
+func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string, batchID string) {
 	// CRITICAL: cleanup temp files when done
 	defer os.Remove(videoPath)
 
@@ -137,10 +150,14 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
 
 	ctx := context.Background()
 
+	// --- Transcript Job ---
+	_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "processing", "")
+
 	// Step 1: Extract audio with FFmpeg
 	if err := s.extractAudio(videoPath, audioPath); err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to extract audio")
 		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
 		return
 	}
 
@@ -149,6 +166,7 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
 		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
 		return
 	}
 
@@ -161,12 +179,33 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
 	}
 
 	_ = s.repo.UpdateTranscript(ctx, videoID, segments, rawJSON, detectedLang, "completed")
+	_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "completed", "")
+
 	s.log.Info().
 		Str("video_id", videoID.String()).
 		Str("language", detectedLang).
 		Int("word_count", len(segments)).
 		Float64("duration_sec", result.Duration).
 		Msg("Subtitle generation completed (Whisper)")
+
+	// --- Quiz Job (mock) ---
+	s.generateQuiz(ctx, videoID, batchID)
+}
+
+// generateQuiz is a mock quiz generation job.
+// TODO: Replace with real quiz generation logic.
+func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batchID string) {
+	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "processing", "")
+
+	// Simulate quiz generation work
+	time.Sleep(2 * time.Second)
+
+	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "completed", "")
+
+	s.log.Info().
+		Str("video_id", videoID.String()).
+		Str("batch_id", batchID).
+		Msg("Quiz generation completed (mock)")
 }
 
 // whisperResponseToSegments converts Whisper word-level data to TranscriptSegments.

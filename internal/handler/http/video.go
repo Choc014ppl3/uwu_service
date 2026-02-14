@@ -25,13 +25,15 @@ var allowedVideoMIME = map[string]bool{
 type VideoHandler struct {
 	log          zerolog.Logger
 	videoService *service.VideoService
+	batchService *service.BatchService
 }
 
 // NewVideoHandler creates a new VideoHandler.
-func NewVideoHandler(log zerolog.Logger, videoService *service.VideoService) *VideoHandler {
+func NewVideoHandler(log zerolog.Logger, videoService *service.VideoService, batchService *service.BatchService) *VideoHandler {
 	return &VideoHandler{
 		log:          log,
 		videoService: videoService,
+		batchService: batchService,
 	}
 }
 
@@ -102,6 +104,28 @@ func (h *VideoHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, video)
+}
+
+// GetBatchStatus handles GET /api/v1/batches/{batchID}
+func (h *VideoHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) {
+	batchID := chi.URLParam(r, "batchID")
+	if batchID == "" {
+		response.BadRequest(w, "batch ID is required")
+		return
+	}
+
+	batch, err := h.batchService.GetBatch(r.Context(), batchID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	if batch == nil {
+		response.NotFound(w, "batch not found")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, batch)
 }
 
 func (h *VideoHandler) handleError(w http.ResponseWriter, err error) {

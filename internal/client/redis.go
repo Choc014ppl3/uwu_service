@@ -83,6 +83,16 @@ func (r *RedisClient) BLPop(ctx context.Context, timeout time.Duration, key stri
 	return []byte(result[1]), nil
 }
 
+// HSet sets fields in a Redis Hash.
+func (r *RedisClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	return r.client.HSet(ctx, key, values...).Err()
+}
+
+// HGetAll returns all fields and values of a Redis Hash.
+func (r *RedisClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	return r.client.HGetAll(ctx, key).Result()
+}
+
 // Ping checks Redis connectivity.
 func (r *RedisClient) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()

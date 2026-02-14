@@ -99,6 +99,9 @@ func NewHTTPServer(
 			// Video endpoints
 			r.Post("/videos/upload", videoHandler.Upload)
 			r.Get("/videos/{videoID}", videoHandler.Get)
+
+			// Batch status endpoint
+			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
 		})
 	})
 

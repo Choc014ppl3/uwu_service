@@ -74,19 +74,45 @@ uwu_service/
 | POST   | /api/v1/ai/chat   | AI chat             |
 | POST   | /api/v1/ai/complete | AI completion     |
 | POST   | /api/v1/videos/upload | Upload video      |
-| GET    | /api/v1/videos/{id} | Get video (Protected: Bearer) |
+| GET    | /api/v1/videos/{id} | Get video (Protected) |
+| GET    | /api/v1/batches/{id} | Get batch status (Protected) |
 
 ### Video Upload Example
 ```bash
 curl -X POST http://localhost:8080/api/v1/videos/upload \
   -H "Authorization: Bearer <your_jwt_token>" \
   -F "video=@/path/to/video.mp4"
+
+# Response:
+# {
+#   "video": { "id": "...", "status": "processing" },
+#   "batch_id": "abc-123-xyz"
+# }
 ```
 
 ### Video Get Example
 ```bash
 curl -H "Authorization: Bearer <your_jwt_token>" \
   http://localhost:8080/api/v1/videos/{video_id}
+```
+
+### Batch Status Example
+```bash
+curl -H "Authorization: Bearer <your_jwt_token>" \
+  http://localhost:8080/api/v1/batches/{batch_id}
+
+# Response:
+# {
+#   "batch_id": "abc-123-xyz",
+#   "status": "completed",
+#   "total_jobs": 3,
+#   "completed_jobs": 3,
+#   "jobs": [
+#     { "name": "upload", "status": "completed" },
+#     { "name": "transcript", "status": "completed" },
+#     { "name": "quiz", "status": "completed" }
+#   ]
+# }
 ```
 
 ### WebSocket
