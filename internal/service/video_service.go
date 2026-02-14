@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -21,10 +20,11 @@ import (
 
 // VideoService handles video upload and processing.
 type VideoService struct {
-	repo        repository.VideoRepository
-	r2Client    *client.CloudflareClient
-	azureSpeech *client.AzureSpeechClient
-	log         zerolog.Logger
+	repo          repository.VideoRepository
+	r2Client      *client.CloudflareClient
+	azureSpeech   *client.AzureSpeechClient
+	whisperClient *client.AzureWhisperClient
+	log           zerolog.Logger
 }
 
 // NewVideoService creates a new VideoService.
@@ -32,13 +32,15 @@ func NewVideoService(
 	repo repository.VideoRepository,
 	r2Client *client.CloudflareClient,
 	azureSpeech *client.AzureSpeechClient,
+	whisperClient *client.AzureWhisperClient,
 	log zerolog.Logger,
 ) *VideoService {
 	return &VideoService{
-		repo:        repo,
-		r2Client:    r2Client,
-		azureSpeech: azureSpeech,
-		log:         log,
+		repo:          repo,
+		r2Client:      r2Client,
+		azureSpeech:   azureSpeech,
+		whisperClient: whisperClient,
+		log:           log,
 	}
 }
 
@@ -125,7 +127,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 }
 
 // processSubtitles runs in a background goroutine:
-// extract audio via FFmpeg → transcribe via Azure Speech → update DB.
+// extract audio via FFmpeg → transcribe via Azure OpenAI Whisper → update DB.
 func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
 	// CRITICAL: cleanup temp files when done
 	defer os.Remove(videoPath)
@@ -142,100 +144,54 @@ func (s *VideoService) processSubtitles(videoID uuid.UUID, videoPath string) {
 		return
 	}
 
-	// Step 2: Try primary language (en-US)
-	result, err := s.azureSpeech.RecognizeFromFile(ctx, audioPath, "en-US")
+	// Step 2: Transcribe with Whisper (auto language detection)
+	result, err := s.whisperClient.TranscribeFile(ctx, audioPath, "")
 	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Azure STT failed for en-US")
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
 		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
 		return
 	}
 
-	if result != nil {
-		segments := azureResponseToSegments(result)
-		rawJSON, _ := json.Marshal(result)
-		_ = s.repo.UpdateTranscript(ctx, videoID, segments, rawJSON, "en-US", "completed")
-		s.log.Info().
-			Str("video_id", videoID.String()).
-			Str("language", "en-US").
-			Str("display_text", result.DisplayText).
-			Int("word_count", len(segments)).
-			Msg("Subtitle generation completed")
-		return
+	// Step 3: Map response to segments and save
+	segments := whisperResponseToSegments(result)
+	rawJSON, _ := json.Marshal(result)
+	detectedLang := result.Language
+	if detectedLang == "" {
+		detectedLang = "unknown"
 	}
 
-	// Step 3: Fallback — try Thai (th-TH)
-	result, err = s.azureSpeech.RecognizeFromFile(ctx, audioPath, "th-TH")
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Azure STT failed for th-TH")
-		_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "failed")
-		return
-	}
-
-	if result != nil {
-		segments := azureResponseToSegments(result)
-		rawJSON, _ := json.Marshal(result)
-		_ = s.repo.UpdateTranscript(ctx, videoID, segments, rawJSON, "th-TH", "completed")
-		s.log.Info().
-			Str("video_id", videoID.String()).
-			Str("language", "th-TH").
-			Str("display_text", result.DisplayText).
-			Int("word_count", len(segments)).
-			Msg("Subtitle generation completed")
-		return
-	}
-
-	// Step 4: No language matched
-	_ = s.repo.UpdateTranscript(ctx, videoID, nil, nil, "", "wrong_language")
-	s.log.Warn().
+	_ = s.repo.UpdateTranscript(ctx, videoID, segments, rawJSON, detectedLang, "completed")
+	s.log.Info().
 		Str("video_id", videoID.String()).
-		Msg("No speech recognized in any candidate language")
+		Str("language", detectedLang).
+		Int("word_count", len(segments)).
+		Float64("duration_sec", result.Duration).
+		Msg("Subtitle generation completed (Whisper)")
 }
 
-// azureResponseToSegments converts Azure STT word-level data to TranscriptSegments.
-func azureResponseToSegments(resp *client.AzureResponse) []repository.TranscriptSegment {
-	// 1. แปลงเวลาทั้งหมดจาก Ticks เป็น Seconds
-	totalStart := float64(resp.Offset) / 10000000.0
-	totalDuration := float64(resp.Duration) / 10000000.0
-
-	// 2. กรณีที่ Azure ส่ง Words มาให้ (โชคดี)
-	if len(resp.NBest) > 0 && len(resp.NBest[0].Words) > 0 {
-		words := resp.NBest[0].Words
-		segments := make([]repository.TranscriptSegment, len(words))
-		for i, w := range words {
-			segments[i] = repository.TranscriptSegment{
-				Text:     w.Word,
-				Start:    float64(w.Offset) / 10000000.0,
-				Duration: float64(w.Duration) / 10000000.0,
-			}
+// whisperResponseToSegments converts Whisper word-level data to TranscriptSegments.
+// Whisper returns start/end in seconds — no conversion needed.
+func whisperResponseToSegments(resp *client.WhisperResponse) []repository.TranscriptSegment {
+	if len(resp.Words) == 0 {
+		// No word-level data — return full text as single segment
+		if resp.Text != "" {
+			return []repository.TranscriptSegment{{
+				Text:     resp.Text,
+				Start:    0,
+				Duration: resp.Duration,
+			}}
 		}
-		return segments
-	}
-
-	// 3. กรณีที่ Azure ไม่ส่ง Words มา (ซึ่งเจอประจำใน REST API) -> ใช้การเฉลี่ยเวลา (Linear Interpolation)
-	displayText := resp.DisplayText
-	if len(resp.NBest) > 0 {
-		displayText = resp.NBest[0].Display // ใช้ Display text ที่สวยงามกว่า
-	}
-
-	// แยกคำด้วยช่องว่าง
-	wordList := strings.Fields(displayText)
-	if len(wordList) == 0 {
 		return []repository.TranscriptSegment{}
 	}
 
-	segments := make([]repository.TranscriptSegment, len(wordList))
-
-	// คำนวณเวลาต่อ 1 คำ (แบบเฉลี่ย)
-	durationPerWord := totalDuration / float64(len(wordList))
-
-	for i, word := range wordList {
+	segments := make([]repository.TranscriptSegment, len(resp.Words))
+	for i, w := range resp.Words {
 		segments[i] = repository.TranscriptSegment{
-			Text:     word,
-			Start:    totalStart + (float64(i) * durationPerWord),
-			Duration: durationPerWord,
+			Text:     w.Word,
+			Start:    w.Start,
+			Duration: w.End - w.Start,
 		}
 	}
-
 	return segments
 }
 

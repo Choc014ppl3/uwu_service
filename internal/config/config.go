@@ -34,6 +34,12 @@ type Config struct {
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
 	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
 
+	// Azure OpenAI Whisper
+	AzureWhisperEndpoint string `envconfig:"AZURE_WHISPER_ENDPOINT"`
+	AzureWhisperKey      string `envconfig:"AZURE_WHISPER_KEY"`
+	AzureWhisperRegion   string `envconfig:"AZURE_WHISPER_REGION"`
+	AzureWhisperModel    string `envconfig:"AZURE_WHISPER_MODEL"`
+
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 

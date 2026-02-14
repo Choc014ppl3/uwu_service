@@ -73,6 +73,13 @@ func main() {
 		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
 	}
 
+	// Initialize Azure OpenAI Whisper client (for video subtitle transcription)
+	var whisperClient *client.AzureWhisperClient
+	if cfg.AzureWhisperEndpoint != "" && cfg.AzureWhisperKey != "" && cfg.AzureWhisperModel != "" {
+		whisperClient = client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey, cfg.AzureWhisperModel)
+		log.Info().Msg("Azure Whisper client initialized")
+	}
+
 	// Initialize Redis client
 	var redisClient *client.RedisClient
 	if cfg.RedisURL != "" {
@@ -141,7 +148,7 @@ func main() {
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, log)
+	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
