@@ -1,0 +1,96 @@
+package http
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/rs/zerolog"
+
+	"github.com/windfall/uwu_service/internal/errors"
+	"github.com/windfall/uwu_service/internal/middleware"
+	"github.com/windfall/uwu_service/internal/service"
+	"github.com/windfall/uwu_service/pkg/response"
+)
+
+// Allowed video MIME types.
+var allowedVideoMIME = map[string]bool{
+	"video/mp4":       true,
+	"video/quicktime": true,
+	"video/x-msvideo": true,
+	"video/webm":      true,
+}
+
+// VideoHandler handles video upload HTTP endpoints.
+type VideoHandler struct {
+	log          zerolog.Logger
+	videoService *service.VideoService
+}
+
+// NewVideoHandler creates a new VideoHandler.
+func NewVideoHandler(log zerolog.Logger, videoService *service.VideoService) *VideoHandler {
+	return &VideoHandler{
+		log:          log,
+		videoService: videoService,
+	}
+}
+
+// Upload handles POST /api/v1/videos/upload
+func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	// Limit request body to 50MB
+	const maxUploadSize = 50 << 20 // 50MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		response.BadRequest(w, "file too large, maximum size is 50MB")
+		return
+	}
+
+	// Get file from form
+	file, header, err := r.FormFile("video")
+	if err != nil {
+		response.BadRequest(w, "video file is required (form field: 'video')")
+		return
+	}
+	defer file.Close()
+
+	// Validate MIME type
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		// Fallback: detect from filename extension
+		if strings.HasSuffix(strings.ToLower(header.Filename), ".mp4") {
+			contentType = "video/mp4"
+		} else if strings.HasSuffix(strings.ToLower(header.Filename), ".mov") {
+			contentType = "video/quicktime"
+		}
+	}
+
+	if !allowedVideoMIME[contentType] {
+		response.BadRequest(w, "invalid file type, allowed: mp4, mov, avi, webm")
+		return
+	}
+
+	// Get user ID from auth context
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.Unauthorized(w, "user not authenticated")
+		return
+	}
+
+	// Process upload
+	result, err := h.videoService.ProcessUpload(r.Context(), userID, file)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.Created(w, result)
+}
+
+func (h *VideoHandler) handleError(w http.ResponseWriter, err error) {
+	if appErr, ok := err.(*errors.AppError); ok {
+		response.Error(w, appErr.HTTPStatus(), appErr)
+		return
+	}
+	h.log.Error().Err(err).Msg("Internal server error")
+	response.InternalError(w, "internal server error")
+}

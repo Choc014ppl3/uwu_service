@@ -32,6 +32,7 @@ func NewHTTPServer(
 	learningItemHandler *httphandler.LearningItemHandler,
 	authHandler *httphandler.AuthHandler,
 	authService *service.AuthService,
+	videoHandler *httphandler.VideoHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -94,6 +95,9 @@ func NewHTTPServer(
 			// Conversation Scenarios endpoints
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
 			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
+
+			// Video endpoints
+			r.Post("/videos/upload", videoHandler.Upload)
 		})
 	})
 
