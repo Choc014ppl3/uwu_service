@@ -39,12 +39,12 @@ func NewVideoHandler(log zerolog.Logger, videoService *service.VideoService, bat
 
 // Upload handles POST /api/v1/videos/upload
 func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
-	// Limit request body to 50MB
-	const maxUploadSize = 50 << 20 // 50MB
+	// Limit request body to 12MB
+	const maxUploadSize = 12 << 20 // 12MB
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		response.BadRequest(w, "file too large, maximum size is 50MB")
+		response.BadRequest(w, "file too large, maximum size is 12MB")
 		return
 	}
 

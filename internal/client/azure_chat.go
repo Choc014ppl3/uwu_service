@@ -16,7 +16,6 @@ import (
 type AzureChatClient struct {
 	endpoint string // e.g. https://your-resource.openai.azure.com
 	apiKey   string
-	model    string // deployment name, e.g. "gpt-4o"
 	client   *http.Client
 }
 
@@ -43,11 +42,10 @@ type chatChoice struct {
 }
 
 // NewAzureChatClient creates a new Azure OpenAI Chat Completions client.
-func NewAzureChatClient(endpoint, apiKey, model string) *AzureChatClient {
+func NewAzureChatClient(endpoint, apiKey string) *AzureChatClient {
 	return &AzureChatClient{
 		endpoint: endpoint,
 		apiKey:   apiKey,
-		model:    model,
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -57,7 +55,7 @@ func NewAzureChatClient(endpoint, apiKey, model string) *AzureChatClient {
 // ChatCompletion sends a system prompt + user message to Azure OpenAI Chat Completions
 // and returns the assistant's response text.
 func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, userMessage string) (string, error) {
-	if c.apiKey == "" || c.endpoint == "" || c.model == "" {
+	if c.apiKey == "" || c.endpoint == "" {
 		return "", errors.New(errors.ErrAIService, "Azure OpenAI Chat credentials not configured")
 	}
 
@@ -75,7 +73,7 @@ func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, user
 	}
 
 	// Azure OpenAI Chat Completions endpoint
-	url := fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=2024-06-01", c.endpoint, c.model)
+	url := fmt.Sprintf("%s/openai/deployments/gpt-5-nano/chat/completions?api-version=2024-05-01-preview", c.endpoint)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyJSON))
 	if err != nil {

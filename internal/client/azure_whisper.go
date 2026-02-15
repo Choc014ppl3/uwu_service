@@ -18,7 +18,6 @@ import (
 type AzureWhisperClient struct {
 	endpoint string // e.g. https://your-resource.openai.azure.com
 	apiKey   string
-	model    string // deployment name, e.g. "whisper"
 	client   *http.Client
 }
 
@@ -48,11 +47,10 @@ type WhisperWord struct {
 }
 
 // NewAzureWhisperClient creates a new Azure OpenAI Whisper client.
-func NewAzureWhisperClient(endpoint, apiKey, model string) *AzureWhisperClient {
+func NewAzureWhisperClient(endpoint, apiKey string) *AzureWhisperClient {
 	return &AzureWhisperClient{
 		endpoint: endpoint,
 		apiKey:   apiKey,
-		model:    model,
 		client: &http.Client{
 			Timeout: 120 * time.Second, // Whisper can take longer for large files
 		},
@@ -63,7 +61,7 @@ func NewAzureWhisperClient(endpoint, apiKey, model string) *AzureWhisperClient {
 // Returns the full WhisperResponse with word-level timestamps.
 // lang is optional (e.g. "en", "th"); if empty, Whisper auto-detects.
 func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath string, lang string) (*WhisperResponse, error) {
-	if c.apiKey == "" || c.endpoint == "" || c.model == "" {
+	if c.apiKey == "" || c.endpoint == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Whisper credentials not configured")
 	}
 
@@ -89,8 +87,7 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath string,
 	// Add response_format field (verbose_json for word-level timestamps)
 	_ = writer.WriteField("response_format", "verbose_json")
 
-	// Add timestamp granularities (both word and segment)
-	_ = writer.WriteField("timestamp_granularities[]", "word")
+	// Add timestamp granularities (segment)
 	_ = writer.WriteField("timestamp_granularities[]", "segment")
 
 	// Add language (optional)
@@ -102,10 +99,7 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath string,
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 
-	// Construct URL
-	url := fmt.Sprintf("%s/openai/deployments/%s/audio/transcriptions?api-version=2024-06-01", c.endpoint, c.model)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, &body)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, &body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

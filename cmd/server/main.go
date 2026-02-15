@@ -75,15 +75,15 @@ func main() {
 
 	// Initialize Azure OpenAI Whisper client (for video subtitle transcription)
 	var whisperClient *client.AzureWhisperClient
-	if cfg.AzureWhisperEndpoint != "" && cfg.AzureWhisperKey != "" && cfg.AzureWhisperModel != "" {
-		whisperClient = client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey, cfg.AzureWhisperModel)
+	if cfg.AzureWhisperEndpoint != "" && cfg.AzureWhisperKey != "" {
+		whisperClient = client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
 		log.Info().Msg("Azure Whisper client initialized")
 	}
 
 	// Initialize Azure OpenAI Chat client (for quiz generation)
 	var azureChatClient *client.AzureChatClient
-	if cfg.AzureOpenAIEndpoint != "" && cfg.AzureOpenAIKey != "" && cfg.AzureOpenAIChatModel != "" {
-		azureChatClient = client.NewAzureChatClient(cfg.AzureOpenAIEndpoint, cfg.AzureOpenAIKey, cfg.AzureOpenAIChatModel)
+	if cfg.AzureOpenAIEndpoint != "" && cfg.AzureOpenAIKey != "" {
+		azureChatClient = client.NewAzureChatClient(cfg.AzureOpenAIEndpoint, cfg.AzureOpenAIKey)
 		log.Info().Msg("Azure OpenAI Chat client initialized")
 	}
 
