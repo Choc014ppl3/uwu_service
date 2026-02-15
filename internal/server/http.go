@@ -105,7 +105,7 @@ func NewHTTPServer(
 			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
 
 			// Quiz grading endpoint
-			r.Post("/videos/{videoID}/quiz/grade", quizHandler.Grade)
+			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)
 		})
 	})
 

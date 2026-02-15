@@ -57,17 +57,12 @@ type QuestionResult struct {
 	Explanation    string   `json:"explanation,omitempty"`
 }
 
-// GradeQuiz loads quiz questions from the quiz_questions table and grades the user's answers.
-func (s *QuizService) GradeQuiz(ctx context.Context, videoID string, req QuizGradeRequest) (*QuizGradeResponse, error) {
-	vid, err := uuid.Parse(videoID)
+// GradeQuiz loads quiz questions by lesson ID and grades the user's answers.
+func (s *QuizService) GradeQuiz(ctx context.Context, lessonID int, req QuizGradeRequest) (*QuizGradeResponse, error) {
+	// Load quiz questions from quiz_questions table by lesson ID
+	questionRows, err := s.quizRepo.GetQuizQuestionsByLessonID(ctx, lessonID)
 	if err != nil {
-		return nil, errors.New(errors.ErrValidation, "invalid video ID")
-	}
-
-	// Load quiz questions from quiz_questions table (via lesson → video)
-	questionRows, err := s.quizRepo.GetQuizQuestionsByVideoID(ctx, vid)
-	if err != nil {
-		return nil, errors.New(errors.ErrNotFound, "quiz not found for this video")
+		return nil, errors.New(errors.ErrNotFound, "quiz not found for this lesson")
 	}
 
 	if len(questionRows) == 0 {
@@ -120,11 +115,8 @@ func (s *QuizService) GradeQuiz(ctx context.Context, videoID string, req QuizGra
 	}
 
 	// Save quiz log
-	lessonID, _ := s.quizRepo.GetLessonIDByVideoID(ctx, vid)
-	if lessonID > 0 {
-		snapshot, _ := json.Marshal(req.Answers)
-		_ = s.quizRepo.SaveQuizLog(ctx, uuid.Nil, lessonID, correctCount, totalQuestions, snapshot)
-	}
+	snapshot, _ := json.Marshal(req.Answers)
+	_ = s.quizRepo.SaveQuizLog(ctx, uuid.Nil, lessonID, correctCount, totalQuestions, snapshot)
 
 	return &QuizGradeResponse{
 		Summary: GradeSummary{

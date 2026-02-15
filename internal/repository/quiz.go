@@ -32,6 +32,7 @@ type QuizRepository interface {
 	SaveQuizQuestions(ctx context.Context, lessonID int, items []QuizItem) error
 	SaveRetellMissionPoints(ctx context.Context, lessonID int, items []RetellItem) error
 	GetQuizQuestionsByVideoID(ctx context.Context, videoID uuid.UUID) ([]QuizQuestionRow, error)
+	GetQuizQuestionsByLessonID(ctx context.Context, lessonID int) ([]QuizQuestionRow, error)
 	GetLessonIDByVideoID(ctx context.Context, videoID uuid.UUID) (int, error)
 	SaveQuizLog(ctx context.Context, userID uuid.UUID, lessonID int, score int, maxScore int, answersSnapshot json.RawMessage) error
 }
@@ -126,6 +127,36 @@ func (r *PostgresQuizRepository) GetQuizQuestionsByVideoID(ctx context.Context, 
 		ORDER BY qq.id
 	`
 	rows, err := r.db.Pool.Query(ctx, query, videoID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query quiz questions: %w", err)
+	}
+	defer rows.Close()
+
+	var questions []QuizQuestionRow
+	for rows.Next() {
+		var q QuizQuestionRow
+		if err := rows.Scan(&q.ID, &q.LessonID, &q.Type, &q.SkillTag, &q.QuestionData); err != nil {
+			return nil, fmt.Errorf("failed to scan quiz question: %w", err)
+		}
+		questions = append(questions, q)
+	}
+
+	return questions, nil
+}
+
+// GetQuizQuestionsByLessonID fetches all quiz questions for a lesson directly.
+func (r *PostgresQuizRepository) GetQuizQuestionsByLessonID(ctx context.Context, lessonID int) ([]QuizQuestionRow, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
+
+	query := `
+		SELECT id, lesson_id, type, COALESCE(skill_tag, ''), question_data
+		FROM quiz_questions
+		WHERE lesson_id = $1
+		ORDER BY id
+	`
+	rows, err := r.db.Pool.Query(ctx, query, lessonID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query quiz questions: %w", err)
 	}

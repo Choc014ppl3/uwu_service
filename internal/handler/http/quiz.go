@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
@@ -26,11 +27,17 @@ func NewQuizHandler(log zerolog.Logger, quizService *service.QuizService) *QuizH
 	}
 }
 
-// Grade handles POST /api/v1/videos/{videoID}/quiz/grade
+// Grade handles POST /api/v1/quiz/{lessonID}/grade
 func (h *QuizHandler) Grade(w http.ResponseWriter, r *http.Request) {
-	videoID := chi.URLParam(r, "videoID")
-	if videoID == "" {
-		response.BadRequest(w, "video ID is required")
+	lessonIDStr := chi.URLParam(r, "lessonID")
+	if lessonIDStr == "" {
+		response.BadRequest(w, "lesson ID is required")
+		return
+	}
+
+	lessonID, err := strconv.Atoi(lessonIDStr)
+	if err != nil || lessonID <= 0 {
+		response.BadRequest(w, "invalid lesson ID")
 		return
 	}
 
@@ -45,7 +52,7 @@ func (h *QuizHandler) Grade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.quizService.GradeQuiz(r.Context(), videoID, req)
+	result, err := h.quizService.GradeQuiz(r.Context(), lessonID, req)
 	if err != nil {
 		h.handleError(w, err)
 		return
