@@ -34,6 +34,7 @@ func NewHTTPServer(
 	authService *service.AuthService,
 	videoHandler *httphandler.VideoHandler,
 	quizHandler *httphandler.QuizHandler,
+	retellHandler *httphandler.RetellHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -106,6 +107,11 @@ func NewHTTPServer(
 
 			// Quiz grading endpoint
 			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)
+
+			// Retell check endpoints
+			r.Post("/quiz/{lessonID}/retell", retellHandler.SubmitAttempt)
+			r.Get("/quiz/{lessonID}/retell", retellHandler.GetStatus)
+			r.Post("/quiz/{lessonID}/retell/reset", retellHandler.Reset)
 		})
 	})
 

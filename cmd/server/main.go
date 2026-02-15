@@ -157,8 +157,10 @@ func main() {
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 	batchService := service.NewBatchService(redisClient, log)
 	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
+	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
 	videoService := service.NewVideoService(videoRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 	quizService := service.NewQuizService(quizRepo)
+	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
@@ -168,9 +170,10 @@ func main() {
 	authHandler := http.NewAuthHandler(log, authService)
 	videoHandler := http.NewVideoHandler(log, videoService, batchService)
 	quizHandler := http.NewQuizHandler(log, quizService)
+	retellHandler := http.NewRetellHandler(log, retellService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler)
 
 	// Start servers
 	go func() {
