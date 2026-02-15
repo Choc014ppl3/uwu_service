@@ -1,18 +1,21 @@
 BEGIN;
 
 -- 1. Create Custom ENUM Types
-CREATE TYPE quiz_question_type AS ENUM ('multiple_choice', 'multiple_response', 'ordering');
+CREATE TYPE quiz_question_type AS ENUM ('multiple_choice', 'multiple_response', 'single_choice', 'ordering');
 CREATE TYPE retell_status_type AS ENUM ('in_progress', 'completed', 'failed');
 
 -- 2. Lessons Table
 CREATE TABLE lessons (
     id SERIAL PRIMARY KEY,
+    video_id UUID REFERENCES videos(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     video_url TEXT,
     category VARCHAR(100),
     difficulty_level INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX idx_lessons_video_id ON lessons(video_id);
 
 -- 3. Gist Quiz Tables
 CREATE TABLE quiz_questions (
@@ -26,7 +29,7 @@ CREATE TABLE quiz_questions (
 
 CREATE TABLE user_quiz_logs (
     id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE, -- Changed from INTEGER to UUID
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     lesson_id INTEGER REFERENCES lessons(id) ON DELETE CASCADE,
     score INTEGER NOT NULL,
     max_score INTEGER NOT NULL,
@@ -46,7 +49,7 @@ CREATE TABLE retell_mission_points (
 
 CREATE TABLE user_retell_sessions (
     id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE, -- Changed from INTEGER to UUID
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     lesson_id INTEGER REFERENCES lessons(id) ON DELETE CASCADE,
     status retell_status_type DEFAULT 'in_progress',
     attempt_count INTEGER DEFAULT 0,

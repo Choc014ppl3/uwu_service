@@ -13,12 +13,12 @@ import (
 
 // QuizService handles quiz grading logic.
 type QuizService struct {
-	videoRepo repository.VideoRepository
+	quizRepo repository.QuizRepository
 }
 
 // NewQuizService creates a new QuizService.
-func NewQuizService(videoRepo repository.VideoRepository) *QuizService {
-	return &QuizService{videoRepo: videoRepo}
+func NewQuizService(quizRepo repository.QuizRepository) *QuizService {
+	return &QuizService{quizRepo: quizRepo}
 }
 
 // --- Request / Response types ---
@@ -57,38 +57,21 @@ type QuestionResult struct {
 	Explanation    string   `json:"explanation,omitempty"`
 }
 
-// GradeQuiz loads the quiz for a video and grades the user's answers.
+// GradeQuiz loads quiz questions from the quiz_questions table and grades the user's answers.
 func (s *QuizService) GradeQuiz(ctx context.Context, videoID string, req QuizGradeRequest) (*QuizGradeResponse, error) {
-	// Parse video ID
 	vid, err := uuid.Parse(videoID)
 	if err != nil {
 		return nil, errors.New(errors.ErrValidation, "invalid video ID")
 	}
 
-	// Fetch video record
-	video, err := s.videoRepo.GetByID(ctx, vid)
+	// Load quiz questions from quiz_questions table (via lesson → video)
+	questionRows, err := s.quizRepo.GetQuizQuestionsByVideoID(ctx, vid)
 	if err != nil {
-		return nil, errors.New(errors.ErrNotFound, "video not found")
+		return nil, errors.New(errors.ErrNotFound, "quiz not found for this video")
 	}
 
-	if video.QuizData == nil {
-		return nil, errors.New(errors.ErrNotFound, "quiz not yet generated for this video")
-	}
-
-	// Parse quiz data
-	var quizContent repository.QuizContent
-	if err := json.Unmarshal(*video.QuizData, &quizContent); err != nil {
-		return nil, errors.New(errors.ErrInternal, "failed to parse quiz data")
-	}
-
-	if len(quizContent.Quiz) == 0 {
+	if len(questionRows) == 0 {
 		return nil, errors.New(errors.ErrNotFound, "quiz has no questions")
-	}
-
-	// Build lookup map: question ID → QuizItem
-	quizMap := make(map[int]repository.QuizItem, len(quizContent.Quiz))
-	for _, q := range quizContent.Quiz {
-		quizMap[q.ID] = q
 	}
 
 	// Build answer lookup: question ID → user answer
@@ -97,72 +80,82 @@ func (s *QuizService) GradeQuiz(ctx context.Context, videoID string, req QuizGra
 		answerMap[a.QuestionID] = a.SelectedOptions
 	}
 
-	// Grade each question in the quiz
-	results := make([]QuestionResult, 0, len(quizContent.Quiz))
+	// Grade each question
+	results := make([]QuestionResult, 0, len(questionRows))
 	correctCount := 0
 
-	for _, q := range quizContent.Quiz {
-		userSelected := answerMap[q.ID]
-		if userSelected == nil {
-			userSelected = []string{} // unanswered
+	for _, row := range questionRows {
+		// Parse question_data JSONB
+		var qd repository.QuestionData
+		if err := json.Unmarshal(row.QuestionData, &qd); err != nil {
+			continue // skip unparseable questions
 		}
 
-		correctOptions := getCorrectOptions(q)
-		isCorrect := gradeQuestion(q, userSelected)
+		userSelected := answerMap[row.ID]
+		if userSelected == nil {
+			userSelected = []string{}
+		}
+
+		correctOptions := getCorrectOptionsFromQD(row.Type, qd)
+		isCorrect := gradeQuestionFromQD(row.Type, qd, userSelected)
 
 		status := "incorrect"
-		explanation := ""
 		if isCorrect {
 			status = "correct"
 			correctCount++
 		}
 
 		results = append(results, QuestionResult{
-			QuestionID:     q.ID,
+			QuestionID:     row.ID,
 			Status:         status,
 			UserSelected:   userSelected,
 			CorrectOptions: correctOptions,
-			Explanation:    explanation,
 		})
 	}
 
-	totalQuestions := len(quizContent.Quiz)
+	totalQuestions := len(questionRows)
 	percentage := 0.0
 	if totalQuestions > 0 {
 		percentage = float64(correctCount) / float64(totalQuestions) * 100
+	}
+
+	// Save quiz log
+	lessonID, _ := s.quizRepo.GetLessonIDByVideoID(ctx, vid)
+	if lessonID > 0 {
+		snapshot, _ := json.Marshal(req.Answers)
+		_ = s.quizRepo.SaveQuizLog(ctx, uuid.Nil, lessonID, correctCount, totalQuestions, snapshot)
 	}
 
 	return &QuizGradeResponse{
 		Summary: GradeSummary{
 			TotalQuestions: totalQuestions,
 			CorrectCount:   correctCount,
-			TotalScore:     correctCount, // 1 point per correct question
+			TotalScore:     correctCount,
 			Percentage:     percentage,
 		},
 		Results: results,
 	}, nil
 }
 
-// gradeQuestion checks if the user's answer is correct for a given question type.
-func gradeQuestion(q repository.QuizItem, userSelected []string) bool {
-	switch q.Type {
+// gradeQuestionFromQD grades a question based on its DB type and parsed question_data.
+func gradeQuestionFromQD(dbType string, qd repository.QuestionData, userSelected []string) bool {
+	switch dbType {
 	case "single_choice":
-		return gradeSingleChoice(q, userSelected)
-	case "multiple_response":
-		return gradeMultipleResponse(q, userSelected)
+		return gradeSingleChoiceQD(qd, userSelected)
+	case "multiple_response", "multiple_choice":
+		return gradeMultipleResponseQD(qd, userSelected)
 	case "ordering":
-		return gradeOrdering(q, userSelected)
+		return gradeOrderingQD(qd, userSelected)
 	default:
 		return false
 	}
 }
 
-// gradeSingleChoice checks if the user selected exactly the one correct option.
-func gradeSingleChoice(q repository.QuizItem, userSelected []string) bool {
+func gradeSingleChoiceQD(qd repository.QuestionData, userSelected []string) bool {
 	if len(userSelected) != 1 {
 		return false
 	}
-	for _, opt := range q.Options {
+	for _, opt := range qd.Options {
 		if opt.IsCorrect && opt.ID == userSelected[0] {
 			return true
 		}
@@ -170,19 +163,16 @@ func gradeSingleChoice(q repository.QuizItem, userSelected []string) bool {
 	return false
 }
 
-// gradeMultipleResponse uses STRICT MATCH: user must select ALL correct and NO incorrect.
-func gradeMultipleResponse(q repository.QuizItem, userSelected []string) bool {
+func gradeMultipleResponseQD(qd repository.QuestionData, userSelected []string) bool {
 	correctSet := make(map[string]bool)
-	for _, opt := range q.Options {
+	for _, opt := range qd.Options {
 		if opt.IsCorrect {
 			correctSet[opt.ID] = true
 		}
 	}
-
 	if len(userSelected) != len(correctSet) {
 		return false
 	}
-
 	for _, id := range userSelected {
 		if !correctSet[id] {
 			return false
@@ -191,26 +181,24 @@ func gradeMultipleResponse(q repository.QuizItem, userSelected []string) bool {
 	return true
 }
 
-// gradeOrdering checks if the user's sequence exactly matches correct_order.
-func gradeOrdering(q repository.QuizItem, userSelected []string) bool {
-	if len(userSelected) != len(q.CorrectOrder) {
+func gradeOrderingQD(qd repository.QuestionData, userSelected []string) bool {
+	if len(userSelected) != len(qd.CorrectOrder) {
 		return false
 	}
 	for i := range userSelected {
-		if userSelected[i] != q.CorrectOrder[i] {
+		if userSelected[i] != qd.CorrectOrder[i] {
 			return false
 		}
 	}
 	return true
 }
 
-// getCorrectOptions returns the correct option IDs for a question.
-func getCorrectOptions(q repository.QuizItem) []string {
-	if q.Type == "ordering" {
-		return q.CorrectOrder
+func getCorrectOptionsFromQD(dbType string, qd repository.QuestionData) []string {
+	if dbType == "ordering" {
+		return qd.CorrectOrder
 	}
 	var correct []string
-	for _, opt := range q.Options {
+	for _, opt := range qd.Options {
 		if opt.IsCorrect {
 			correct = append(correct, opt.ID)
 		}

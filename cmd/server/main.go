@@ -156,8 +156,9 @@ func main() {
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 	batchService := service.NewBatchService(redisClient, log)
-	videoService := service.NewVideoService(videoRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
-	quizService := service.NewQuizService(videoRepo)
+	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
+	videoService := service.NewVideoService(videoRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
+	quizService := service.NewQuizService(quizRepo)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()

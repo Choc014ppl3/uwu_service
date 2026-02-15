@@ -78,6 +78,7 @@ Use the structure below:
 // VideoService handles video upload and processing.
 type VideoService struct {
 	repo          repository.VideoRepository
+	quizRepo      repository.QuizRepository
 	r2Client      *client.CloudflareClient
 	azureSpeech   *client.AzureSpeechClient
 	whisperClient *client.AzureWhisperClient
@@ -90,6 +91,7 @@ type VideoService struct {
 // NewVideoService creates a new VideoService.
 func NewVideoService(
 	repo repository.VideoRepository,
+	quizRepo repository.QuizRepository,
 	r2Client *client.CloudflareClient,
 	azureSpeech *client.AzureSpeechClient,
 	whisperClient *client.AzureWhisperClient,
@@ -100,6 +102,7 @@ func NewVideoService(
 ) *VideoService {
 	return &VideoService{
 		repo:          repo,
+		quizRepo:      quizRepo,
 		r2Client:      r2Client,
 		azureSpeech:   azureSpeech,
 		whisperClient: whisperClient,
@@ -302,12 +305,41 @@ func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batc
 		return
 	}
 
-	// Store validated JSON in the database
+	// Store raw JSON in videos.quiz_data for backward compatibility
 	quizJSON := json.RawMessage(responseText)
 	if err := s.repo.UpdateQuizData(ctx, videoID, quizJSON); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to save quiz data")
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", err.Error())
-		return
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to save quiz data to video")
+	}
+
+	// Save into quiz_questions table via quiz repository
+	if s.quizRepo != nil {
+		// Get the video for its URL
+		video, err := s.repo.GetByID(ctx, videoID)
+		videoURL := ""
+		if err == nil && video != nil {
+			videoURL = video.VideoURL
+		}
+
+		lessonID, err := s.quizRepo.CreateLessonFromVideo(ctx, videoID, "Auto-generated from video", videoURL)
+		if err != nil {
+			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to create lesson")
+			_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "failed to create lesson: "+err.Error())
+			return
+		}
+
+		if err := s.quizRepo.SaveQuizQuestions(ctx, lessonID, quizContent.Quiz); err != nil {
+			s.log.Error().Err(err).Str("video_id", videoID.String()).Int("lesson_id", lessonID).Msg("Failed to save quiz questions")
+			_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "failed to save quiz questions: "+err.Error())
+			return
+		}
+
+		// Save retell mission points
+		if len(quizContent.RetellCheck) > 0 {
+			if err := s.quizRepo.SaveRetellMissionPoints(ctx, lessonID, quizContent.RetellCheck); err != nil {
+				s.log.Error().Err(err).Str("video_id", videoID.String()).Int("lesson_id", lessonID).Msg("Failed to save retell mission points")
+				// Non-fatal: quiz is still valid without retell points
+			}
+		}
 	}
 
 	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "completed", "")
