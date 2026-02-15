@@ -33,6 +33,7 @@ func NewHTTPServer(
 	authHandler *httphandler.AuthHandler,
 	authService *service.AuthService,
 	videoHandler *httphandler.VideoHandler,
+	quizHandler *httphandler.QuizHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -102,6 +103,9 @@ func NewHTTPServer(
 
 			// Batch status endpoint
 			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
+
+			// Quiz grading endpoint
+			r.Post("/videos/{videoID}/quiz/grade", quizHandler.Grade)
 		})
 	})
 
