@@ -73,9 +73,7 @@ func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, user
 	}
 
 	// Azure OpenAI Chat Completions endpoint
-	url := fmt.Sprintf("%s/openai/deployments/gpt-5-nano/chat/completions?api-version=2024-05-01-preview", c.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

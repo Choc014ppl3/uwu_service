@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/repository"
 )
 
@@ -114,6 +115,7 @@ type WorkoutService struct {
 	scenarioRepo repository.ConversationScenarioRepository
 	learningRepo repository.LearningItemRepository
 	batchService *BatchService
+	chatClient   *client.AzureChatClient
 	log          zerolog.Logger
 }
 
@@ -123,6 +125,7 @@ func NewWorkoutService(
 	scenarioRepo repository.ConversationScenarioRepository,
 	learningRepo repository.LearningItemRepository,
 	batchService *BatchService,
+	chatClient *client.AzureChatClient,
 	log zerolog.Logger,
 ) *WorkoutService {
 	return &WorkoutService{
@@ -130,8 +133,52 @@ func NewWorkoutService(
 		scenarioRepo: scenarioRepo,
 		learningRepo: learningRepo,
 		batchService: batchService,
+		chatClient:   chatClient,
 		log:          log,
 	}
+}
+
+// PreBriefRequest is the request body for pre-brief generation.
+type PreBriefRequest struct {
+	WorkoutTopic string `json:"workout_topic"`
+	Description  string `json:"description"`
+}
+
+// PreBriefResponse is the response from pre-brief generation.
+type PreBriefResponse struct {
+	PreBriefPrompt string `json:"pre_brief_prompt"`
+}
+
+// GeneratePreBrief uses GPT-5 Nano to generate a markdown pre-brief prompt.
+func (s *WorkoutService) GeneratePreBrief(ctx context.Context, req PreBriefRequest) (*PreBriefResponse, error) {
+	if s.chatClient == nil {
+		return nil, fmt.Errorf("GPT-5 Nano client not configured")
+	}
+
+	systemPrompt := `You are a language learning curriculum designer.
+Given a workout topic and description, generate a detailed pre-brief prompt in Markdown format.
+The pre-brief should guide an AI content generator to create high-quality language learning exercises.
+
+Include the following sections:
+- **Learning Objectives**: What the learner should achieve
+- **Key Vocabulary**: Important words/phrases to cover
+- **Grammar Focus**: Sentence patterns or structures to practice
+- **Conversation Context**: Real-world situations where this topic applies
+- **Difficulty Guidelines**: Appropriate complexity level
+- **Cultural Notes**: Any relevant cultural context
+
+Write the output as clean Markdown text. Be specific and actionable.`
+
+	userMessage := fmt.Sprintf("Workout Topic: %s\nDescription: %s", req.WorkoutTopic, req.Description)
+
+	result, err := s.chatClient.ChatCompletion(ctx, systemPrompt, userMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate pre-brief: %w", err)
+	}
+
+	return &PreBriefResponse{
+		PreBriefPrompt: strings.TrimSpace(result),
+	}, nil
 }
 
 // WorkoutGenerateRequest is the POST body.

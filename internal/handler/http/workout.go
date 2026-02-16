@@ -54,6 +54,29 @@ func (h *WorkoutHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, result)
 }
 
+// GeneratePreBrief handles POST /api/v1/workouts/pre-brief
+func (h *WorkoutHandler) GeneratePreBrief(w http.ResponseWriter, r *http.Request) {
+	var req service.PreBriefRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.WorkoutTopic == "" {
+		response.BadRequest(w, "workout_topic is required")
+		return
+	}
+
+	result, err := h.workoutService.GeneratePreBrief(r.Context(), req)
+	if err != nil {
+		h.log.Error().Err(err).Msg("Failed to generate pre-brief")
+		response.InternalError(w, "failed to generate pre-brief")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
 // GetBatchStatus handles GET /api/v1/workouts/batches/{batchID}
 func (h *WorkoutHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")

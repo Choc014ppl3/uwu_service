@@ -161,7 +161,7 @@ func main() {
 	videoService := service.NewVideoService(videoRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 	quizService := service.NewQuizService(quizRepo)
 	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
-	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, log)
+	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
