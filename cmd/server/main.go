@@ -80,11 +80,11 @@ func main() {
 		log.Info().Msg("Azure Whisper client initialized")
 	}
 
-	// Initialize Azure OpenAI Chat client (for quiz generation)
+	// Initialize Azure GPT5 Nano Chat client (for quiz generation)
 	var azureChatClient *client.AzureChatClient
-	if cfg.AzureOpenAIEndpoint != "" && cfg.AzureOpenAIKey != "" {
-		azureChatClient = client.NewAzureChatClient(cfg.AzureOpenAIEndpoint, cfg.AzureOpenAIKey)
-		log.Info().Msg("Azure OpenAI Chat client initialized")
+	if cfg.AzureGPT5NanoEndpoint != "" && cfg.AzureGPT5NanoKey != "" {
+		azureChatClient = client.NewAzureChatClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
+		log.Info().Msg("Azure GPT5 Nano Chat client initialized")
 	}
 
 	// Initialize Redis client
@@ -161,6 +161,7 @@ func main() {
 	videoService := service.NewVideoService(videoRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 	quizService := service.NewQuizService(quizRepo)
 	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
+	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
@@ -171,9 +172,10 @@ func main() {
 	videoHandler := http.NewVideoHandler(log, videoService, batchService)
 	quizHandler := http.NewQuizHandler(log, quizService)
 	retellHandler := http.NewRetellHandler(log, retellService)
+	workoutHandler := http.NewWorkoutHandler(log, workoutService, batchService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler, workoutHandler)
 
 	// Start servers
 	go func() {

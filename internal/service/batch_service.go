@@ -141,6 +141,14 @@ func (s *BatchService) recalculateBatchStatus(ctx context.Context, batchID strin
 		return err
 	}
 
+	// Read total_jobs from batch metadata
+	batchKey := fmt.Sprintf("batch:%s", batchID)
+	batchMeta, _ := s.redis.HGetAll(ctx, batchKey)
+	totalJobs, _ := strconv.Atoi(batchMeta["total_jobs"])
+	if totalJobs == 0 {
+		totalJobs = len(jobNames) // fallback
+	}
+
 	completed := 0
 	hasFailed := false
 	for _, raw := range fields {
@@ -156,11 +164,10 @@ func (s *BatchService) recalculateBatchStatus(ctx context.Context, batchID strin
 		}
 	}
 
-	batchKey := fmt.Sprintf("batch:%s", batchID)
 	batchStatus := "processing"
 	if hasFailed {
 		batchStatus = "failed"
-	} else if completed == len(jobNames) {
+	} else if completed == totalJobs {
 		batchStatus = "completed"
 	}
 
@@ -205,6 +212,111 @@ func (s *BatchService) GetBatch(ctx context.Context, batchID string) (*BatchStat
 
 	// Maintain order from jobNames
 	for _, name := range jobNames {
+		raw, ok := jobFields[name]
+		if !ok {
+			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})
+			continue
+		}
+		var job JobStatus
+		if err := json.Unmarshal([]byte(raw), &job); err != nil {
+			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})
+			continue
+		}
+		batch.Jobs = append(batch.Jobs, job)
+	}
+
+	return batch, nil
+}
+
+// CreateBatchWithJobs initializes a batch with a custom list of job names.
+func (s *BatchService) CreateBatchWithJobs(ctx context.Context, batchID, refID string, customJobNames []string) error {
+	if s.redis == nil {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	batchKey := fmt.Sprintf("batch:%s", batchID)
+	err := s.redis.HSet(ctx, batchKey,
+		"video_id", refID,
+		"status", "processing",
+		"created_at", now,
+		"total_jobs", strconv.Itoa(len(customJobNames)),
+		"completed_jobs", "0",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create batch: %w", err)
+	}
+
+	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
+	for _, name := range customJobNames {
+		job := JobStatus{Name: name, Status: "pending"}
+		jobJSON, _ := json.Marshal(job)
+		if err := s.redis.HSet(ctx, jobsKey, name, string(jobJSON)); err != nil {
+			return fmt.Errorf("failed to set job %s: %w", name, err)
+		}
+	}
+
+	// Store job names list for recalculation
+	namesJSON, _ := json.Marshal(customJobNames)
+	_ = s.redis.HSet(ctx, batchKey, "job_names", string(namesJSON))
+
+	_ = s.redis.SetExpiry(ctx, batchKey, batchTTL)
+	_ = s.redis.SetExpiry(ctx, jobsKey, batchTTL)
+
+	s.log.Info().
+		Str("batch_id", batchID).
+		Str("ref_id", refID).
+		Int("total_jobs", len(customJobNames)).
+		Msg("Custom batch created")
+
+	return nil
+}
+
+// GetBatchWithJobs returns batch status using a dynamic job name list from Redis.
+func (s *BatchService) GetBatchWithJobs(ctx context.Context, batchID string) (*BatchStatus, error) {
+	if s.redis == nil {
+		return nil, fmt.Errorf("redis not configured")
+	}
+
+	batchKey := fmt.Sprintf("batch:%s", batchID)
+	batchFields, err := s.redis.HGetAll(ctx, batchKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch: %w", err)
+	}
+
+	if len(batchFields) == 0 {
+		return nil, nil
+	}
+
+	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
+	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
+
+	batch := &BatchStatus{
+		BatchID:       batchID,
+		VideoID:       batchFields["video_id"],
+		Status:        batchFields["status"],
+		TotalJobs:     totalJobs,
+		CompletedJobs: completedJobs,
+		CreatedAt:     batchFields["created_at"],
+	}
+
+	// Read custom job names
+	var customNames []string
+	if namesRaw, ok := batchFields["job_names"]; ok {
+		_ = json.Unmarshal([]byte(namesRaw), &customNames)
+	}
+	if len(customNames) == 0 {
+		customNames = jobNames // fallback to default
+	}
+
+	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
+	jobFields, err := s.redis.HGetAll(ctx, jobsKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get jobs: %w", err)
+	}
+
+	for _, name := range customNames {
 		raw, ok := jobFields[name]
 		if !ok {
 			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})

@@ -38,9 +38,9 @@ type Config struct {
 	AzureWhisperEndpoint string `envconfig:"AZURE_WHISPER_ENDPOINT"`
 	AzureWhisperKey      string `envconfig:"AZURE_WHISPER_KEY"`
 
-	// Azure OpenAI Chat
-	AzureOpenAIEndpoint string `envconfig:"AZURE_OPENAI_ENDPOINT"`
-	AzureOpenAIKey      string `envconfig:"AZURE_OPENAI_KEY"`
+	// Azure GPT5 Nano Chat
+	AzureGPT5NanoEndpoint string `envconfig:"AZURE_GPT5_NANO_ENDPOINT"`
+	AzureGPT5NanoKey      string `envconfig:"AZURE_GPT5_NANO_KEY"`
 
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`

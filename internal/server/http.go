@@ -35,6 +35,7 @@ func NewHTTPServer(
 	videoHandler *httphandler.VideoHandler,
 	quizHandler *httphandler.QuizHandler,
 	retellHandler *httphandler.RetellHandler,
+	workoutHandler *httphandler.WorkoutHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -112,6 +113,10 @@ func NewHTTPServer(
 			r.Post("/quiz/{lessonID}/retell", retellHandler.SubmitAttempt)
 			r.Get("/quiz/{lessonID}/retell", retellHandler.GetStatus)
 			r.Post("/quiz/{lessonID}/retell/reset", retellHandler.Reset)
+
+			// Workout endpoints
+			r.Post("/workouts/generate", workoutHandler.Generate)
+			r.Get("/workouts/batches/{batchID}", workoutHandler.GetBatchStatus)
 		})
 	})
 
