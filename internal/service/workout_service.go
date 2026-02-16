@@ -181,6 +181,209 @@ Write the output as clean Markdown text. Be specific and actionable.`
 	}, nil
 }
 
+// ConversationGenerateRequest is the request body for conversation generation.
+type ConversationGenerateRequest struct {
+	Topic           string `json:"topic"`
+	Description     string `json:"description"`
+	DescriptionType string `json:"description_type"` // "explanation" or "transcription"
+}
+
+// ConversationGenerateResponse is the response from conversation generation.
+type ConversationGenerateResponse struct {
+	BatchID string `json:"batch_id"`
+}
+
+const conversationSystemPrompt = `# Role: AI Language Learning Content Generator (JSON API)
+
+You are a backend API that processes language learning data. Your task is to generate a strictly formatted JSON object containing content for **Speech Practice** (Roleplay) and **Chat Mission** (Text-based).
+
+# Input Parameters
+* **Topic:** {{TOPIC}}
+* **Description:** {{DESCRIPTION}}
+* **Description Type:** {{DESCRIPTION_TYPE}}
+  * *Values: "explanation" (Summary of context) OR "transcription" (Actual dialogue text)*
+
+# Processing Rules
+
+## 1. Language & Level Analysis
+* **Target Language:** Detect the language from the input. Return the IETF BCP 47 code (e.g., ` + "`en-US`" + `, ` + "`zh-CN`" + `, ` + "`th-TH`" + `).
+* **Level:** Evaluate the complexity of the input text/topic and assign a standard proficiency level code:
+    * European languages: **CEFR** (A1, A2, B1, B2, C1, C2)
+    * Chinese: **HSK** (HSK1 - HSK6/9)
+    * Japanese: **JLPT** (N5 - N1)
+* **Tags:** Generate 3-5 relevant keywords describing the topic (e.g., "business", "travel", "slang").
+
+## 2. Content Generation Logic
+* **Image Prompt:** Create a prompt for a text-to-image model.
+    * *Style:* **Photorealistic, Cinematic lighting, 4k resolution, Highly detailed.**
+    * *Content:* Strictly depict the setting and atmosphere described.
+* **Speech Mode (Script) - OPTIMIZED FOR LEARNING:**
+    * **Length Constraint:** Generate **ONLY 6-10 turns for Beginner level, 10-16 turns for Intermediate level, and 16-24 turns for Advanced level**. Keep it concise.
+    * **Cognitive Load Control:** Ensure each "user" turn is **1-3 sentences max**. Avoid long monologues (too hard to memorize) and avoid single words (too easy).
+    * **If Type is "explanation":** Create a realistic dialogue where the User has a clear goal. The AI should guide the conversation naturally.
+    * **If Type is "transcription":**
+        * **SEMANTIC GROUPING:** Do not split every sentence. Group the source text into logical "Thought Units."
+        * **Example:** Combine [Observation + Feeling + Action] into one turn.
+        * **Adaptation:** You may slightly condense the source text to fit the "6-10 turns" limit while keeping the key vocabulary and phrases.
+        * **Role Play:** User speaks the core content. AI acts as an **Active Listener** (asking short follow-up questions or giving brief reactions) to bridge the User's turns naturally.
+* **Chat Mode (Objectives):**
+    * Create a "Mission" based on the same scenario.
+    * Ensure the objectives (requirements/persuasion) are smooth, logical, and match the difficulty level detected.
+
+## 3. Strict Output Constraints
+* **Output ONLY valid JSON.**
+* **DO NOT** use markdown code blocks.
+* **DO NOT** include any conversational text, explanations, or comments.
+* Ensure all strings are properly escaped.
+
+# JSON Output Schema
+
+{
+  "meta": {
+    "target_lang": "string",
+    "level": "string",
+    "tags": ["string"]
+  },
+  "image_prompt": "string",
+  "speech_mode": {
+    "script": [
+      {
+        "speaker": "string",
+        "text": "string"
+      }
+    ]
+  },
+  "chat_mode": {
+    "situation": "string",
+    "objectives": {
+      "requirements": ["string"],
+      "persuasion": ["string"],
+      "constraints": ["string"]
+    }
+  }
+}`
+
+const conversationJobName = "generate_conversation"
+
+// GenerateConversation kicks off async conversation generation via GPT-5 Nano.
+// Returns a batch_id immediately; poll GET /workouts/batches/{batchID} for result.
+func (s *WorkoutService) GenerateConversation(ctx context.Context, req ConversationGenerateRequest) (*ConversationGenerateResponse, error) {
+	if s.chatClient == nil {
+		return nil, fmt.Errorf("GPT-5 Nano client not configured")
+	}
+
+	batchID := uuid.New().String()
+
+	// Create batch with a single job
+	_ = s.batchService.CreateBatchWithJobs(ctx, batchID, req.Topic, []string{conversationJobName})
+
+	// Run in background
+	go s.processConversationAsync(batchID, req)
+
+	return &ConversationGenerateResponse{
+		BatchID: batchID,
+	}, nil
+}
+
+// processConversationAsync runs the AI call, parses, saves to DB, and updates batch.
+func (s *WorkoutService) processConversationAsync(batchID string, req ConversationGenerateRequest) {
+	ctx := context.Background()
+
+	_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "processing", "")
+
+	userMessage := fmt.Sprintf("Topic: %s\nDescription: %s\nDescription Type: %s", req.Topic, req.Description, req.DescriptionType)
+
+	aiResp, err := s.chatClient.ChatCompletion(ctx, conversationSystemPrompt, userMessage)
+	if err != nil {
+		s.log.Error().Err(err).Str("batch_id", batchID).Msg("Conversation AI generation failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "failed", err.Error())
+		return
+	}
+
+	// Clean response
+	cleanResp := strings.TrimSpace(aiResp)
+	cleanResp = strings.TrimPrefix(cleanResp, "```json")
+	cleanResp = strings.TrimPrefix(cleanResp, "```")
+	cleanResp = strings.TrimSuffix(cleanResp, "```")
+	cleanResp = strings.TrimSpace(cleanResp)
+
+	// Parse AI response
+	var parsed struct {
+		Meta struct {
+			TargetLang string   `json:"target_lang"`
+			Level      string   `json:"level"`
+			Tags       []string `json:"tags"`
+		} `json:"meta"`
+		ImagePrompt string `json:"image_prompt"`
+		SpeechMode  struct {
+			Script json.RawMessage `json:"script"`
+		} `json:"speech_mode"`
+		ChatMode json.RawMessage `json:"chat_mode"`
+	}
+	if err := json.Unmarshal([]byte(cleanResp), &parsed); err != nil {
+		s.log.Error().Err(err).Str("raw", cleanResp).Msg("Failed to parse conversation AI response")
+		_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "failed", "failed to parse AI response: "+err.Error())
+		return
+	}
+
+	// Save speech scenario
+	speechMetadata, _ := json.Marshal(map[string]interface{}{
+		"image_prompt": parsed.ImagePrompt,
+		"script":       json.RawMessage(parsed.SpeechMode.Script),
+		"level":        parsed.Meta.Level,
+		"tags":         parsed.Meta.Tags,
+	})
+	speechScenario := &repository.ConversationScenario{
+		Topic:           req.Topic,
+		Description:     req.Description,
+		InteractionType: "speech",
+		TargetLang:      parsed.Meta.TargetLang,
+		EstimatedTurns:  "6-10",
+		DifficultyLevel: 1,
+		Metadata:        speechMetadata,
+		IsActive:        true,
+	}
+	if err := s.scenarioRepo.Create(ctx, speechScenario); err != nil {
+		s.log.Error().Err(err).Msg("Failed to save speech scenario")
+		_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "failed", "failed to save speech scenario: "+err.Error())
+		return
+	}
+
+	// Save chat scenario
+	chatMetadata, _ := json.Marshal(map[string]interface{}{
+		"image_prompt": parsed.ImagePrompt,
+		"chat_mode":    json.RawMessage(parsed.ChatMode),
+		"level":        parsed.Meta.Level,
+		"tags":         parsed.Meta.Tags,
+	})
+	chatScenario := &repository.ConversationScenario{
+		Topic:           req.Topic,
+		Description:     req.Description,
+		InteractionType: "chat",
+		TargetLang:      parsed.Meta.TargetLang,
+		EstimatedTurns:  "6-10",
+		DifficultyLevel: 1,
+		Metadata:        chatMetadata,
+		IsActive:        true,
+	}
+	if err := s.scenarioRepo.Create(ctx, chatScenario); err != nil {
+		s.log.Error().Err(err).Msg("Failed to save chat scenario")
+		_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "failed", "failed to save chat scenario: "+err.Error())
+		return
+	}
+
+	// Store result data in batch metadata so client can retrieve it
+	resultData, _ := json.Marshal(map[string]interface{}{
+		"speech_scenario_id": speechScenario.ID.String(),
+		"chat_scenario_id":   chatScenario.ID.String(),
+		"data":               json.RawMessage(cleanResp),
+	})
+	_ = s.batchService.SetBatchResult(ctx, batchID, resultData)
+
+	_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "completed", "")
+	s.log.Info().Str("batch_id", batchID).Msg("Conversation generation completed")
+}
+
 // WorkoutGenerateRequest is the POST body.
 type WorkoutGenerateRequest struct {
 	WorkoutTopic   string `json:"workout_topic"`

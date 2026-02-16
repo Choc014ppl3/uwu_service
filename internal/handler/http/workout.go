@@ -77,6 +77,36 @@ func (h *WorkoutHandler) GeneratePreBrief(w http.ResponseWriter, r *http.Request
 	response.JSON(w, http.StatusOK, result)
 }
 
+// GenerateConversation handles POST /api/v1/workouts/conversation
+func (h *WorkoutHandler) GenerateConversation(w http.ResponseWriter, r *http.Request) {
+	var req service.ConversationGenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.Topic == "" {
+		response.BadRequest(w, "topic is required")
+		return
+	}
+	if req.DescriptionType == "" {
+		req.DescriptionType = "explanation" // default
+	}
+	if req.DescriptionType != "explanation" && req.DescriptionType != "transcription" {
+		response.BadRequest(w, "description_type must be 'explanation' or 'transcription'")
+		return
+	}
+
+	result, err := h.workoutService.GenerateConversation(r.Context(), req)
+	if err != nil {
+		h.log.Error().Err(err).Msg("Failed to generate conversation")
+		response.InternalError(w, "failed to generate conversation")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
 // GetBatchStatus handles GET /api/v1/workouts/batches/{batchID}
 func (h *WorkoutHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")

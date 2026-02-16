@@ -117,6 +117,7 @@ func NewHTTPServer(
 			// Workout endpoints
 			r.Post("/workouts/generate", workoutHandler.Generate)
 			r.Post("/workouts/pre-brief", workoutHandler.GeneratePreBrief)
+			r.Post("/workouts/conversation", workoutHandler.GenerateConversation)
 			r.Get("/workouts/batches/{batchID}", workoutHandler.GetBatchStatus)
 		})
 	})

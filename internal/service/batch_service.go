@@ -25,13 +25,14 @@ type JobStatus struct {
 
 // BatchStatus is the combined status of a batch and all its jobs.
 type BatchStatus struct {
-	BatchID       string      `json:"batch_id"`
-	VideoID       string      `json:"video_id"`
-	Status        string      `json:"status"` // processing, completed, failed
-	TotalJobs     int         `json:"total_jobs"`
-	CompletedJobs int         `json:"completed_jobs"`
-	Jobs          []JobStatus `json:"jobs"`
-	CreatedAt     string      `json:"created_at"`
+	BatchID       string          `json:"batch_id"`
+	VideoID       string          `json:"video_id"`
+	Status        string          `json:"status"` // processing, completed, failed
+	TotalJobs     int             `json:"total_jobs"`
+	CompletedJobs int             `json:"completed_jobs"`
+	Jobs          []JobStatus     `json:"jobs"`
+	CreatedAt     string          `json:"created_at"`
+	Result        json.RawMessage `json:"result,omitempty"`
 }
 
 // BatchService manages batch + job state in Redis.
@@ -330,5 +331,19 @@ func (s *BatchService) GetBatchWithJobs(ctx context.Context, batchID string) (*B
 		batch.Jobs = append(batch.Jobs, job)
 	}
 
+	// Include result data if present
+	if resultRaw, ok := batchFields["result"]; ok && resultRaw != "" {
+		batch.Result = json.RawMessage(resultRaw)
+	}
+
 	return batch, nil
+}
+
+// SetBatchResult stores result data in batch metadata.
+func (s *BatchService) SetBatchResult(ctx context.Context, batchID string, result json.RawMessage) error {
+	if s.redis == nil {
+		return nil
+	}
+	batchKey := fmt.Sprintf("batch:%s", batchID)
+	return s.redis.HSet(ctx, batchKey, "result", string(result))
 }

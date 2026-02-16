@@ -64,7 +64,7 @@ func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, user
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userMessage},
 		},
-		Temperature: 0.3, // Low temperature for consistent, structured JSON output
+		// Note: Temperature omitted — GPT-5 Nano only supports default (1)
 	}
 
 	bodyJSON, err := json.Marshal(reqBody)
