@@ -28,6 +28,7 @@ type LearningItem struct {
 type LearningItemRepository interface {
 	Create(ctx context.Context, item *LearningItem) error
 	GetByID(ctx context.Context, id uuid.UUID) (*LearningItem, error)
+	GetByBatchID(ctx context.Context, batchID string) ([]*LearningItem, error)
 	List(ctx context.Context, limit, offset int) ([]*LearningItem, int, error)
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -215,4 +216,38 @@ func (r *PostgresLearningItemRepository) Delete(ctx context.Context, id uuid.UUI
 		return fmt.Errorf("failed to delete learning item: %w", err)
 	}
 	return nil
+}
+
+func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batchID string) ([]*LearningItem, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
+
+	query := `
+		SELECT id, content, lang_code, meanings, reading, type, tags, media, metadata, is_active, created_at, updated_at
+		FROM learning_items
+		WHERE metadata->>'batch_id' = $1
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query, batchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get learning items by batch_id: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*LearningItem
+	for rows.Next() {
+		var item LearningItem
+		if err := rows.Scan(
+			&item.ID, &item.Content, &item.LangCode, &item.Meanings, &item.Reading,
+			&item.Type, &item.Tags, &item.Media, &item.Metadata, &item.IsActive,
+			&item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan learning item: %w", err)
+		}
+		items = append(items, &item)
+	}
+
+	return items, nil
 }

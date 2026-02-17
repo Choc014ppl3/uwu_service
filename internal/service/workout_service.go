@@ -426,6 +426,266 @@ func (s *WorkoutService) GetScenariosByBatchID(ctx context.Context, batchID stri
 	return result, nil
 }
 
+// LearningItemsGenerateRequest is the request body for learning items generation from scenario.
+type LearningItemsGenerateRequest struct {
+	ScenarioID string `json:"scenario_id"`
+}
+
+// LearningItemsGenerateResponse returns batch_id for async polling.
+type LearningItemsGenerateResponse struct {
+	BatchID string `json:"batch_id"`
+}
+
+const learningItemsJobName = "generate_learning_items"
+
+const learningItemsSystemPrompt = `# Role: Adaptive Learning Content Generator
+
+You are a strict Linguistic Data Extraction API. 
+Your task is to analyze the provided **Conversation Script** and **Scenario Context** to generate a JSON Array of learning items.
+
+**Input Parameters:**
+- **Context:** The conversation script and situation details provided by the user.
+- **Target Level:** "{{level}}" (e.g., B1, B2)
+- **Target Topics:** "{{tags}}" (e.g., survival, fishing, outdoor)
+
+---
+
+## **Strict Rules:**
+
+1. **Output Format:** You MUST return a valid **JSON Array** containing multiple learning item objects. No markdown formatting.
+2. **Extraction Logic:** You must identify and extract items that fit specific **Learning Categories** (detailed below). Do not generate generic trivia; focus on linguistic utility.
+3. **Language:** - ` + "`instruction`" + ` and ` + "`explanations`" + ` must be in **English**.
+   - ` + "`meanings`" + ` or translations should be in **English** definitions.
+
+---
+
+## **Learning Categories & Schema Requirements:**
+
+### **1. Category: "rhythm_flow" (For Intonation & Linking)**
+- **type**: "rhythm_flow"
+- **source_text**: The full sentence from the script.
+- **audio_guide**:
+    - **stress_marked**: The sentence with CAPS for stressed syllables.
+    - **intonation**: Description of the pitch.
+- **drill_focus**: "sentence_stress", "linking", or "emotional_inflection".
+
+### **2. Category: "structure_drill" (For Grammar Patterns)**
+- **type**: "structure_drill"
+- **source_text**: The sentence containing the pattern.
+- **pattern_name**: The grammatical concept.
+- **structure_formula**: The abstract formula.
+- **cloze_test**: The sentence with key element replaced by ` + "`[___]`" + `.
+
+### **3. Category: "vocab_reps" (For Vocabulary Acquisition)**
+- **type**: "vocab_reps"
+- **word**: The target word (lemma form).
+- **pos**: Part of speech.
+- **ipa**: IPA pronunciation.
+- **definition**: A concise definition suitable for the Target Level.
+- **media**:
+    - **image_prompt**: A detailed description for generating an image (photorealistic style).
+
+### **4. Category: "precision_check" (For Nuance & Collocation)**
+- **type**: "precision_check"
+- **phrase**: The specific collocation or phrase.
+- **usage_note**: Why this specific wording is used.
+- **collocation_partners**: Other words that commonly go with this keyword.
+
+---
+
+## **JSON Output Structure:**
+
+[
+  {
+    "category": "vocab_reps",
+    "item_id": "vocab_001",
+    "data": {
+      "word": "string",
+      "pos": "string",
+      "ipa": "string",
+      "definition": "string",
+      "context_sentence": "string",
+      "media": {
+        "image_prompt": "string"
+      }
+    }
+  },
+  {
+    "category": "structure_drill",
+    "item_id": "struct_001",
+    "data": {
+      "source_text": "string",
+      "pattern_name": "string",
+      "structure_formula": "string",
+      "cloze_test": "string"
+    }
+  },
+  {
+    "category": "rhythm_flow",
+    "item_id": "flow_001",
+    "data": {
+      "source_text": "string",
+      "audio_guide": {
+        "stress_marked": "string",
+        "intonation": "string"
+      },
+      "drill_focus": "string"
+    }
+  },
+  {
+    "category": "precision_check",
+    "item_id": "check_001",
+    "data": {
+      "phrase": "string",
+      "usage_note": "string",
+      "collocation_partners": ["string"]
+    }
+  }
+]`
+
+// GenerateLearningItems kicks off async learning item generation from a speech scenario.
+func (s *WorkoutService) GenerateLearningItems(ctx context.Context, req LearningItemsGenerateRequest) (*LearningItemsGenerateResponse, error) {
+	if s.chatClient == nil {
+		return nil, fmt.Errorf("GPT-5 Nano client not configured")
+	}
+
+	// Fetch the scenario
+	scenarioID, err := uuid.Parse(req.ScenarioID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid scenario_id: %w", err)
+	}
+
+	scenario, err := s.scenarioRepo.GetByID(ctx, scenarioID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scenario: %w", err)
+	}
+
+	batchID := uuid.New().String()
+	_ = s.batchService.CreateBatchWithJobs(ctx, batchID, req.ScenarioID, []string{learningItemsJobName})
+
+	go s.processLearningItemsAsync(batchID, scenario)
+
+	return &LearningItemsGenerateResponse{
+		BatchID: batchID,
+	}, nil
+}
+
+// processLearningItemsAsync calls GPT-5 Nano, parses the learning items array, saves to DB.
+func (s *WorkoutService) processLearningItemsAsync(batchID string, scenario *repository.ConversationScenario) {
+	ctx := context.Background()
+	_ = s.batchService.UpdateJob(ctx, batchID, learningItemsJobName, "processing", "")
+
+	// Extract level and tags from scenario metadata
+	var meta struct {
+		Level string   `json:"level"`
+		Tags  []string `json:"tags"`
+	}
+	_ = json.Unmarshal(scenario.Metadata, &meta)
+
+	level := meta.Level
+	tags := strings.Join(meta.Tags, ", ")
+
+	// Replace template vars in system prompt
+	systemPrompt := strings.ReplaceAll(learningItemsSystemPrompt, "{{level}}", level)
+	systemPrompt = strings.ReplaceAll(systemPrompt, "{{tags}}", tags)
+
+	userMessage := fmt.Sprintf("Scenario: %s\nTarget Language: %s\n\nConversation Script:\n%s",
+		scenario.Topic, scenario.TargetLang, scenario.Description)
+
+	aiResp, err := s.chatClient.ChatCompletion(ctx, systemPrompt, userMessage)
+	if err != nil {
+		s.log.Error().Err(err).Str("batch_id", batchID).Msg("Learning items AI generation failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, learningItemsJobName, "failed", err.Error())
+		return
+	}
+
+	// Clean response
+	cleanResp := strings.TrimSpace(aiResp)
+	cleanResp = strings.TrimPrefix(cleanResp, "```json")
+	cleanResp = strings.TrimPrefix(cleanResp, "```")
+	cleanResp = strings.TrimSuffix(cleanResp, "```")
+	cleanResp = strings.TrimSpace(cleanResp)
+
+	// Parse as array of learning items
+	var items []struct {
+		Category string          `json:"category"`
+		ItemID   string          `json:"item_id"`
+		Data     json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(cleanResp), &items); err != nil {
+		s.log.Error().Err(err).Str("raw", cleanResp).Msg("Failed to parse learning items AI response")
+		_ = s.batchService.UpdateJob(ctx, batchID, learningItemsJobName, "failed", "failed to parse AI response: "+err.Error())
+		return
+	}
+
+	// Save each learning item to DB
+	var savedIDs []string
+	for _, item := range items {
+		metadata, _ := json.Marshal(map[string]interface{}{
+			"batch_id":    batchID,
+			"scenario_id": scenario.ID.String(),
+			"category":    item.Category,
+			"item_id":     item.ItemID,
+		})
+
+		dbItem := &repository.LearningItem{
+			Content:  fmt.Sprintf("[%s] %s", item.Category, item.ItemID),
+			LangCode: scenario.TargetLang,
+			Type:     item.Category,
+			Tags:     meta.Tags,
+			Media:    json.RawMessage("{}"),
+			Metadata: metadata,
+			IsActive: true,
+		}
+
+		// Store the full AI data in meanings field as structured data
+		dbItem.Meanings = item.Data
+		dbItem.Reading = json.RawMessage("{}")
+
+		if err := s.learningRepo.Create(ctx, dbItem); err != nil {
+			s.log.Error().Err(err).Str("item_id", item.ItemID).Msg("Failed to save learning item")
+			continue
+		}
+		savedIDs = append(savedIDs, dbItem.ID.String())
+	}
+
+	// Store result in batch
+	resultData, _ := json.Marshal(map[string]interface{}{
+		"scenario_id":    scenario.ID.String(),
+		"total_items":    len(items),
+		"saved_item_ids": savedIDs,
+		"data":           json.RawMessage(cleanResp),
+	})
+	_ = s.batchService.SetBatchResult(ctx, batchID, resultData)
+
+	_ = s.batchService.UpdateJob(ctx, batchID, learningItemsJobName, "completed", "")
+	s.log.Info().Str("batch_id", batchID).Int("items", len(savedIDs)).Msg("Learning items generation completed")
+}
+
+// LearningItemsBatchResult is the DB-fallback response for expired learning item batches.
+type LearningItemsBatchResult struct {
+	BatchID string                     `json:"batch_id"`
+	Status  string                     `json:"status"`
+	Items   []*repository.LearningItem `json:"items"`
+}
+
+// GetLearningItemsByBatchID retrieves learning items from DB by batch_id.
+func (s *WorkoutService) GetLearningItemsByBatchID(ctx context.Context, batchID string) (*LearningItemsBatchResult, error) {
+	items, err := s.learningRepo.GetByBatchID(ctx, batchID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	return &LearningItemsBatchResult{
+		BatchID: batchID,
+		Status:  "completed",
+		Items:   items,
+	}, nil
+}
+
 // WorkoutGenerateRequest is the POST body.
 type WorkoutGenerateRequest struct {
 	WorkoutTopic   string `json:"workout_topic"`

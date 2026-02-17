@@ -107,6 +107,29 @@ func (h *WorkoutHandler) GenerateConversation(w http.ResponseWriter, r *http.Req
 	response.JSON(w, http.StatusOK, result)
 }
 
+// GenerateLearningItems handles POST /api/v1/workouts/learning-items
+func (h *WorkoutHandler) GenerateLearningItems(w http.ResponseWriter, r *http.Request) {
+	var req service.LearningItemsGenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.ScenarioID == "" {
+		response.BadRequest(w, "scenario_id is required")
+		return
+	}
+
+	result, err := h.workoutService.GenerateLearningItems(r.Context(), req)
+	if err != nil {
+		h.log.Error().Err(err).Msg("Failed to generate learning items")
+		response.InternalError(w, "failed to generate learning items")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
 // GetBatchStatus handles GET /api/v1/workouts/batches/{batchID}
 func (h *WorkoutHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")
@@ -123,18 +146,24 @@ func (h *WorkoutHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if batch == nil {
-		// Batch expired from Redis — fall back to database
+		// Batch expired from Redis — try scenarios first, then learning items
 		scenarios, err := h.workoutService.GetScenariosByBatchID(r.Context(), batchID)
-		if err != nil || scenarios == nil {
-			response.JSON(w, http.StatusGone, map[string]string{
-				"batch_id": batchID,
-				"status":   "expired",
-				"message":  "batch has been processed and cleaned up from memory",
-			})
+		if err == nil && scenarios != nil {
+			response.JSON(w, http.StatusOK, scenarios)
 			return
 		}
 
-		response.JSON(w, http.StatusOK, scenarios)
+		learningItems, err := h.workoutService.GetLearningItemsByBatchID(r.Context(), batchID)
+		if err == nil && learningItems != nil {
+			response.JSON(w, http.StatusOK, learningItems)
+			return
+		}
+
+		response.JSON(w, http.StatusGone, map[string]string{
+			"batch_id": batchID,
+			"status":   "expired",
+			"message":  "batch has been processed and cleaned up from memory",
+		})
 		return
 	}
 
