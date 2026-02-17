@@ -224,7 +224,7 @@ You are a backend API that processes language learning data. Your task is to gen
     * **If Type is "transcription":**
         * **SEMANTIC GROUPING:** Do not split every sentence. Group the source text into logical "Thought Units."
         * **Example:** Combine [Observation + Feeling + Action] into one turn.
-        * **Adaptation:** You may slightly condense the source text to fit the "6-10 turns" limit while keeping the key vocabulary and phrases.
+        * **Adaptation:** You may slightly condense the source text to fit the "setting turns" limit while keeping the key vocabulary and phrases.
         * **Role Play:** User speaks the core content. AI acts as an **Active Listener** (asking short follow-up questions or giving brief reactions) to bridge the User's turns naturally.
 * **Chat Mode (Objectives):**
     * Create a "Mission" based on the same scenario.
@@ -241,24 +241,25 @@ You are a backend API that processes language learning data. Your task is to gen
 {
   "meta": {
     "target_lang": "string",
-    "level": "string",
-    "tags": ["string"]
+    "level": "string", // e.g. "HSK3" or "B1"
+    "tags": ["string"] // e.g. ["shopping", "bargaining"]
   },
-  "image_prompt": "string",
+  "image_prompt": "string", // English, Photorealistic style
   "speech_mode": {
     "script": [
       {
-        "speaker": "string",
-        "text": "string"
+        "speaker": "string", // "User" or "AI" (Try to avoid turn-by-turn dialogues)
+        "text": "string" // Actual dialogue text
       }
+	  // ... Generate enough turns to cover the content ...
     ]
   },
   "chat_mode": {
-    "situation": "string",
+    "situation": "string", // Brief context setup
     "objectives": {
-      "requirements": ["string"],
-      "persuasion": ["string"],
-      "constraints": ["string"]
+      "requirements": ["string"], // 3-5 Actionable tasks suited to the level
+      "persuasion": ["string"], // 1-2 Goals to achieve in the conversation
+      "constraints": ["string"] // 1-3 Behavioral/Tonal constraints
     }
   }
 }`
@@ -328,6 +329,7 @@ func (s *WorkoutService) processConversationAsync(batchID string, req Conversati
 
 	// Save speech scenario
 	speechMetadata, _ := json.Marshal(map[string]interface{}{
+		"batch_id":     batchID,
 		"image_prompt": parsed.ImagePrompt,
 		"script":       json.RawMessage(parsed.SpeechMode.Script),
 		"level":        parsed.Meta.Level,
@@ -351,6 +353,7 @@ func (s *WorkoutService) processConversationAsync(batchID string, req Conversati
 
 	// Save chat scenario
 	chatMetadata, _ := json.Marshal(map[string]interface{}{
+		"batch_id":     batchID,
 		"image_prompt": parsed.ImagePrompt,
 		"chat_mode":    json.RawMessage(parsed.ChatMode),
 		"level":        parsed.Meta.Level,
@@ -382,6 +385,45 @@ func (s *WorkoutService) processConversationAsync(batchID string, req Conversati
 
 	_ = s.batchService.UpdateJob(ctx, batchID, conversationJobName, "completed", "")
 	s.log.Info().Str("batch_id", batchID).Msg("Conversation generation completed")
+}
+
+// ConversationBatchResult is the DB-fallback response for expired batches.
+type ConversationBatchResult struct {
+	BatchID          string                           `json:"batch_id"`
+	Status           string                           `json:"status"`
+	SpeechScenarioID string                           `json:"speech_scenario_id,omitempty"`
+	ChatScenarioID   string                           `json:"chat_scenario_id,omitempty"`
+	SpeechScenario   *repository.ConversationScenario `json:"speech_scenario,omitempty"`
+	ChatScenario     *repository.ConversationScenario `json:"chat_scenario,omitempty"`
+}
+
+// GetScenariosByBatchID retrieves conversation scenarios from DB by batch_id.
+func (s *WorkoutService) GetScenariosByBatchID(ctx context.Context, batchID string) (*ConversationBatchResult, error) {
+	scenarios, err := s.scenarioRepo.GetByBatchID(ctx, batchID)
+	if err != nil {
+		return nil, err
+	}
+	if len(scenarios) == 0 {
+		return nil, nil
+	}
+
+	result := &ConversationBatchResult{
+		BatchID: batchID,
+		Status:  "completed",
+	}
+
+	for _, sc := range scenarios {
+		switch sc.InteractionType {
+		case "speech":
+			result.SpeechScenarioID = sc.ID.String()
+			result.SpeechScenario = sc
+		case "chat":
+			result.ChatScenarioID = sc.ID.String()
+			result.ChatScenario = sc
+		}
+	}
+
+	return result, nil
 }
 
 // WorkoutGenerateRequest is the POST body.

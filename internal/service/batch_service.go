@@ -13,6 +13,7 @@ import (
 )
 
 const batchTTL = 24 * time.Hour
+const completedBatchTTL = 10 * time.Minute // cleanup completed/failed batches sooner
 
 // JobStatus holds the status of a single job within a batch.
 type JobStatus struct {
@@ -173,6 +174,14 @@ func (s *BatchService) recalculateBatchStatus(ctx context.Context, batchID strin
 	}
 
 	_ = s.redis.HSet(ctx, batchKey, "status", batchStatus, "completed_jobs", strconv.Itoa(completed))
+
+	// Shorten TTL for completed/failed batches to free Redis memory
+	if batchStatus == "completed" || batchStatus == "failed" {
+		jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
+		_ = s.redis.SetExpiry(ctx, batchKey, completedBatchTTL)
+		_ = s.redis.SetExpiry(ctx, jobsKey, completedBatchTTL)
+	}
+
 	return nil
 }
 

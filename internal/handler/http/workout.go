@@ -123,7 +123,18 @@ func (h *WorkoutHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if batch == nil {
-		response.NotFound(w, "batch not found")
+		// Batch expired from Redis — fall back to database
+		scenarios, err := h.workoutService.GetScenariosByBatchID(r.Context(), batchID)
+		if err != nil || scenarios == nil {
+			response.JSON(w, http.StatusGone, map[string]string{
+				"batch_id": batchID,
+				"status":   "expired",
+				"message":  "batch has been processed and cleaned up from memory",
+			})
+			return
+		}
+
+		response.JSON(w, http.StatusOK, scenarios)
 		return
 	}
 

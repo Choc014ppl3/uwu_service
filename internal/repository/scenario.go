@@ -27,6 +27,7 @@ type ConversationScenario struct {
 type ConversationScenarioRepository interface {
 	Create(ctx context.Context, item *ConversationScenario) error
 	GetByID(ctx context.Context, id uuid.UUID) (*ConversationScenario, error)
+	GetByBatchID(ctx context.Context, batchID string) ([]*ConversationScenario, error)
 	UpdateMetadata(ctx context.Context, id uuid.UUID, metadata json.RawMessage) error
 }
 
@@ -119,4 +120,38 @@ func (r *PostgresScenarioRepository) UpdateMetadata(ctx context.Context, id uuid
 	}
 
 	return nil
+}
+
+func (r *PostgresScenarioRepository) GetByBatchID(ctx context.Context, batchID string) ([]*ConversationScenario, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
+
+	query := `
+		SELECT id, topic, description, interaction_type, target_lang, estimated_turns, difficulty_level, metadata, is_active, created_at, updated_at
+		FROM conversation_scenarios
+		WHERE metadata->>'batch_id' = $1
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query, batchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scenarios by batch_id: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*ConversationScenario
+	for rows.Next() {
+		var item ConversationScenario
+		if err := rows.Scan(
+			&item.ID, &item.Topic, &item.Description, &item.InteractionType,
+			&item.TargetLang, &item.EstimatedTurns, &item.DifficultyLevel,
+			&item.Metadata, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan scenario: %w", err)
+		}
+		items = append(items, &item)
+	}
+
+	return items, nil
 }
