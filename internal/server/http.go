@@ -32,6 +32,10 @@ func NewHTTPServer(
 	learningItemHandler *httphandler.LearningItemHandler,
 	authHandler *httphandler.AuthHandler,
 	authService *service.AuthService,
+	videoHandler *httphandler.VideoHandler,
+	quizHandler *httphandler.QuizHandler,
+	retellHandler *httphandler.RetellHandler,
+	workoutHandler *httphandler.WorkoutHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -87,6 +91,7 @@ func NewHTTPServer(
 			// Learning Items endpoints
 			r.Post("/learning-items", learningItemHandler.CreateLearningItem)
 			r.Get("/learning-items", learningItemHandler.ListLearningItems)
+			r.Get("/learning-items/feature", learningItemHandler.GetLearningItemsByFeature)
 			r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
 			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
 			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
@@ -94,6 +99,29 @@ func NewHTTPServer(
 			// Conversation Scenarios endpoints
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
 			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
+
+			// Video endpoints
+			r.Post("/videos/upload", videoHandler.Upload)
+			r.Get("/videos/{videoID}", videoHandler.Get)
+			// Quiz grading endpoint
+			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)
+
+			// Retell check endpoints
+			r.Post("/quiz/{lessonID}/retell", retellHandler.SubmitAttempt)
+			r.Get("/quiz/{lessonID}/retell", retellHandler.GetStatus)
+			r.Post("/quiz/{lessonID}/retell/reset", retellHandler.Reset)
+
+			// Workout endpoints
+			r.Post("/workouts/generate", workoutHandler.Generate)
+			r.Post("/workouts/pre-brief", workoutHandler.GeneratePreBrief)
+			r.Post("/workouts/conversation", workoutHandler.GenerateConversation)
+			r.Post("/workouts/learning-items", workoutHandler.GenerateLearningItems)
+			r.Get("/workouts/batches/{batchID}", workoutHandler.GetBatchStatus)
+
+			// Batch status endpoint
+			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
+			r.Get("/batches/{batchID}/immersions", videoHandler.GetBatchImmersion)
+
 		})
 	})
 

@@ -107,6 +107,10 @@ jobs:
             GCP_LOCATION,
             AZURE_AI_SPEECH_KEY,
             AZURE_SERVICE_REGION,
+            AZURE_WHISPER_ENDPOINT,
+            AZURE_WHISPER_KEY,
+            AZURE_GPT5_NANO_ENDPOINT,
+            AZURE_GPT5_NANO_KEY,
             CLOUDFLARE_ACCESS_KEY_ID,
             CLOUDFLARE_SECRET_ACCESS_KEY,
             CLOUDFLARE_R2_ENDPOINT,
@@ -124,8 +128,11 @@ jobs:
             
             # ถ้ายังไม่มีโฟลเดอร์ .git ให้ clone ใหม่
             if [ ! -d .git ]; then
-                git clone https://github.com/${{ github.repository }}.git .
+                git clone https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git .
             fi
+
+            # อัพเดท remote URL ให้มี token สำหรับ private repo
+            git remote set-url origin https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
 
             # บังคับดึงของใหม่มาทับเลย (ไม่ต้องกลัว Conflict)
             git fetch origin main
@@ -173,6 +180,14 @@ jobs:
           # Azure
           AZURE_AI_SPEECH_KEY: ${{ secrets.AZURE_AI_SPEECH_KEY }}
           AZURE_SERVICE_REGION: ${{ vars.AZURE_SERVICE_REGION }}
+          
+          # Azure OpenAI Whisper
+          AZURE_WHISPER_ENDPOINT: ${{ vars.AZURE_WHISPER_ENDPOINT }}
+          AZURE_WHISPER_KEY: ${{ secrets.AZURE_WHISPER_KEY }}
+
+          # Azure GPT5 Nano Chat
+          AZURE_GPT5_NANO_ENDPOINT: ${{ vars.AZURE_GPT5_NANO_ENDPOINT }}
+          AZURE_GPT5_NANO_KEY: ${{ secrets.AZURE_GPT5_NANO_KEY }}
 
           # Cloudflare
           CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY_ID }}
@@ -183,4 +198,3 @@ jobs:
 
           # JWT
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          

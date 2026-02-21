@@ -67,6 +67,52 @@ func (h *LearningItemHandler) ListLearningItems(w http.ResponseWriter, r *http.R
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (h *LearningItemHandler) GetLearningItemsByFeature(w http.ResponseWriter, r *http.Request) {
+	featureIDStr := r.URL.Query().Get("feature_id")
+	if featureIDStr == "" {
+		http.Error(w, "feature_id parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	featureID, err := strconv.Atoi(featureIDStr)
+	if err != nil {
+		http.Error(w, "invalid feature_id parameter", http.StatusBadRequest)
+		return
+	}
+
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+
+	page := 1
+	limit := 20
+
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	items, total, err := h.service.GetLearningItemsByFeature(r.Context(), featureID, page, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"data":  items,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

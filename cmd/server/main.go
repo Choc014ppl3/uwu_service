@@ -73,6 +73,20 @@ func main() {
 		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
 	}
 
+	// Initialize Azure OpenAI Whisper client (for video subtitle transcription)
+	var whisperClient *client.AzureWhisperClient
+	if cfg.AzureWhisperEndpoint != "" && cfg.AzureWhisperKey != "" {
+		whisperClient = client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
+		log.Info().Msg("Azure Whisper client initialized")
+	}
+
+	// Initialize Azure GPT5 Nano Chat client (for quiz generation)
+	var azureChatClient *client.AzureChatClient
+	if cfg.AzureGPT5NanoEndpoint != "" && cfg.AzureGPT5NanoKey != "" {
+		azureChatClient = client.NewAzureChatClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
+		log.Info().Msg("Azure GPT5 Nano Chat client initialized")
+	}
+
 	// Initialize Redis client
 	var redisClient *client.RedisClient
 	if cfg.RedisURL != "" {
@@ -130,8 +144,10 @@ func main() {
 
 	// Initialize Repositories
 	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
+	mediaItemRepo := repository.NewPostgresMediaItemRepository(postgresClient)
 	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
 	userRepo := repository.NewPostgresUserRepository(postgresClient)
+	// videoRepo := repository.NewPostgresVideoRepository(postgresClient) // Deprecated
 
 	// Initialize services
 	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
@@ -140,6 +156,13 @@ func main() {
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
+	batchService := service.NewBatchService(redisClient, log)
+	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
+	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
+	videoService := service.NewVideoService(learningItemRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
+	quizService := service.NewQuizService(quizRepo)
+	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
+	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
@@ -147,9 +170,13 @@ func main() {
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 	learningItemHandler := http.NewLearningItemHandler(learningService)
 	authHandler := http.NewAuthHandler(log, authService)
+	videoHandler := http.NewVideoHandler(log, videoService, batchService)
+	quizHandler := http.NewQuizHandler(log, quizService)
+	retellHandler := http.NewRetellHandler(log, retellService)
+	workoutHandler := http.NewWorkoutHandler(log, workoutService, batchService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler, workoutHandler)
 
 	// Start servers
 	go func() {

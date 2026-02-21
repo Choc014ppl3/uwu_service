@@ -34,6 +34,14 @@ type Config struct {
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
 	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
 
+	// Azure Whisper
+	AzureWhisperEndpoint string `envconfig:"AZURE_WHISPER_ENDPOINT"`
+	AzureWhisperKey      string `envconfig:"AZURE_WHISPER_KEY"`
+
+	// Azure GPT5 Nano Chat
+	AzureGPT5NanoEndpoint string `envconfig:"AZURE_GPT5_NANO_ENDPOINT"`
+	AzureGPT5NanoKey      string `envconfig:"AZURE_GPT5_NANO_KEY"`
+
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 
