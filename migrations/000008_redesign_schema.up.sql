@@ -48,13 +48,14 @@ CREATE TABLE features (
 CREATE TABLE learning_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     feature_id INTEGER REFERENCES features(id) ON DELETE SET NULL,
-    text TEXT NOT NULL,
+    content TEXT NOT NULL,
     lang_code VARCHAR(20) NOT NULL,
     estimated_level VARCHAR(20),
     details JSONB DEFAULT '{}'::jsonb,
-    tags JSONB DEFAULT '[]'::jsonb,
     metadata JSONB DEFAULT '{}'::jsonb,
+    tags JSONB DEFAULT '[]'::jsonb,
     is_active BOOLEAN DEFAULT true,
+    created_by VARCHAR(50) DEFAULT 'system',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -62,29 +63,21 @@ CREATE TABLE learning_items (
 -- Meaning Items: translations/meanings linked to a learning item
 CREATE TABLE meaning_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    content_id UUID NOT NULL REFERENCES learning_items(id) ON DELETE CASCADE,
-    native_code VARCHAR(20) NOT NULL,
+    text TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    score JSONB DEFAULT '{}'::jsonb,
+    meaning JSONB DEFAULT '[]'::jsonb,
     created_by VARCHAR(50) DEFAULT 'system',
-    meaning JSONB DEFAULT '{}'::jsonb NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Media Types: lookup table for media categories
-CREATE TABLE media_types (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL UNIQUE,
-    description TEXT
 );
 
 -- Media Items: files (images, audio, video) linked to any system entity
 CREATE TABLE media_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    system_id UUID NOT NULL,
-    type_id INTEGER NOT NULL REFERENCES media_types(id) ON DELETE RESTRICT,
     file_path TEXT NOT NULL,
-    created_by VARCHAR(50) DEFAULT 'system',
     metadata JSONB DEFAULT '{}'::jsonb,
+    created_by VARCHAR(50) DEFAULT 'system',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -108,16 +101,27 @@ CREATE TABLE user_attempts (
 CREATE INDEX idx_learning_items_feature_id ON learning_items(feature_id);
 CREATE INDEX idx_learning_items_lang_code ON learning_items(lang_code);
 CREATE INDEX idx_learning_items_is_active ON learning_items(is_active);
-CREATE INDEX idx_learning_items_metadata_batch ON learning_items USING gin (metadata jsonb_path_ops);
 
-CREATE INDEX idx_meaning_items_content_id ON meaning_items(content_id);
-CREATE INDEX idx_meaning_items_native_code ON meaning_items(native_code);
-
-CREATE INDEX idx_media_items_system_id ON media_items(system_id);
-CREATE INDEX idx_media_items_type_id ON media_items(type_id);
+CREATE INDEX idx_meaning_items_text ON meaning_items(text);
 
 CREATE INDEX idx_user_attempts_user_id ON user_attempts(user_id);
 CREATE INDEX idx_user_attempts_learning_id ON user_attempts(learning_id);
 CREATE INDEX idx_user_attempts_user_learning ON user_attempts(user_id, learning_id);
+
+-- ============================================================
+-- 5. Data Seeds
+-- ============================================================
+
+INSERT INTO features (name, description) VALUES
+('Native Immersion', 'Experience the language exactly as locals use it'),
+('Gist Quiz', 'Catch the core message, skip the noise'),
+('Retell Story', 'Absorb the narrative and make it your own'),
+('Pocket Mission', 'Bite-sized challenges for learning on the go'),
+('Rhythm & Flow', 'Master the melody of the language'),
+('Vocabulary Reps', 'Build a rock-solid vocabulary through context'),
+('Precision Check', 'Level up from "understood" to "unmistakable'),
+('Structure Drill', 'Lock down your grammar effortlessly'),
+('Sparring Mode', 'Think on your feet and build conversational reflexes'),
+('Mission Guide', 'Your personal roadmap to conversational success');
 
 COMMIT;
