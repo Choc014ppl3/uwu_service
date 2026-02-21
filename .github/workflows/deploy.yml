@@ -109,8 +109,8 @@ jobs:
             AZURE_SERVICE_REGION,
             AZURE_WHISPER_ENDPOINT,
             AZURE_WHISPER_KEY,
-            AZURE_WHISPER_REGION,
-            AZURE_WHISPER_MODEL,
+            AZURE_GPT5_NANO_ENDPOINT,
+            AZURE_GPT5_NANO_KEY,
             CLOUDFLARE_ACCESS_KEY_ID,
             CLOUDFLARE_SECRET_ACCESS_KEY,
             CLOUDFLARE_R2_ENDPOINT,
@@ -184,8 +184,10 @@ jobs:
           # Azure OpenAI Whisper
           AZURE_WHISPER_ENDPOINT: ${{ vars.AZURE_WHISPER_ENDPOINT }}
           AZURE_WHISPER_KEY: ${{ secrets.AZURE_WHISPER_KEY }}
-          AZURE_WHISPER_REGION: ${{ vars.AZURE_WHISPER_REGION }}
-          AZURE_WHISPER_MODEL: ${{ vars.AZURE_WHISPER_MODEL }}
+
+          # Azure GPT5 Nano Chat
+          AZURE_GPT5_NANO_ENDPOINT: ${{ vars.AZURE_GPT5_NANO_ENDPOINT }}
+          AZURE_GPT5_NANO_KEY: ${{ secrets.AZURE_GPT5_NANO_KEY }}
 
           # Cloudflare
           CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY_ID }}
@@ -196,4 +198,3 @@ jobs:
 
           # JWT
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          

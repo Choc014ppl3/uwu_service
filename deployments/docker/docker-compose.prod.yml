@@ -19,6 +19,8 @@ services:
     expose:
       - "${SERVER_HTTP_PORT:-8080}"
     environment:
+      # Server
+      - SERVER_ENV=production
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_FORMAT=${LOG_FORMAT:-json}
@@ -37,8 +39,9 @@ services:
       # Azure OpenAI Whisper
       - AZURE_WHISPER_ENDPOINT=${AZURE_WHISPER_ENDPOINT}
       - AZURE_WHISPER_KEY=${AZURE_WHISPER_KEY}
-      - AZURE_WHISPER_REGION=${AZURE_WHISPER_REGION}
-      - AZURE_WHISPER_MODEL=${AZURE_WHISPER_MODEL}
+      # Azure GPT5 Nano Chat
+      - AZURE_GPT5_NANO_ENDPOINT=${AZURE_GPT5_NANO_ENDPOINT}
+      - AZURE_GPT5_NANO_KEY=${AZURE_GPT5_NANO_KEY}
       # Cloudflare R2
       - CLOUDFLARE_ACCESS_KEY_ID=${CLOUDFLARE_ACCESS_KEY_ID}
       - CLOUDFLARE_SECRET_ACCESS_KEY=${CLOUDFLARE_SECRET_ACCESS_KEY}
@@ -47,6 +50,8 @@ services:
       - CLOUDFLARE_BUCKET_NAME=${CLOUDFLARE_BUCKET_NAME}
       # Redis
       - REDIS_URL=${REDIS_URL}
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
