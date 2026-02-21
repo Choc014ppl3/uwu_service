@@ -628,19 +628,22 @@ func (s *WorkoutService) processLearningItemsAsync(batchID string, scenario *rep
 			"item_id":     item.ItemID,
 		})
 
+		detailsMap := map[string]interface{}{
+			"meanings": item.Data, // Store full data as meanings/details
+			"type":     item.Category,
+			"media":    map[string]interface{}{},
+		}
+		detailsJSON, _ := json.Marshal(detailsMap)
+		tagsJSON, _ := json.Marshal(meta.Tags)
+
 		dbItem := &repository.LearningItem{
 			Content:  fmt.Sprintf("[%s] %s", item.Category, item.ItemID),
 			LangCode: scenario.TargetLang,
-			Type:     item.Category,
-			Tags:     meta.Tags,
-			Media:    json.RawMessage("{}"),
+			Details:  detailsJSON,
+			Tags:     tagsJSON,
 			Metadata: metadata,
 			IsActive: true,
 		}
-
-		// Store the full AI data in meanings field as structured data
-		dbItem.Meanings = item.Data
-		dbItem.Reading = json.RawMessage("{}")
 
 		if err := s.learningRepo.Create(ctx, dbItem); err != nil {
 			s.log.Error().Err(err).Str("item_id", item.ItemID).Msg("Failed to save learning item")
@@ -861,14 +864,20 @@ func (s *WorkoutService) saveLearningItem(ctx context.Context, wli workoutLearni
 		metaBytes = json.RawMessage(`{}`)
 	}
 
+	detailsMap := map[string]interface{}{
+		"meanings": wli.Meanings,
+		"reading":  wli.Reading,
+		"type":     wli.ContextType,
+		"media":    wli.Media,
+	}
+	detailsJSON, _ := json.Marshal(detailsMap)
+	tagsJSON, _ := json.Marshal(wli.Tags)
+
 	item := &repository.LearningItem{
 		Content:   wli.Content,
 		LangCode:  langCode,
-		Meanings:  wli.Meanings,
-		Reading:   wli.Reading,
-		Type:      wli.ContextType,
-		Tags:      wli.Tags,
-		Media:     mediaBytes,
+		Details:   detailsJSON,
+		Tags:      tagsJSON,
 		Metadata:  metaBytes,
 		IsActive:  true,
 		CreatedAt: time.Now(),
@@ -1070,8 +1079,25 @@ func (s *WorkoutService) generateLearningMedia(ctx context.Context, id, targetLa
 	wg.Wait()
 
 	// Update media in DB
-	finalMedia, _ := json.Marshal(mediaMap)
-	return s.learningRepo.UpdateMedia(ctx, uuid.MustParse(id), finalMedia)
+	// Update media in DB via Details column
+	item, err := s.learningRepo.GetByID(ctx, uuid.MustParse(id))
+	if err != nil {
+		return err
+	}
+
+	var detailsMap map[string]interface{}
+	if len(item.Details) > 0 {
+		_ = json.Unmarshal(item.Details, &detailsMap)
+	} else {
+		detailsMap = make(map[string]interface{})
+	}
+
+	// Update media field in details
+	detailsMap["media"] = mediaMap
+	newDetails, _ := json.Marshal(detailsMap)
+	item.Details = newDetails
+
+	return s.learningRepo.Update(ctx, item)
 }
 
 func selectVoice(langCode string) string {

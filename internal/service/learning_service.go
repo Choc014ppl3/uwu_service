@@ -68,15 +68,21 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 	}
 
 	// 3. Prepare DB Item
-	mediaBytes, _ := json.Marshal(itemData.Media)
+	detailsMap := map[string]interface{}{
+		"meanings": itemData.Meanings,
+		"reading":  itemData.Reading,
+		"type":     itemData.ContextType,
+		"media":    itemData.Media,
+	}
+	detailsJSON, _ := json.Marshal(detailsMap)
+
+	tagsJSON, _ := json.Marshal(itemData.Tags)
+
 	newItem := &repository.LearningItem{
 		Content:   req.Context,
 		LangCode:  req.LangCode,
-		Meanings:  itemData.Meanings,
-		Reading:   itemData.Reading,
-		Type:      itemData.ContextType, // Use AI-inferred context_type
-		Tags:      itemData.Tags,
-		Media:     mediaBytes,
+		Details:   detailsJSON,
+		Tags:      tagsJSON,
 		Metadata:  itemData.Metadata,
 		IsActive:  req.IsActive,
 		CreatedAt: time.Now(),
@@ -110,25 +116,22 @@ func (s *LearningService) ListLearningItems(ctx context.Context, page, limit int
 type UpdateLearningItemReq struct {
 	Content  string          `json:"content"`
 	LangCode string          `json:"lang_code"`
-	Meanings json.RawMessage `json:"meanings"`
-	Reading  json.RawMessage `json:"reading"`
-	Type     string          `json:"type"`
+	Details  json.RawMessage `json:"details"`
 	Tags     []string        `json:"tags"`
-	Media    json.RawMessage `json:"media"`
 	Metadata json.RawMessage `json:"metadata"`
 	IsActive bool            `json:"is_active"`
 }
 
 func (s *LearningService) UpdateLearningItem(ctx context.Context, id uuid.UUID, req UpdateLearningItemReq) (*repository.LearningItem, error) {
+	detailsJSON, _ := json.Marshal(req.Details)
+	tagsJSON, _ := json.Marshal(req.Tags)
+
 	item := &repository.LearningItem{
 		ID:       id,
 		Content:  req.Content,
 		LangCode: req.LangCode,
-		Meanings: req.Meanings,
-		Reading:  req.Reading,
-		Type:     req.Type,
-		Tags:     req.Tags,
-		Media:    req.Media,
+		Details:  detailsJSON,
+		Tags:     tagsJSON,
 		Metadata: req.Metadata,
 		IsActive: req.IsActive,
 	}
@@ -269,8 +272,31 @@ func (s *LearningService) generateMediaAsync(
 	wg.Wait()
 
 	// Update DB with collected URLs
-	finalMediaBytes, _ := json.Marshal(currentMedia)
-	if err := s.repo.UpdateMedia(ctx, id, finalMediaBytes); err != nil {
+	// Since UpdateMedia is removed, we must fetch the item, update Details, and save.
+
+	// We need a lock here? No, this function seems independent.
+	// Fetch item
+	item, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		fmt.Printf("Failed to get learning item %s for media update: %v\n", id, err)
+		return
+	}
+
+	// Unmarshal details to update media
+	var detailsMap map[string]interface{}
+	if len(item.Details) > 0 {
+		_ = json.Unmarshal(item.Details, &detailsMap)
+	} else {
+		detailsMap = make(map[string]interface{})
+	}
+
+	// Update media in details
+	detailsMap["media"] = currentMedia
+
+	newDetails, _ := json.Marshal(detailsMap)
+	item.Details = newDetails
+
+	if err := s.repo.Update(ctx, item); err != nil {
 		fmt.Printf("Failed to update media for learning item %s: %v\n", id, err)
 	}
 }

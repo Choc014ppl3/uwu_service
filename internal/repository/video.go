@@ -58,8 +58,8 @@ type RetellItem struct {
 
 // QuizContent represents the structure of the generated quiz data.
 type QuizContent struct {
-	Quiz        []QuizItem   `json:"quiz"`
-	RetellCheck []RetellItem `json:"retell_check"`
+	GistQuiz    []QuizItem   `json:"gist_quiz"`
+	RetellStory []RetellItem `json:"retell_story"`
 }
 
 // VideoRepository defines the interface for video data access.

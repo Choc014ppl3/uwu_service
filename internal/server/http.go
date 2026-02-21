@@ -102,10 +102,6 @@ func NewHTTPServer(
 			// Video endpoints
 			r.Post("/videos/upload", videoHandler.Upload)
 			r.Get("/videos/{videoID}", videoHandler.Get)
-
-			// Batch status endpoint
-			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
-
 			// Quiz grading endpoint
 			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)
 
@@ -120,6 +116,11 @@ func NewHTTPServer(
 			r.Post("/workouts/conversation", workoutHandler.GenerateConversation)
 			r.Post("/workouts/learning-items", workoutHandler.GenerateLearningItems)
 			r.Get("/workouts/batches/{batchID}", workoutHandler.GetBatchStatus)
+
+			// Batch status endpoint
+			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
+			r.Get("/batches/{batchID}/immersions", videoHandler.GetBatchImmersion)
+
 		})
 	})
 

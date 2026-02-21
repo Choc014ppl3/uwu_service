@@ -51,7 +51,7 @@ func NewBatchService(redis *client.RedisClient, log zerolog.Logger) *BatchServic
 }
 
 // jobNames defines the ordered list of jobs in a video processing batch.
-var jobNames = []string{"upload", "transcript", "quiz"}
+var jobNames = []string{"video_upload", "thumbnail_upload", "transcript", "quiz"}
 
 // CreateBatch initializes a batch and its jobs in Redis.
 func (s *BatchService) CreateBatch(ctx context.Context, batchID, videoID, userID string) error {
@@ -75,11 +75,11 @@ func (s *BatchService) CreateBatch(ctx context.Context, batchID, videoID, userID
 		return fmt.Errorf("failed to create batch: %w", err)
 	}
 
-	// Set initial job statuses (all pending, except upload which starts immediately)
+	// Set initial job statuses (all pending, except video_upload which starts immediately)
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
 	for _, name := range jobNames {
 		job := JobStatus{Name: name, Status: "pending"}
-		if name == "upload" {
+		if name == "video_upload" {
 			job.Status = "processing"
 			job.StartedAt = now
 		}

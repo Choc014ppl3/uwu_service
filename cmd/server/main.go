@@ -144,9 +144,10 @@ func main() {
 
 	// Initialize Repositories
 	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
+	mediaItemRepo := repository.NewPostgresMediaItemRepository(postgresClient)
 	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
 	userRepo := repository.NewPostgresUserRepository(postgresClient)
-	videoRepo := repository.NewPostgresVideoRepository(postgresClient)
+	// videoRepo := repository.NewPostgresVideoRepository(postgresClient) // Deprecated
 
 	// Initialize services
 	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
@@ -158,7 +159,7 @@ func main() {
 	batchService := service.NewBatchService(redisClient, log)
 	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
 	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
-	videoService := service.NewVideoService(videoRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
+	videoService := service.NewVideoService(learningItemRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 	quizService := service.NewQuizService(quizRepo)
 	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
 	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)

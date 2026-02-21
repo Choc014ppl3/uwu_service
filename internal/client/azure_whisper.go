@@ -60,7 +60,7 @@ func NewAzureWhisperClient(endpoint, apiKey string) *AzureWhisperClient {
 // TranscribeFile sends a WAV audio file to Azure OpenAI Whisper for transcription.
 // Returns the full WhisperResponse with word-level timestamps.
 // lang is optional (e.g. "en", "th"); if empty, Whisper auto-detects.
-func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath string, lang string) (*WhisperResponse, error) {
+func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, language string) (*WhisperResponse, error) {
 	if c.apiKey == "" || c.endpoint == "" {
 		return nil, errors.New(errors.ErrAIService, "Azure Whisper credentials not configured")
 	}
@@ -87,13 +87,12 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath string,
 	// Add response_format field (verbose_json for word-level timestamps)
 	_ = writer.WriteField("response_format", "verbose_json")
 
-	// Add timestamp granularities (segment)
-	_ = writer.WriteField("timestamp_granularities[]", "segment")
+	// Add language field
+	_ = writer.WriteField("language", language)
 
-	// Add language (optional)
-	if lang != "" {
-		_ = writer.WriteField("language", lang)
-	}
+	// Add timestamp granularities (segment and word)
+	_ = writer.WriteField("timestamp_granularities[]", "segment")
+	_ = writer.WriteField("timestamp_granularities[]", "word")
 
 	if err := writer.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
