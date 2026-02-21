@@ -113,6 +113,17 @@ func (s *LearningService) ListLearningItems(ctx context.Context, page, limit int
 	return s.repo.List(ctx, limit, offset)
 }
 
+func (s *LearningService) GetLearningItemsByFeature(ctx context.Context, featureID, page, limit int) ([]*repository.LearningItem, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	return s.repo.GetByFeatureID(ctx, featureID, limit, offset)
+}
+
 type UpdateLearningItemReq struct {
 	Content  string          `json:"content"`
 	LangCode string          `json:"lang_code"`

@@ -287,8 +287,10 @@ func (s *VideoService) processR2Upload(ctx context.Context, videoID uuid.UUID, b
 
 	// Create MediaItem linked to LearningItem
 	mediaMetadata := map[string]interface{}{
-		"r2_key":       r2Key,
-		"content_type": "video/mp4",
+		"r2_key":           r2Key,
+		"content_type":     "video/mp4",
+		"type":             "video",
+		"learning_item_id": videoID,
 	}
 	mediaMetadataJSON, _ := json.Marshal(mediaMetadata)
 
@@ -304,11 +306,30 @@ func (s *VideoService) processR2Upload(ctx context.Context, videoID uuid.UUID, b
 		return
 	}
 
-	// Update LearningItem media field was removed.
-	// The schema change relies on media_items table which we populated above.
-	// If we need to store the video URL in learning_items.details for convenience, we can do it here,
-	// but typically we should rely on the join or secondary lookup.
-	// For now, doing nothing is safe as the MediaItem is the source of truth.
+	// Update LearningItem metadata with thumbnail_url
+	item, err := s.learningRepo.GetByID(ctx, videoID)
+	if err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for thumbnail update")
+		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", "db fetch failed")
+		return
+	}
+
+	var currentMeta map[string]interface{}
+	if len(item.Metadata) > 0 {
+		_ = json.Unmarshal(item.Metadata, &currentMeta)
+	} else {
+		currentMeta = make(map[string]interface{})
+	}
+
+	currentMeta["video_url"] = videoURL
+	newMetaJSON, _ := json.Marshal(currentMeta)
+	item.Metadata = newMetaJSON
+
+	if err := s.learningRepo.Update(ctx, item); err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with video_url")
+		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
+		return
+	}
 
 	_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "completed", "")
 	s.log.Info().Str("video_id", videoID.String()).Str("url", videoURL).Msg("R2 upload and MediaItem created")
@@ -335,8 +356,10 @@ func (s *VideoService) processR2ThumbnailUpload(ctx context.Context, videoID uui
 
 	// Create MediaItem for thumbnail
 	mediaMetadata := map[string]interface{}{
-		"r2_key":       r2Key,
-		"content_type": contentType,
+		"r2_key":           r2Key,
+		"content_type":     contentType,
+		"type":             "thumbnail",
+		"learning_item_id": videoID,
 	}
 	mediaMetadataJSON, _ := json.Marshal(mediaMetadata)
 

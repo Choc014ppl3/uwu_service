@@ -115,6 +115,22 @@ curl -H "Authorization: Bearer <your_jwt_token>" \
 # }
 ```
 
+### Learning Items by Feature Example
+```bash
+curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&page=1&limit=20" \
+  -H "Authorization: Bearer <your_jwt_token>"
+  
+# Response:
+# {
+#   "data": [
+#     { "id": "...", "feature_id": 1, ... }
+#   ],
+#   "total": 1,
+#   "page": 1,
+#   "limit": 20
+# }
+```
+
 ### WebSocket
 
 Connect to `/ws` for real-time communication.

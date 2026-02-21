@@ -91,6 +91,7 @@ func NewHTTPServer(
 			// Learning Items endpoints
 			r.Post("/learning-items", learningItemHandler.CreateLearningItem)
 			r.Get("/learning-items", learningItemHandler.ListLearningItems)
+			r.Get("/learning-items/feature", learningItemHandler.GetLearningItemsByFeature)
 			r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
 			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
 			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)

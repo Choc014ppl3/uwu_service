@@ -43,6 +43,7 @@ type LearningItemRepository interface {
 	Create(ctx context.Context, item *LearningItem) error
 	GetByID(ctx context.Context, id uuid.UUID) (*LearningItem, error)
 	GetByBatchID(ctx context.Context, batchID string) ([]*LearningItem, error)
+	GetByFeatureID(ctx context.Context, featureID int, limit, offset int) ([]*LearningItem, int, error)
 	List(ctx context.Context, limit, offset int) ([]*LearningItem, int, error)
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -141,6 +142,57 @@ func (r *PostgresLearningItemRepository) List(ctx context.Context, limit, offset
 	rows, err := r.db.Pool.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list learning items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*LearningItem
+	for rows.Next() {
+		var item LearningItem
+		if err := rows.Scan(
+			&item.ID,
+			&item.FeatureID,
+			&item.Content,
+			&item.LangCode,
+			&item.EstimatedLevel,
+			&item.Details,
+			&item.Tags,
+			&item.Metadata,
+			&item.IsActive,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan learning item: %w", err)
+		}
+		items = append(items, &item)
+	}
+
+	return items, total, nil
+}
+
+func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, featureID int, limit, offset int) ([]*LearningItem, int, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, 0, fmt.Errorf("database not configured")
+	}
+
+	// Get total count
+	var total int
+	countQuery := `SELECT COUNT(*) FROM learning_items WHERE feature_id = $1`
+	if err := r.db.Pool.QueryRow(ctx, countQuery, featureID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count learning items by feature: %w", err)
+	}
+
+	// Get paginated items
+	query := `
+		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
+		FROM learning_items
+		WHERE feature_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query, featureID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list learning items by feature: %w", err)
 	}
 	defer rows.Close()
 
