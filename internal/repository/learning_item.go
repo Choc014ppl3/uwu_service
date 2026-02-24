@@ -44,6 +44,7 @@ type LearningItemRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*LearningItem, error)
 	GetByBatchID(ctx context.Context, batchID string) ([]*LearningItem, error)
 	GetByFeatureID(ctx context.Context, featureID int, limit, offset int) ([]*LearningItem, int, error)
+	GetVideoPlaylist(ctx context.Context, userID string, statusFilter string, limit, offset int) ([]*LearningItem, int, error)
 	List(ctx context.Context, limit, offset int) ([]*LearningItem, int, error)
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -215,6 +216,111 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 			return nil, 0, fmt.Errorf("failed to scan learning item: %w", err)
 		}
 		items = append(items, &item)
+	}
+
+	return items, total, nil
+}
+
+// GetVideoPlaylist fetches new, saved, and done learning items within the past 2 weeks
+func (r *PostgresLearningItemRepository) GetVideoPlaylist(ctx context.Context, userID string, statusFilter string, limit, offset int) ([]*LearningItem, int, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, 0, fmt.Errorf("database not configured")
+	}
+
+	// Build the base query based on statusFilter
+	var condition string
+	var args []interface{}
+	args = append(args, userID)
+
+	if statusFilter == "new" {
+		condition = "AND ua.type IS NULL"
+	} else if statusFilter == "saved" {
+		condition = "AND ua.type = 'saved'"
+	} else if statusFilter == "done" {
+		condition = "AND ua.type = 'done'"
+	} else {
+		// No specific status filter or invalid filter, return all (new, saved, done)
+		condition = ""
+	}
+
+	// This query fetches learning items that are videos (feature_id = 1) from the past 2 weeks
+	// It joins with user_actions to determine if a video is "new" (no action), "saved", or "done"
+	query := fmt.Sprintf(`
+		SELECT 
+			li.id, li.feature_id, li.content, li.lang_code, li.estimated_level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
+			COALESCE(ua.type::text, 'new') as status
+		FROM learning_items li
+		LEFT JOIN user_actions ua ON li.id = ua.learning_item_id AND ua.user_id = $1
+		WHERE li.feature_id = 1 AND li.created_at >= NOW() - INTERVAL '14 days' %s
+		ORDER BY li.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, condition)
+
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get video playlist: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*LearningItem
+	for rows.Next() {
+		var item LearningItem
+		var status string
+		err := rows.Scan(
+			&item.ID,
+			&item.FeatureID,
+			&item.Content,
+			&item.LangCode,
+			&item.EstimatedLevel,
+			&item.Details,
+			&item.Tags,
+			&item.Metadata,
+			&item.IsActive,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+			&status,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan playlist item: %w", err)
+		}
+
+		// Add status to metadata for frontend consumption
+		if item.Metadata != nil {
+			var metadataMap map[string]interface{}
+			if err := json.Unmarshal(item.Metadata, &metadataMap); err == nil {
+				metadataMap["status"] = status
+				if updatedMetadata, err := json.Marshal(metadataMap); err == nil {
+					item.Metadata = updatedMetadata
+				}
+			}
+		} else {
+			metadataMap := map[string]interface{}{"status": status}
+			if newMetadata, err := json.Marshal(metadataMap); err == nil {
+				item.Metadata = newMetadata
+			}
+		}
+
+		items = append(items, &item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	// Get total count (using same condition and arguments)
+	var total int
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(li.id) 
+		FROM learning_items li
+		LEFT JOIN user_actions ua ON li.id = ua.learning_item_id AND ua.user_id = $1
+		WHERE li.feature_id = 1 AND li.created_at >= NOW() - INTERVAL '14 days' %s
+	`, condition)
+
+	err = r.db.Pool.QueryRow(ctx, countQuery, userID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	return items, total, nil

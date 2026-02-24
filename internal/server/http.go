@@ -102,6 +102,7 @@ func NewHTTPServer(
 
 			// Video endpoints
 			r.Post("/videos/upload", videoHandler.Upload)
+			r.Get("/videos/playlist", videoHandler.GetVideoPlaylist)
 			r.Get("/videos/{videoID}", videoHandler.Get)
 			// Quiz grading endpoint
 			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)

@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"encoding/json"
+	"strconv"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 
@@ -143,6 +146,51 @@ func (h *VideoHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, video)
+}
+
+// GetVideoPlaylist handles GET /api/v1/videos/playlist
+func (h *VideoHandler) GetVideoPlaylist(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.Unauthorized(w, "user not authenticated")
+		return
+	}
+
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+	status := r.URL.Query().Get("status")
+
+	page := 1
+	limit := 20
+
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	items, total, err := h.videoService.GetVideoPlaylist(r.Context(), userID, status, limit, offset)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	responsePayload := map[string]interface{}{
+		"data":  items,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(responsePayload)
 }
 
 // GetBatchStatus handles GET /api/v1/batches/{batchID}

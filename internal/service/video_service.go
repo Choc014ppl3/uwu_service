@@ -161,6 +161,15 @@ func (s *VideoService) GetVideo(ctx context.Context, idStr string) (*repository.
 	return video, nil
 }
 
+// GetVideoPlaylist retrieves the video playlist filtered by new, saved, and done within the last 2 weeks.
+func (s *VideoService) GetVideoPlaylist(ctx context.Context, userID string, status string, limit, offset int) ([]*repository.LearningItem, int, error) {
+	items, total, err := s.learningRepo.GetVideoPlaylist(ctx, userID, status, limit, offset)
+	if err != nil {
+		return nil, 0, errors.InternalWrap("failed to retrieve video playlist", err)
+	}
+	return items, total, nil
+}
+
 // GetVideoByBatchID retrieves a video learning item by its batch ID.
 func (s *VideoService) GetVideoByBatchID(ctx context.Context, batchID string) (*repository.LearningItem, error) {
 	items, err := s.learningRepo.GetByBatchID(ctx, batchID)

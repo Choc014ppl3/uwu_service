@@ -115,6 +115,46 @@ curl -H "Authorization: Bearer <your_jwt_token>" \
 # }
 ```
 
+### Batch Immersion Example
+```bash
+curl -H "Authorization: Bearer <your_jwt_token>" \
+  http://localhost:8080/api/v1/batches/{batch_id}/immersions
+
+# Response:
+# {
+#   "video": { "id": "...", "feature_id": 1, ... },
+#   "gist_quiz": { "id": "...", "feature_id": 3, ... },
+#   "retell_story": { "id": "...", "feature_id": 8, ... },
+#   "batch_id": "abc-123-xyz",
+#   "status": "completed"
+# }
+```
+
+### Video Playlist Example
+```bash
+curl -H "Authorization: Bearer <your_jwt_token>" \
+  "http://localhost:8080/api/v1/videos/playlist?page=1&limit=20&status=new"
+
+# Response:
+# {
+#   "data": [
+#     { 
+#       "id": "...", 
+#       "feature_id": 1,
+#       "metadata": { "status": "new" }
+#     },
+#     { 
+#       "id": "...", 
+#       "feature_id": 1,
+#       "metadata": { "status": "done" }
+#     }
+#   ],
+#   "total": 2,
+#   "page": 1,
+#   "limit": 20
+# }
+```
+
 ### Learning Items by Feature Example
 ```bash
 curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&page=1&limit=20" \
