@@ -92,7 +92,6 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, langua
 
 	// Add timestamp granularities (segment and word)
 	_ = writer.WriteField("timestamp_granularities[]", "segment")
-	_ = writer.WriteField("timestamp_granularities[]", "word")
 
 	if err := writer.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)

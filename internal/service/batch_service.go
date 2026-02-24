@@ -51,7 +51,7 @@ func NewBatchService(redis *client.RedisClient, log zerolog.Logger) *BatchServic
 }
 
 // jobNames defines the ordered list of jobs in a video processing batch.
-var jobNames = []string{"video_upload", "thumbnail_upload", "transcript", "quiz"}
+var jobNames = []string{"video_upload", "thumbnail_upload", "generate_transcripts", "generate_details"}
 
 // CreateBatch initializes a batch and its jobs in Redis.
 func (s *BatchService) CreateBatch(ctx context.Context, batchID, videoID, userID string) error {

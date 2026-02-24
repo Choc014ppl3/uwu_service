@@ -20,26 +20,36 @@ import (
 	"github.com/windfall/uwu_service/internal/repository"
 )
 
-// quizSystemPrompt is the system prompt used to generate quiz content from a transcript.
-const quizSystemPrompt = `# Role
-You are an expert Educational Content Creator and Developer. Your task is to analyze the video transcript and generate a quiz and a checklist in a strict JSON format.
+// contentAnalysisSystemPrompt is the unified system prompt used to generate details and quiz from a transcript.
+const contentAnalysisSystemPrompt = `# Role
+You are an expert Linguistic and Educational Content Analyzer. Your task is to analyze the description and generate content details and a quiz in a strict JSON format.
 
 # Instructions
-You must analyze the transcript and generate a quiz.
+You must analyze the description and determine:
+1. lang_code: The BCP-47 language tag (e.g., "en-US", "zh-CN", "ja-JP", "es-ES") that best represents the spoken language.
+2. estimated_level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
+    * For English: Use the CEFR scale (A1, A2, B1, B2, C1, C2).
+    * For Chinese: Use the HSK scale (HSK1, HSK2, HSK3, HSK4, HSK5, HSK6).
+    * For Japanese: Use the JLPT scale (N5, N4, N3, N2, N1).
+    * For Spanish: Use the DELE scale (A1, A2, B1, B2, C1, C2).
+    * For French: Use the DELF/DALF scale (A1, A2, B1, B2, C1, C2).
+	* For Russian: Use the TORFL scale (TORFL1, TORFL2, TORFL3, TORFL4, TORFL5, TORFL6).
+	* For Portuguese: Use the CAPLE scale (A1, A2, B1, B2, C1, C2).
+3. tags: A list of 3-5 relevant topic or thematic tags for the video (e.g., ["travel", "food", "daily life"]).
 
-## CRITICAL STEP: THOUGHT PROCESS
-Before generating the JSON, you must identify the chronological order of events for the "Sequence" question to ensure accuracy.
+## CRITICAL STEP: THOUGHT PROCESS FOR QUIZ
+Before generating the JSON quiz, you must identify the chronological order of events for the "Sequence" question to ensure accuracy.
 1. Identify 4 key events.
-2. Verify their order in the transcript.
+2. Verify their order in the description.
 3. Only then, map them to the JSON output.
 
 ## Part 1: Gist Quiz (Total 4-5 Questions)
-1.  **Context/Tone (2-3 Questions):**
+1.  **Context/Tone (1 Question):**
     * category: "context"
     * type: "multiple_response"
-    * Must have 2-3 correct options (set is_correct: true).
-2.  **Objective (1 Question):**
-    * category: "objective"
+    * Must have 1-2 correct options (set is_correct: true).
+2.  **Main Idea (1 Question):**
+    * category: "main_idea"
     * type: "single_choice"
     * Only 1 correct option.
 3.  **Sequence (1 Question):**
@@ -49,13 +59,16 @@ Before generating the JSON, you must identify the chronological order of events 
     * Provide the correct_order array containing the correct sequence of Option IDs (e.g., ["B", "A", "C", "D"]).
 
 ## Part 2: Retell Story
-* Create a list of "Story Points" that cover the flow of the story which is designed to be retold by the user 4-5 items.
+Generate 3 distinct and concise examples of how the user could retell the story based on the provided description. Each example must comprehensively cover the main flow and key points of the narrative, offering different ways to express the same core message.
 
 # Output Format (STRICT JSON)
 Do not output any markdown text, introductory phrases, or code blocks. Output ONLY the raw JSON object.
 Use the structure below:
 
 {
+  "lang_code": "string",
+  "estimated_level": "string",
+  "tags": ["string"],
   "gist_quiz": [
     {
       "id": 1,
@@ -69,7 +82,7 @@ Use the structure below:
     }
   ],
   "retell_story": [
-    { "id": 1, "point": "string" } // short and concise sentences
+    { "id": 1, "example": "string" }
   ]
 }
 
@@ -124,6 +137,15 @@ type VideoUploadResult struct {
 	Status  string                   `json:"status"`
 }
 
+// BatchImmersionResult contains all items generated for a batch.
+type BatchImmersionResult struct {
+	Video       *repository.LearningItem `json:"video"`
+	GistQuiz    *repository.LearningItem `json:"gist_quiz,omitempty"`
+	RetellStory *repository.LearningItem `json:"retell_story,omitempty"`
+	BatchID     string                   `json:"batch_id"`
+	Status      string                   `json:"status"`
+}
+
 // GetVideo retrieves a video learning item by its ID.
 func (s *VideoService) GetVideo(ctx context.Context, idStr string) (*repository.LearningItem, error) {
 	id, err := uuid.Parse(idStr)
@@ -152,11 +174,39 @@ func (s *VideoService) GetVideoByBatchID(ctx context.Context, batchID string) (*
 	return items[0], nil
 }
 
+// GetImmersionByBatchID retrieves all immersion learning items by its batch ID.
+func (s *VideoService) GetImmersionByBatchID(ctx context.Context, batchID string) (*BatchImmersionResult, error) {
+	items, err := s.learningRepo.GetByBatchID(ctx, batchID)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to get items by batch ID", err)
+	}
+	if len(items) == 0 {
+		return nil, errors.NotFound("items not found for batch ID")
+	}
+
+	result := &BatchImmersionResult{
+		BatchID: batchID,
+		Status:  "completed",
+	}
+
+	for _, item := range items {
+		if item.FeatureID == nil {
+			result.Video = item
+		} else if *item.FeatureID == repository.GistQuiz {
+			result.GistQuiz = item
+		} else if *item.FeatureID == repository.RetellStory {
+			result.RetellStory = item
+		}
+	}
+
+	return result, nil
+}
+
 // ProcessUpload handles the full video upload pipeline in PARALLEL:
 // 1. Create LearningItem (processing)
 // 2. Async A: Upload to R2 -> Create MediaItem
 // 3. Async B (Optional): Upload Thumbnail to R2 -> Create MediaItem
-// 4. Async C: Extract Audio -> Transcribe -> Generate Quiz -> Update LearningItem
+// 4. Async C: Extract Audio -> Transcribe -> Generate Details -> Update LearningItem
 func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file multipart.File, language string, thumbnailFile multipart.File, thumbContentType string) (*VideoUploadResult, error) {
 	// 1. Setup IDs and Paths
 	videoID := uuid.New()
@@ -166,7 +216,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	thumbInputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb_input", videoID))
 
 	// 2. Initialize Batch in Redis
-	customJobNames := []string{"video_upload", "thumbnail_upload", "transcript", "quiz"}
+	customJobNames := []string{"video_upload", "thumbnail_upload", "generate_transcripts", "generate_details"}
 	_ = s.batchService.CreateBatchWithJobs(ctx, batchID, videoID.String(), customJobNames)
 
 	// 3. Save uploaded files to temp
@@ -192,9 +242,8 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 
-	featureID := repository.NativeImmersion
 	learningItem := &repository.LearningItem{
-		FeatureID: &featureID,
+		FeatureID: nil,
 		Content:   "",       // Will be populated with transcript later
 		LangCode:  language, // Default, will be updated detection
 		Details:   json.RawMessage("{}"),
@@ -241,10 +290,10 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 			s.processR2ThumbnailUpload(context.Background(), videoID, batchID, thumbInputPath, thumbContentType, userID)
 		}()
 
-		// Job B: Transcribe & Quiz
+		// Job B: Transcribe & Details
 		go func() {
 			defer wg.Done()
-			s.processTranscriptionAndQuiz(context.Background(), videoID, batchID, inputPath, language)
+			s.processTranscriptionAndDetails(context.Background(), videoID, batchID, inputPath, language)
 		}()
 
 		// Wait for both to finish, then clean up temp file
@@ -404,20 +453,20 @@ func (s *VideoService) processR2ThumbnailUpload(ctx context.Context, videoID uui
 	s.log.Info().Str("video_id", videoID.String()).Str("url", thumbURL).Msg("R2 thumbnail upload and MediaItem created")
 }
 
-// processTranscriptionAndQuiz handles audio extraction, transcription, and quiz generation.
-func (s *VideoService) processTranscriptionAndQuiz(ctx context.Context, videoID uuid.UUID, batchID, videoPath, language string) {
+// processTranscriptionAndDetails handles audio extraction, transcription, and details generation.
+func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, videoID uuid.UUID, batchID, videoPath, language string) {
 	// Clean up audio file specifically for this job
 	audioPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_audio.wav", videoID))
 	defer os.Remove(audioPath)
 
 	// --- Transcript Job ---
-	_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "processing", "")
+	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "processing", "")
 
 	// 1. Extract audio with FFmpeg
 	if err := s.extractAudio(videoPath, audioPath); err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to extract audio")
-		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "skipped: transcript failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "skipped: generate details failed")
 		return
 	}
 
@@ -425,8 +474,8 @@ func (s *VideoService) processTranscriptionAndQuiz(ctx context.Context, videoID 
 	result, err := s.whisperClient.TranscribeFile(ctx, audioPath, language)
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
-		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "skipped: transcript failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "skipped: generate details failed")
 		return
 	}
 
@@ -436,7 +485,7 @@ func (s *VideoService) processTranscriptionAndQuiz(ctx context.Context, videoID 
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for update")
 		// Continue anyway? No, strict failure.
-		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", "db fetch failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", "db fetch failed")
 		return
 	}
 
@@ -465,31 +514,30 @@ func (s *VideoService) processTranscriptionAndQuiz(ctx context.Context, videoID 
 
 	if err := s.learningRepo.Update(ctx, item); err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with transcript")
-		_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
 		return
 	}
 
-	_ = s.batchService.UpdateJob(ctx, batchID, "transcript", "completed", "")
+	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "completed", "")
 	s.log.Info().Str("video_id", videoID.String()).Msg("Transcript generation completed")
 
-	// --- Quiz Job ---
-	var quizSegments []repository.TranscriptSegment
+	// --- Content Info Job ---
+	var transcriptSegments []repository.TranscriptSegment
 	for _, ws := range result.Segments {
-		quizSegments = append(quizSegments, repository.TranscriptSegment{
+		transcriptSegments = append(transcriptSegments, repository.TranscriptSegment{
 			Text:     ws.Text,
 			Start:    ws.Start,
 			Duration: ws.End - ws.Start,
 		})
 	}
 
-	s.generateQuiz(ctx, videoID, batchID, quizSegments, item.LangCode)
+	s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, item.LangCode)
 }
 
-// generateQuiz generates quiz, saves it to LearningItem (or linked tables).
-func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) {
-	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "processing", "")
+// generateContentInfo generates lang_code, estimated_level, tags, gist_quiz, retell_story in one go.
+func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) {
+	_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "processing", "")
 
-	// ... reuse existing quiz generation logic prompt ...
 	// Build transcript text
 	var sb strings.Builder
 	for _, seg := range segments {
@@ -499,16 +547,16 @@ func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batc
 	transcriptText := strings.TrimSpace(sb.String())
 
 	if transcriptText == "" {
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "empty transcript")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "empty transcript")
 		return
 	}
 
 	userMessage := fmt.Sprintf("Transcript:\n\"\"\"\n%s\n\"\"\"\n\nLanguage: %s", transcriptText, detectedLang)
 
 	// Call AI
-	responseText, _, err := s.callQuizAI(ctx, videoID, userMessage)
+	responseText, _, err := s.callAI(ctx, videoID, userMessage)
 	if err != nil {
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", err.Error())
 		return
 	}
 
@@ -519,20 +567,48 @@ func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batc
 	responseText = strings.TrimSuffix(responseText, "```")
 	responseText = strings.TrimSpace(responseText)
 
-	var quizContent repository.QuizContent
-	if err := json.Unmarshal([]byte(responseText), &quizContent); err != nil {
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "invalid JSON: "+err.Error())
+	// Debug log
+	s.log.Info().Str("video_id", videoID.String()).Str("response", responseText).Msg("AI response for details and quiz")
+
+	var detailsAndQuiz struct {
+		LangCode       string                   `json:"lang_code"`
+		EstimatedLevel string                   `json:"estimated_level"`
+		Tags           []string                 `json:"tags"`
+		GistQuiz       []map[string]interface{} `json:"gist_quiz"`
+		RetellStory    []map[string]interface{} `json:"retell_story"`
+	}
+	if err := json.Unmarshal([]byte(responseText), &detailsAndQuiz); err != nil {
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "invalid JSON: "+err.Error())
 		return
 	}
 
 	latestItem, err := s.learningRepo.GetByID(ctx, videoID)
 	if err != nil {
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "refetch parent item failed")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "refetch parent item failed")
 		return
 	}
 
-	// Create GistQuiz LearningItem
-	gistQuizDetailsJSON, _ := json.Marshal(quizContent.GistQuiz)
+	// 1. Update LearningItem Details
+	if detailsAndQuiz.LangCode != "" {
+		latestItem.LangCode = detailsAndQuiz.LangCode
+	}
+	if detailsAndQuiz.EstimatedLevel != "" {
+		latestItem.EstimatedLevel = &detailsAndQuiz.EstimatedLevel
+	}
+	if len(detailsAndQuiz.Tags) > 0 {
+		tagsJSON, _ := json.Marshal(detailsAndQuiz.Tags)
+		latestItem.Tags = tagsJSON
+	}
+
+	if err := s.learningRepo.Update(ctx, latestItem); err != nil {
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item details")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save details")
+	} else {
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "completed", "")
+	}
+
+	// 2. Create GistQuiz LearningItem
+	gistQuizDetailsJSON, _ := json.Marshal(detailsAndQuiz.GistQuiz)
 	gistMeta := map[string]interface{}{
 		"parent_id": videoID,
 		"batch_id":  batchID,
@@ -552,12 +628,12 @@ func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batc
 
 	if err := s.learningRepo.Create(ctx, gistItem); err != nil {
 		s.log.Error().Err(err).Str("parent_video_id", videoID.String()).Msg("Failed to create Gist Quiz learning item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "failed to save gist quiz")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save gist quiz")
 		return
 	}
 
-	// Create RetellStory LearningItem
-	retellStoryDetailsJSON, _ := json.Marshal(quizContent.RetellStory)
+	// 3. Create RetellStory LearningItem
+	retellStoryDetailsJSON, _ := json.Marshal(detailsAndQuiz.RetellStory)
 	retellMeta := map[string]interface{}{
 		"parent_id": videoID,
 		"batch_id":  batchID,
@@ -577,20 +653,19 @@ func (s *VideoService) generateQuiz(ctx context.Context, videoID uuid.UUID, batc
 
 	if err := s.learningRepo.Create(ctx, retellItem); err != nil {
 		s.log.Error().Err(err).Str("parent_video_id", videoID.String()).Msg("Failed to create Retell Story learning item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "failed", "failed to save retell story")
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save retell story")
 		return
 	}
 
-	_ = s.batchService.UpdateJob(ctx, batchID, "quiz", "completed", "")
-	s.log.Info().Str("video_id", videoID.String()).Msg("Quiz generated and split into separate learning items")
+	s.log.Info().Str("video_id", videoID.String()).Msg("Details and Quiz generated successfully")
 }
 
-// callQuizAI tries Azure Chat first, then falls back to Gemini.
+// callAI tries Azure Chat first, then falls back to Gemini.
 // Returns the response text, the provider name used, and any error.
-func (s *VideoService) callQuizAI(ctx context.Context, videoID uuid.UUID, userMessage string) (string, string, error) {
+func (s *VideoService) callAI(ctx context.Context, videoID uuid.UUID, userMessage string) (string, string, error) {
 	// Try Azure Chat first
 	if s.azureChat != nil {
-		responseText, err := s.azureChat.ChatCompletion(ctx, quizSystemPrompt, userMessage)
+		responseText, err := s.azureChat.ChatCompletion(ctx, contentAnalysisSystemPrompt, userMessage)
 		if err == nil {
 			return responseText, "azure", nil
 		}
@@ -600,7 +675,7 @@ func (s *VideoService) callQuizAI(ctx context.Context, videoID uuid.UUID, userMe
 	// Fallback to Gemini
 	if s.geminiClient != nil {
 		// Gemini Chat takes a single message, so combine system prompt + user message
-		fullPrompt := quizSystemPrompt + "\n" + userMessage
+		fullPrompt := contentAnalysisSystemPrompt + "\n" + userMessage
 		responseText, err := s.geminiClient.Chat(ctx, fullPrompt)
 		if err == nil {
 			return responseText, "gemini", nil
@@ -609,7 +684,7 @@ func (s *VideoService) callQuizAI(ctx context.Context, videoID uuid.UUID, userMe
 		return "", "", fmt.Errorf("all AI providers failed: gemini: %w", err)
 	}
 
-	return "", "", fmt.Errorf("no AI provider configured for quiz generation")
+	return "", "", fmt.Errorf("no AI provider configured")
 }
 
 // extractAudio uses FFmpeg to extract audio from a video file into WAV format

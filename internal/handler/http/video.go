@@ -195,17 +195,10 @@ func (h *VideoHandler) GetBatchImmersion(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 2. If Redis missing or completed, fetch persistence data from DB
-	video, err := h.videoService.GetVideoByBatchID(r.Context(), batchID)
+	result, err := h.videoService.GetImmersionByBatchID(r.Context(), batchID)
 	if err != nil {
 		h.handleError(w, err)
 		return
-	}
-
-	// Construct response similar to Upload response
-	result := &service.VideoUploadResult{
-		Video:   video,
-		BatchID: batchID,
-		Status:  "completed",
 	}
 
 	response.JSON(w, http.StatusOK, result)

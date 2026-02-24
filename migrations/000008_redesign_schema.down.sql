@@ -1,6 +1,9 @@
 BEGIN;
 
 -- Drop new tables
+DROP TABLE IF EXISTS user_stats CASCADE;
+DROP TABLE IF EXISTS user_actions CASCADE;
+DROP TABLE IF EXISTS dashboard_items CASCADE;
 DROP TABLE IF EXISTS user_attempts CASCADE;
 DROP TABLE IF EXISTS media_items CASCADE;
 DROP TABLE IF EXISTS media_types CASCADE;
@@ -9,6 +12,9 @@ DROP TABLE IF EXISTS learning_items CASCADE;
 DROP TABLE IF EXISTS features CASCADE;
 
 -- Drop new ENUM types
+DROP TYPE IF EXISTS user_stat_action_enum CASCADE;
+DROP TYPE IF EXISTS dashboard_item_type_enum CASCADE;
+DROP TYPE IF EXISTS user_action_type_enum CASCADE;
 DROP TYPE IF EXISTS attempt_status_enum CASCADE;
 
 -- Recreate old ENUM types

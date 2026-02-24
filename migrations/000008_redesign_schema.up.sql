@@ -32,6 +32,9 @@ DROP TYPE IF EXISTS interaction_type_enum CASCADE;
 -- 3. Create ENUM types
 -- ============================================================
 CREATE TYPE attempt_status_enum AS ENUM ('completed', 'failed', 'skipped', 'in_progress');
+CREATE TYPE user_action_type_enum AS ENUM ('comment', 'saved', 'done');
+CREATE TYPE dashboard_item_type_enum AS ENUM ('word', 'sentence');
+CREATE TYPE user_stat_action_enum AS ENUM ('listen', 'speak', 'read', 'write');
 
 -- ============================================================
 -- 4. Create new tables
@@ -95,6 +98,41 @@ CREATE TABLE user_attempts (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- User Actions: tracks user interactions with learning items
+CREATE TABLE user_actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    learning_item_id UUID NOT NULL REFERENCES learning_items(id) ON DELETE CASCADE,
+    type user_action_type_enum NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Dashboard Items: vocabulary and sentences shown on the dashboard
+CREATE TABLE dashboard_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    learning_item_id UUID NOT NULL REFERENCES learning_items(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    type dashboard_item_type_enum NOT NULL,
+    lang_code VARCHAR(20) NOT NULL,
+    estimated_level VARCHAR(20),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_by VARCHAR(50) DEFAULT 'system',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- User Stats: tracking of dashboard item interactions
+CREATE TABLE user_stats (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    dashboard_id UUID NOT NULL REFERENCES dashboard_items(id) ON DELETE CASCADE,
+    action user_stat_action_enum NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================
 -- 4. Indexes
 -- ============================================================
@@ -107,6 +145,15 @@ CREATE INDEX idx_meaning_items_text ON meaning_items(text);
 CREATE INDEX idx_user_attempts_user_id ON user_attempts(user_id);
 CREATE INDEX idx_user_attempts_learning_id ON user_attempts(learning_id);
 CREATE INDEX idx_user_attempts_user_learning ON user_attempts(user_id, learning_id);
+
+CREATE INDEX idx_user_actions_user_id ON user_actions(user_id);
+CREATE INDEX idx_user_actions_learning_item_id ON user_actions(learning_item_id);
+
+CREATE INDEX idx_dashboard_items_learning_item_id ON dashboard_items(learning_item_id);
+CREATE INDEX idx_dashboard_items_lang_code ON dashboard_items(lang_code);
+
+CREATE INDEX idx_user_stats_user_id ON user_stats(user_id);
+CREATE INDEX idx_user_stats_dashboard_id ON user_stats(dashboard_id);
 
 -- ============================================================
 -- 5. Data Seeds
