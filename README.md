@@ -216,14 +216,16 @@ curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
 #   "batch_id": "abc-123-xyz",
 #   "reference_id": "Ordering Coffee",
 #   "status": "completed",
-#   "total_jobs": 5,
-#   "completed_jobs": 5,
+#   "total_jobs": 7,
+#   "completed_jobs": 7,
 #   "jobs": [
 #     { "name": "generate_dialogue_guild", "status": "completed" },
 #     { "name": "generate_image", "status": "completed" },
 #     { "name": "upload_image", "status": "completed" },
 #     { "name": "generate_audio", "status": "completed" },
-#     { "name": "upload_audio", "status": "completed" }
+#     { "name": "upload_audio", "status": "completed" },
+#     { "name": "generate_audio_scripts", "status": "completed" },
+#     { "name": "upload_audio_scripts", "status": "completed" }
 #   ],
 #   "result": {
 #     "image_prompt": "...",

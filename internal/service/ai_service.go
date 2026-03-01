@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -405,11 +406,13 @@ type DialogueGuildResponse struct {
 }
 
 const (
-	dialogueGuildJobName            = "generate_dialogue_guild"
-	dialogueGuildImageJobName       = "generate_image"
-	dialogueGuildUploadJobName      = "upload_image"
-	dialogueGuildAudioJobName       = "generate_audio"
-	dialogueGuildUploadAudioJobName = "upload_audio"
+	dialogueGuildJobName              = "generate_dialogue_guild"
+	dialogueGuildImageJobName         = "generate_image"
+	dialogueGuildUploadJobName        = "upload_image"
+	dialogueGuildAudioJobName         = "generate_audio"
+	dialogueGuildUploadAudioJobName   = "upload_audio"
+	dialogueGuildAudioScriptsJobName  = "generate_audio_scripts"
+	dialogueGuildUploadScriptsJobName = "upload_audio_scripts"
 )
 
 // GenerateDialogueGuild initiates speech and chat conversations generation for a dialogue guild using Gemini asynchronously.
@@ -429,6 +432,8 @@ func (s *AIService) GenerateDialogueGuild(ctx context.Context, req GenerateDialo
 			dialogueGuildUploadJobName,
 			dialogueGuildAudioJobName,
 			dialogueGuildUploadAudioJobName,
+			dialogueGuildAudioScriptsJobName,
+			dialogueGuildUploadScriptsJobName,
 		})
 	}
 
@@ -637,59 +642,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		}
 	}
 
-	// 2. Generate Image
-	var imageURL string
-	if parsedResp.ImagePrompt != "" && s.geminiClient != nil {
-		if s.batchService != nil {
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "processing", "")
-		}
-
-		imageBytes, err := s.geminiClient.GenerateImage(ctx, parsedResp.ImagePrompt)
-		if err != nil {
-			fmt.Printf("Warning: failed to generate image: %v\n", err)
-			if s.batchService != nil {
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "failed", err.Error())
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", "Skipped due to generation failure")
-			}
-		} else {
-			if s.batchService != nil {
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "completed", "")
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "processing", "")
-			}
-
-			// Upload Image
-			if s.cloudflareClient != nil {
-				objectKey := fmt.Sprintf("dialogue_guilds/%s/%s.png", time.Now().UTC().Format("2006/01/02"), uuid.New().String())
-				url, err := s.cloudflareClient.UploadR2Object(ctx, objectKey, imageBytes, "image/png")
-				if err != nil {
-					fmt.Printf("Warning: failed to upload image: %v\n", err)
-					if s.batchService != nil {
-						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", err.Error())
-					}
-				} else {
-					imageURL = url
-					if s.batchService != nil {
-						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "completed", "")
-					}
-				}
-			} else {
-				if s.batchService != nil {
-					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", "Cloudflare client not configured")
-				}
-			}
-		}
-	} else {
-		// skip image jobs if no prompt or client
-		if s.batchService != nil {
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "completed", "")
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "completed", "")
-		}
-	}
-
-	// 3. Generate Audio for Situation
-	var audioURL string
-
-	// SpeechMode is json.RawMessage, so we need to decode it to extract "situation"
+	// 2. Parse SpeechMode JSON to extract situation and scripts
 	var speechModeMap map[string]interface{}
 	var situationText string
 	if len(parsedResp.SpeechMode) > 0 {
@@ -702,56 +655,11 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		}
 	}
 
-	if situationText != "" && s.azureSpeechClient != nil {
-		if s.batchService != nil {
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "processing", "")
-		}
-
-		audioBytes, err := s.azureSpeechClient.Synthesize(ctx, situationText, "en-US-AvaMultilingualNeural")
-		if err != nil {
-			fmt.Printf("Warning: failed to generate audio: %v\n", err)
-			if s.batchService != nil {
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "failed", err.Error())
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", "Skipped due to generation failure")
-			}
-		} else {
-			if s.batchService != nil {
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "completed", "")
-				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "processing", "")
-			}
-
-			// Upload Audio
-			if s.cloudflareClient != nil {
-				objectKey := fmt.Sprintf("dialogue_guilds/%s/%s.mp3", time.Now().UTC().Format("2006/01/02"), uuid.New().String())
-				url, err := s.cloudflareClient.UploadR2Object(ctx, objectKey, audioBytes, "audio/mpeg")
-				if err != nil {
-					fmt.Printf("Warning: failed to upload audio: %v\n", err)
-					if s.batchService != nil {
-						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", err.Error())
-					}
-				} else {
-					audioURL = url
-					if s.batchService != nil {
-						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "completed", "")
-					}
-				}
-			} else {
-				if s.batchService != nil {
-					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", "Cloudflare client not configured")
-				}
-			}
-		}
-	} else {
-		if s.batchService != nil {
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "completed", "")
-			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "completed", "")
-		}
-	}
-
-	// 4. Save Learning Item (Scenario Context)
+	// 3. Create Learning Item FIRST to get the database ID for R2 paths
+	var learningItemID string
+	var li *repository.LearningItem
 	if s.learningItemRepo != nil {
-		// Assuming PocketMission (4) or SparringMode (9) as best fit. Going with PocketMission as default here.
-		featureID := repository.PocketMission
+		featureID := repository.DialogueGuide
 		levelPtr := &req.Level
 		if req.Level == "" {
 			levelPtr = &parsedResp.Level
@@ -759,48 +667,26 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 
 		tagsBytes, _ := json.Marshal(parsedResp.Tags)
 
+		// Initial metadata (without audio URLs yet)
 		metadataMap := map[string]interface{}{
-			"speech_mode": parsedResp.SpeechMode,
+			"speech_mode": parsedResp.SpeechMode, // Original, will be updated later
 			"chat_mode":   parsedResp.ChatMode,
 		}
 
-		// Save batch variables safely to Details JSONb
+		// Initial details
 		detailsMap := map[string]interface{}{
 			"image_prompt": parsedResp.ImagePrompt,
 			"topic":        req.Topic,
 			"description":  req.Description,
+			"language":     req.Language,
+			"level":        req.Level,
 			"batch_id":     batchID,
-			"req_body":     req, // Store original request payload
-		}
-
-		if imageURL != "" {
-			detailsMap["image_url"] = imageURL
-		}
-		if audioURL != "" {
-			detailsMap["audio_url"] = audioURL
-		}
-
-		// Modify the cleanResp JSON to include the media urls dynamically for the client's result cache
-		if imageURL != "" || audioURL != "" {
-			var cleanRespMap map[string]interface{}
-			if err := json.Unmarshal([]byte(cleanResp), &cleanRespMap); err == nil {
-				if imageURL != "" {
-					cleanRespMap["image_url"] = imageURL
-				}
-				if audioURL != "" {
-					cleanRespMap["audio_url"] = audioURL
-				}
-
-				if updatedBytes, err := json.Marshal(cleanRespMap); err == nil {
-					cleanResp = string(updatedBytes)
-				}
-			}
 		}
 
 		metadataBytes, _ := json.Marshal(metadataMap)
 		detailsBytes, _ := json.Marshal(detailsMap)
 
-		li := &repository.LearningItem{
+		li = &repository.LearningItem{
 			FeatureID:      &featureID,
 			Content:        req.Topic,
 			LangCode:       req.Language,
@@ -810,11 +696,252 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 			Details:        detailsBytes,
 			IsActive:       true,
 		}
-		_ = s.learningItemRepo.Create(ctx, li)
+		if err := s.learningItemRepo.Create(ctx, li); err != nil {
+			fmt.Printf("Warning: failed to create learning item: %v\n", err)
+		} else {
+			learningItemID = li.ID.String()
+		}
+	}
+
+	// 4. Generate All Media Files in Parallel
+	var imageURL, audioURL string
+	var mediaWg sync.WaitGroup
+	var mediaMu sync.Mutex
+
+	// 4a. Image Generation (goroutine)
+	if parsedResp.ImagePrompt != "" && s.geminiClient != nil && learningItemID != "" {
+		mediaWg.Add(1)
+		go func() {
+			defer mediaWg.Done()
+			if s.batchService != nil {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "processing", "")
+			}
+
+			imageBytes, err := s.geminiClient.GenerateImage(ctx, parsedResp.ImagePrompt)
+			if err != nil {
+				fmt.Printf("Warning: failed to generate image: %v\n", err)
+				if s.batchService != nil {
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "failed", err.Error())
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", "Skipped due to generation failure")
+				}
+				return
+			}
+
+			if s.batchService != nil {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "completed", "")
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "processing", "")
+			}
+
+			if s.cloudflareClient != nil {
+				objectKey := fmt.Sprintf("images/%s.png", learningItemID)
+				url, err := s.cloudflareClient.UploadR2Object(ctx, objectKey, imageBytes, "image/png")
+				if err != nil {
+					fmt.Printf("Warning: failed to upload image: %v\n", err)
+					if s.batchService != nil {
+						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", err.Error())
+					}
+				} else {
+					mediaMu.Lock()
+					imageURL = url
+					mediaMu.Unlock()
+					if s.batchService != nil {
+						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "completed", "")
+					}
+				}
+			} else {
+				if s.batchService != nil {
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "failed", "Cloudflare client not configured")
+				}
+			}
+		}()
+	} else {
+		// skip image jobs if no necessary components
+		if s.batchService != nil {
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildImageJobName, "completed", "")
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadJobName, "completed", "")
+		}
+	}
+
+	// 4b. Situation Audio Generation (goroutine)
+	if situationText != "" && s.azureSpeechClient != nil && learningItemID != "" {
+		mediaWg.Add(1)
+		go func() {
+			defer mediaWg.Done()
+			if s.batchService != nil {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "processing", "")
+			}
+
+			audioBytes, err := s.azureSpeechClient.Synthesize(ctx, situationText, "en-US-AvaMultilingualNeural")
+			if err != nil {
+				fmt.Printf("Warning: failed to generate audio: %v\n", err)
+				if s.batchService != nil {
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "failed", err.Error())
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", "Skipped due to generation failure")
+				}
+				return
+			}
+
+			if s.batchService != nil {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "completed", "")
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "processing", "")
+			}
+
+			if s.cloudflareClient != nil {
+				objectKey := fmt.Sprintf("speech-context/%s.mp3", learningItemID)
+				url, err := s.cloudflareClient.UploadR2Object(ctx, objectKey, audioBytes, "audio/mpeg")
+				if err != nil {
+					fmt.Printf("Warning: failed to upload audio: %v\n", err)
+					if s.batchService != nil {
+						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", err.Error())
+					}
+				} else {
+					mediaMu.Lock()
+					audioURL = url
+					mediaMu.Unlock()
+					if s.batchService != nil {
+						_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "completed", "")
+					}
+				}
+			} else {
+				if s.batchService != nil {
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "failed", "Cloudflare client not configured")
+				}
+			}
+		}()
+	} else {
+		if s.batchService != nil {
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioJobName, "completed", "")
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadAudioJobName, "completed", "")
+		}
+	}
+
+	// 4c. Script Audio Generation (goroutine per AI script line)
+	var scriptsHasError bool
+	var scriptsLastErr error
+	if len(speechModeMap) > 0 && s.azureSpeechClient != nil && s.cloudflareClient != nil && learningItemID != "" {
+		if scriptObj, ok := speechModeMap["script"]; ok {
+			if scripts, ok := scriptObj.([]interface{}); ok {
+				if s.batchService != nil {
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioScriptsJobName, "processing", "")
+					_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadScriptsJobName, "processing", "")
+				}
+
+				for i := range scripts {
+					if scriptLine, ok := scripts[i].(map[string]interface{}); ok {
+						speaker, _ := scriptLine["speaker"].(string)
+						text, _ := scriptLine["text"].(string)
+
+						if speaker == "AI" && text != "" {
+							mediaWg.Add(1)
+							go func(idx int, scriptText string) {
+								defer mediaWg.Done()
+								audioBytes, err := s.azureSpeechClient.Synthesize(ctx, scriptText, "en-US-AvaMultilingualNeural")
+								if err != nil {
+									mediaMu.Lock()
+									scriptsHasError = true
+									scriptsLastErr = err
+									mediaMu.Unlock()
+									fmt.Printf("Warning: failed to generate script audio: %v\n", err)
+									return
+								}
+
+								objectKey := fmt.Sprintf("speech-script/%s-%d.mp3", learningItemID, idx)
+								url, err := s.cloudflareClient.UploadR2Object(ctx, objectKey, audioBytes, "audio/mpeg")
+								if err != nil {
+									mediaMu.Lock()
+									scriptsHasError = true
+									scriptsLastErr = err
+									mediaMu.Unlock()
+									fmt.Printf("Warning: failed to upload script audio: %v\n", err)
+									return
+								}
+
+								mediaMu.Lock()
+								scripts[idx].(map[string]interface{})["audio_url"] = url
+								mediaMu.Unlock()
+							}(i, text)
+						}
+					}
+				}
+			}
+		}
+	} else {
+		if s.batchService != nil {
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioScriptsJobName, "completed", "")
+			_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadScriptsJobName, "completed", "")
+		}
+	}
+
+	// Wait for ALL media generation goroutines to complete
+	mediaWg.Wait()
+
+	// Update script job statuses after wait
+	if len(speechModeMap) > 0 {
+		if scriptObj, ok := speechModeMap["script"]; ok {
+			if scripts, ok := scriptObj.([]interface{}); ok {
+				speechModeMap["script"] = scripts
+			}
+		}
+		if s.batchService != nil {
+			if scriptsHasError {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioScriptsJobName, "failed", scriptsLastErr.Error())
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadScriptsJobName, "failed", scriptsLastErr.Error())
+			} else {
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildAudioScriptsJobName, "completed", "")
+				_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildUploadScriptsJobName, "completed", "")
+			}
+		}
+	}
+
+	// 7. Update Learning Item with final audio URLs and repacked speech_mode
+	updatedSpeechModeBytes, _ := json.Marshal(speechModeMap)
+
+	if li != nil && learningItemID != "" {
+		// Update metadata with repacked speech_mode (includes audio_url on AI script turns)
+		metadataMap := map[string]interface{}{
+			"speech_mode": json.RawMessage(updatedSpeechModeBytes),
+			"chat_mode":   parsedResp.ChatMode,
+		}
+
+		// Update details with audio URLs
+		var detailsMap map[string]interface{}
+		if len(li.Details) > 0 {
+			_ = json.Unmarshal(li.Details, &detailsMap)
+		}
+		if detailsMap == nil {
+			detailsMap = map[string]interface{}{}
+		}
+		if audioURL != "" {
+			detailsMap["audio_url"] = audioURL
+		}
+
+		metadataBytes, _ := json.Marshal(metadataMap)
+		detailsBytes, _ := json.Marshal(detailsMap)
+		li.Metadata = metadataBytes
+		li.Details = detailsBytes
+
+		if err := s.learningItemRepo.Update(ctx, li); err != nil {
+			fmt.Printf("Warning: failed to update learning item with audio URLs: %v\n", err)
+		}
+	}
+
+	// 8. Build final client response JSON and set batch result
+	var cleanRespMap map[string]interface{}
+	if err := json.Unmarshal([]byte(cleanResp), &cleanRespMap); err == nil {
+		if imageURL != "" {
+			cleanRespMap["image_url"] = imageURL
+		}
+		if audioURL != "" {
+			cleanRespMap["audio_url"] = audioURL
+		}
+		cleanRespMap["speech_mode"] = speechModeMap
+
+		if updatedBytes, err := json.Marshal(cleanRespMap); err == nil {
+			cleanResp = string(updatedBytes)
+		}
 	}
 
 	if s.batchService != nil {
-		// Store pure clean JSON directly to batch result so the client can fetch it
 		_ = s.batchService.SetBatchResult(ctx, batchID, []byte(cleanResp))
 		_ = s.batchService.UpdateJob(ctx, batchID, dialogueGuildJobName, "completed", "")
 	}
@@ -909,8 +1036,8 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 		BatchID:       batchID,
 		ReferenceID:   masterItem.Content, // Use topic as reference ID
 		Status:        "completed",        // If it's in the DB, it's considered completed
-		TotalJobs:     5,
-		CompletedJobs: 5,
+		TotalJobs:     7,
+		CompletedJobs: 7,
 		Jobs: []JobStatus{
 			{
 				Name:        dialogueGuildJobName,
@@ -934,6 +1061,16 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 			},
 			{
 				Name:        dialogueGuildUploadAudioJobName,
+				Status:      "completed",
+				CompletedAt: masterItem.CreatedAt.Format(time.RFC3339),
+			},
+			{
+				Name:        dialogueGuildAudioScriptsJobName,
+				Status:      "completed",
+				CompletedAt: masterItem.CreatedAt.Format(time.RFC3339),
+			},
+			{
+				Name:        dialogueGuildUploadScriptsJobName,
 				Status:      "completed",
 				CompletedAt: masterItem.CreatedAt.Format(time.RFC3339),
 			},

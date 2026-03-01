@@ -30,7 +30,7 @@ const (
 	NativeImmersion FeatureType = 1
 	GistQuiz        FeatureType = 2
 	RetellStory     FeatureType = 3
-	PocketMission   FeatureType = 4
+	DialogueGuide   FeatureType = 4
 	RhythmAndFlow   FeatureType = 5
 	VocabularyReps  FeatureType = 6
 	PrecisionCheck  FeatureType = 7
