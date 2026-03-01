@@ -187,6 +187,65 @@ curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&pa
 # }
 ```
 
+### Dialogue Guild Example
+```bash
+# 1. Start generation (Async)
+curl -X POST http://localhost:8080/api/v1/dialogue-guilds/generate \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "Ordering Coffee",
+    "description": "At a busy local coffee shop in the morning.",
+    "language": "Spanish",
+    "level": "Intermediate",
+    "tags": ["food", "daily-life"]
+  }'
+
+# Response:
+# {
+#   "batch_id": "abc-123-xyz",
+#   "message": "Dialogue guild generation started"
+# }
+
+# 2. Check status and get results
+curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# Response:
+# {
+#   "batch_id": "abc-123-xyz",
+#   "reference_id": "Ordering Coffee",
+#   "status": "completed",
+#   "total_jobs": 5,
+#   "completed_jobs": 5,
+#   "jobs": [
+#     { "name": "generate_dialogue_guild", "status": "completed" },
+#     { "name": "generate_image", "status": "completed" },
+#     { "name": "upload_image", "status": "completed" },
+#     { "name": "generate_audio", "status": "completed" },
+#     { "name": "upload_audio", "status": "completed" }
+#   ],
+#   "result": {
+#     "image_prompt": "...",
+#     "image_url": "https://pub-...r2.dev/dialogue_guilds/...",
+#     "audio_url": "https://pub-...r2.dev/dialogue_guilds/...",
+#     "tags": ["food", "cafe", "ordering", "morning", "daily-life"],
+#     "speech_mode": {
+#       "situation": "You are at a local cafe ordering a drink.",
+#       "script": [ ... ]
+#     },
+#     "chat_mode": {
+#       "situation": "Order a coffee and ask for a recommendation.",
+#       "objectives": {
+#         "requirements": [ ... ],
+#         "persuasion": [ ... ],
+#         "constraints": [ ... ]
+#       }
+#     }
+#   }
+# }
+```
+
 ### WebSocket
 
 Connect to `/ws` for real-time communication.

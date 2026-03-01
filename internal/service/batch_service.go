@@ -27,7 +27,8 @@ type JobStatus struct {
 // BatchStatus is the combined status of a batch and all its jobs.
 type BatchStatus struct {
 	BatchID       string          `json:"batch_id"`
-	VideoID       string          `json:"video_id"`
+	VideoID       string          `json:"video_id,omitempty"`
+	ReferenceID   string          `json:"reference_id,omitempty"`
 	Status        string          `json:"status"` // processing, completed, failed
 	TotalJobs     int             `json:"total_jobs"`
 	CompletedJobs int             `json:"completed_jobs"`
@@ -65,6 +66,7 @@ func (s *BatchService) CreateBatch(ctx context.Context, batchID, videoID, userID
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 	err := s.redis.HSet(ctx, batchKey,
 		"video_id", videoID,
+		"reference_id", videoID,
 		"user_id", userID,
 		"status", "processing",
 		"created_at", now,
@@ -204,9 +206,15 @@ func (s *BatchService) GetBatch(ctx context.Context, batchID string) (*BatchStat
 	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
 	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
 
+	refID := batchFields["reference_id"]
+	if refID == "" {
+		refID = batchFields["video_id"]
+	}
+
 	batch := &BatchStatus{
 		BatchID:       batchID,
 		VideoID:       batchFields["video_id"],
+		ReferenceID:   refID,
 		Status:        batchFields["status"],
 		TotalJobs:     totalJobs,
 		CompletedJobs: completedJobs,
@@ -247,13 +255,27 @@ func (s *BatchService) CreateBatchWithJobs(ctx context.Context, batchID, refID s
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	batchKey := fmt.Sprintf("batch:%s", batchID)
-	err := s.redis.HSet(ctx, batchKey,
-		"video_id", refID,
+	fields := []interface{}{
+		"reference_id", refID,
 		"status", "processing",
 		"created_at", now,
 		"total_jobs", strconv.Itoa(len(customJobNames)),
 		"completed_jobs", "0",
-	)
+	}
+
+	// For legacy support: if refID happens to be a UUID, also set video_id
+	// (this handles video uploads or scenario generation gracefully).
+	// But actually, we only need to not send 'video_id' if it's not a video.
+	// Since we don't know the exact type here except by looking at jobNames,
+	// let's do a simple heuristic: if it contains spaces or doesn't look like a UUID, we omit video_id.
+	// Or even simpler: just only set reference_id, and if they need backward compatibility for existing videos,
+	// we will map it on read. But existing iOS clients might expect video_id explicitly for video batches.
+	// So we can check if refID is a valid UUID, which topics are not.
+	if len(refID) == 36 {
+		fields = append(fields, "video_id", refID)
+	}
+
+	err := s.redis.HSet(ctx, batchKey, fields...)
 	if err != nil {
 		return fmt.Errorf("failed to create batch: %w", err)
 	}
@@ -302,9 +324,15 @@ func (s *BatchService) GetBatchWithJobs(ctx context.Context, batchID string) (*B
 	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
 	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
 
+	refID := batchFields["reference_id"]
+	if refID == "" {
+		refID = batchFields["video_id"]
+	}
+
 	batch := &BatchStatus{
 		BatchID:       batchID,
 		VideoID:       batchFields["video_id"],
+		ReferenceID:   refID,
 		Status:        batchFields["status"],
 		TotalJobs:     totalJobs,
 		CompletedJobs: completedJobs,

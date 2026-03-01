@@ -377,7 +377,7 @@ func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batch
 	query := `
 		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
 		FROM learning_items
-		WHERE metadata->>'batch_id' = $1
+		WHERE details->>'batch_id' = $1
 		ORDER BY created_at ASC
 	`
 

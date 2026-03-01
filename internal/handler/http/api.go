@@ -19,6 +19,7 @@ type APIHandler struct {
 	aiService       *service.AIService
 	speechService   *service.SpeechService
 	scenarioService *service.ScenarioService
+	batchService    *service.BatchService
 }
 
 // NewAPIHandler creates a new API handler.
@@ -27,12 +28,14 @@ func NewAPIHandler(
 	aiService *service.AIService,
 	speechService *service.SpeechService,
 	scenarioService *service.ScenarioService,
+	batchService *service.BatchService,
 ) *APIHandler {
 	return &APIHandler{
 		log:             log,
 		aiService:       aiService,
 		speechService:   speechService,
 		scenarioService: scenarioService,
+		batchService:    batchService,
 	}
 }
 
@@ -88,6 +91,83 @@ func (h *APIHandler) GetConversationScenario(w http.ResponseWriter, r *http.Requ
 	}
 
 	response.JSON(w, http.StatusOK, result)
+}
+
+// GenerateDialogueGuild handles POST /api/v1/dialogue-guilds/generate
+func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req service.GenerateDialogueGuildReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleError(w, errors.Validation("invalid request body"))
+		return
+	}
+
+	if req.Topic == "" {
+		h.handleError(w, errors.Validation("topic is required"))
+		return
+	}
+	if req.Language == "" {
+		h.handleError(w, errors.Validation("language is required"))
+		return
+	}
+	if req.Level == "" {
+		// Provide a default or validate, assuming it's required based on prompts
+		h.handleError(w, errors.Validation("level is required"))
+		return
+	}
+
+	batchID, err := h.aiService.GenerateDialogueGuild(ctx, req)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusAccepted, map[string]string{
+		"batch_id": batchID,
+		"message":  "Dialogue guild generation started",
+	})
+}
+
+// GetDialogueGuildBatch handles GET /api/v1/dialogue-guilds/batches/{batchID}
+func (h *APIHandler) GetDialogueGuildBatch(w http.ResponseWriter, r *http.Request) {
+	batchID := chi.URLParam(r, "batchID")
+	if batchID == "" {
+		h.handleError(w, errors.Validation("batch ID is required"))
+		return
+	}
+
+	if h.batchService == nil {
+		h.handleError(w, errors.Internal("batch service not configured"))
+		return
+	}
+
+	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
+	if err != nil {
+		h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guild batch status")
+		h.handleError(w, errors.Internal("failed to get batch status"))
+		return
+	}
+
+	if batch == nil {
+		batch, err = h.aiService.GetDialogueGuildByBatchID(r.Context(), batchID)
+		if err != nil {
+			h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guild batch fallback")
+			h.handleError(w, errors.Internal("failed to get batch status fallback"))
+			return
+		}
+
+		if batch == nil {
+			response.JSON(w, http.StatusGone, map[string]string{
+				"batch_id": batchID,
+				"status":   "expired",
+				"message":  "batch has been processed and cleaned up from memory",
+			})
+			return
+		}
+	}
+
+	response.JSON(w, http.StatusOK, batch)
 }
 
 // ChatRequest represents the request body for AI chat.

@@ -144,19 +144,20 @@ func main() {
 
 	// Initialize Repositories
 	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
+	learningSourceRepo := repository.NewPostgresLearningSourceRepository(postgresClient)
 	mediaItemRepo := repository.NewPostgresMediaItemRepository(postgresClient)
 	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
 	userRepo := repository.NewPostgresUserRepository(postgresClient)
 	// videoRepo := repository.NewPostgresVideoRepository(postgresClient) // Deprecated
 
 	// Initialize services
-	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
+	batchService := service.NewBatchService(redisClient, log)
+	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient, learningItemRepo, learningSourceRepo, batchService)
 	scenarioService := service.NewScenarioService(aiService, scenarioRepo)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
 	learningService := service.NewLearningService(aiService, learningItemRepo)
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-	batchService := service.NewBatchService(redisClient, log)
 	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
 	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
 	videoService := service.NewVideoService(learningItemRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
@@ -166,7 +167,7 @@ func main() {
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
-	apiHandler := http.NewAPIHandler(log, aiService, speechService, scenarioService)
+	apiHandler := http.NewAPIHandler(log, aiService, speechService, scenarioService, batchService)
 	speakingHandler := http.NewSpeakingHandler(log, speakingService)
 	learningItemHandler := http.NewLearningItemHandler(learningService)
 	authHandler := http.NewAuthHandler(log, authService)

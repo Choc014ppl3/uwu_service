@@ -100,6 +100,10 @@ func NewHTTPServer(
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
 			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
 
+			// Dialogue Guild endpoints
+			r.Post("/dialogue-guilds/generate", apiHandler.GenerateDialogueGuild)
+			r.Get("/dialogue-guilds/batches/{batchID}", apiHandler.GetDialogueGuildBatch)
+
 			// Video endpoints
 			r.Post("/videos/upload", videoHandler.Upload)
 			r.Get("/videos/playlist", videoHandler.GetVideoPlaylist)
