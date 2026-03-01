@@ -260,3 +260,42 @@ func (h *VideoHandler) handleError(w http.ResponseWriter, err error) {
 	h.log.Error().Err(err).Msg("Internal server error")
 	response.InternalError(w, "internal server error")
 }
+
+// CreateVideoActionRequest represents the request body for creating a video action.
+type CreateVideoActionRequest struct {
+	VideoID string `json:"video_id"`
+	Type    string `json:"type"`
+}
+
+// CreateVideoAction handles POST /api/v1/videos/actions
+func (h *VideoHandler) CreateVideoAction(w http.ResponseWriter, r *http.Request) {
+	var req CreateVideoActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.VideoID == "" {
+		response.BadRequest(w, "video_id is required")
+		return
+	}
+
+	if req.Type != "passed" && req.Type != "failed" && req.Type != "saved" {
+		response.BadRequest(w, "type must be passed, failed, or saved")
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.Unauthorized(w, "user not authenticated")
+		return
+	}
+
+	err := h.videoService.CreateAction(r.Context(), userID, req.VideoID, req.Type)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{"status": "success"})
+}

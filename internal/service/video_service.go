@@ -161,6 +161,27 @@ func (s *VideoService) GetVideo(ctx context.Context, idStr string) (*repository.
 	return video, nil
 }
 
+// CreateAction records a user's action on a video.
+func (s *VideoService) CreateAction(ctx context.Context, userIDStr string, videoIDStr string, actionType string) error {
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return errors.Validation("invalid user ID format")
+	}
+
+	videoID, err := uuid.Parse(videoIDStr)
+	if err != nil {
+		return errors.Validation("invalid video ID format")
+	}
+
+	err = s.learningRepo.AddVideoAction(ctx, videoID, userID, actionType)
+	if err != nil {
+		s.log.Error().Err(err).Str("video_id", videoIDStr).Str("user_id", userIDStr).Str("type", actionType).Msg("failed to add video action")
+		return errors.Internal("failed to process video action")
+	}
+
+	return nil
+}
+
 // GetVideoPlaylist retrieves the video playlist filtered by new, saved, and done within the last 2 weeks.
 func (s *VideoService) GetVideoPlaylist(ctx context.Context, userID string, status string, limit, offset int) ([]*repository.LearningItem, int, error) {
 	items, total, err := s.learningRepo.GetVideoPlaylist(ctx, userID, status, limit, offset)

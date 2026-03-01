@@ -48,6 +48,7 @@ type LearningItemRepository interface {
 	List(ctx context.Context, limit, offset int) ([]*LearningItem, int, error)
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	AddVideoAction(ctx context.Context, videoID uuid.UUID, userID uuid.UUID, actionType string) error
 }
 
 type PostgresLearningItemRepository struct {
@@ -398,6 +399,48 @@ func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batch
 		}
 		items = append(items, &item)
 	}
-
 	return items, nil
+}
+
+// AddVideoAction adds or updates a video action.
+func (r *PostgresLearningItemRepository) AddVideoAction(ctx context.Context, videoID uuid.UUID, userID uuid.UUID, actionType string) error {
+	if r.db == nil || r.db.Pool == nil {
+		return fmt.Errorf("database not configured")
+	}
+
+	var query string
+	switch actionType {
+	case "passed":
+		query = `
+			INSERT INTO video_actions (video_id, user_id, type, total_pass, total_fail)
+			VALUES ($1, $2, $3, 1, 0)
+			ON CONFLICT (video_id, user_id) DO UPDATE 
+			SET type = $3, total_pass = video_actions.total_pass + 1, updated_at = NOW(), deleted_at = NULL
+		`
+	case "failed":
+		query = `
+			INSERT INTO video_actions (video_id, user_id, type, total_pass, total_fail)
+			VALUES ($1, $2, $3, 0, 1)
+			ON CONFLICT (video_id, user_id) DO UPDATE 
+			SET type = $3, total_fail = video_actions.total_fail + 1, updated_at = NOW(), deleted_at = NULL
+		`
+	case "saved":
+		query = `
+			INSERT INTO video_actions (video_id, user_id, type, deleted_at)
+			VALUES ($1, $2, $3, NULL)
+			ON CONFLICT (video_id, user_id) DO UPDATE 
+			SET type = $3, 
+				deleted_at = CASE WHEN video_actions.deleted_at IS NULL THEN NOW() ELSE NULL END, 
+				updated_at = NOW()
+		`
+	default:
+		return fmt.Errorf("invalid action type: %s", actionType)
+	}
+
+	_, err := r.db.Pool.Exec(ctx, query, videoID, userID, actionType)
+	if err != nil {
+		return fmt.Errorf("failed to add video action: %w", err)
+	}
+
+	return nil
 }

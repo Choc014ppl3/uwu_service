@@ -155,6 +155,22 @@ curl -H "Authorization: Bearer <your_jwt_token>" \
 # }
 ```
 
+### Video Action Example
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/actions \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "video_id": "123e4567-e89b-12d3-a456-426614174000",
+    "type": "passed"
+  }'
+
+# Response:
+# {
+#   "status": "success"
+# }
+```
+
 ### Learning Items by Feature Example
 ```bash
 curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&page=1&limit=20" \
