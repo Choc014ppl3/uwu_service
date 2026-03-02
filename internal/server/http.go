@@ -95,6 +95,7 @@ func NewHTTPServer(
 			r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
 			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
 			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
+			r.Post("/learning-items/actions", learningItemHandler.CreateAction)
 
 			// Conversation Scenarios endpoints
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
@@ -108,7 +109,6 @@ func NewHTTPServer(
 			r.Post("/videos/upload", videoHandler.Upload)
 			r.Get("/videos/playlist", videoHandler.GetVideoPlaylist)
 			r.Get("/videos/{videoID}", videoHandler.Get)
-			r.Post("/videos/actions", videoHandler.CreateVideoAction)
 			// Quiz grading endpoint
 			r.Post("/quiz/{lessonID}/grade", quizHandler.Grade)
 

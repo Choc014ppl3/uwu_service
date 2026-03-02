@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/windfall/uwu_service/internal/middleware"
 	"github.com/windfall/uwu_service/internal/service"
 )
 
@@ -173,4 +174,56 @@ func (h *LearningItemHandler) DeleteLearningItem(w http.ResponseWriter, r *http.
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// CreateActionRequest represents the request body for creating a learning item action.
+type CreateActionRequest struct {
+	LearningID string `json:"learning_id"`
+	Type       string `json:"type"`
+}
+
+// CreateAction handles POST /api/v1/learning-items/actions
+func (h *LearningItemHandler) CreateAction(w http.ResponseWriter, r *http.Request) {
+	var req CreateActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.LearningID == "" {
+		http.Error(w, "learning_id is required", http.StatusBadRequest)
+		return
+	}
+
+	validTypes := map[string]bool{
+		"quiz_passed":      true,
+		"quiz_attempted":   true,
+		"quiz_saved":       true,
+		"dialogue_passed":  true,
+		"dialogue_saved":   true,
+		"chat_attempted":   true,
+		"chat_passed":      true,
+		"speech_attempted": true,
+		"speech_passed":    true,
+	}
+
+	if !validTypes[req.Type] {
+		http.Error(w, "invalid action type", http.StatusBadRequest)
+		return
+	}
+
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		http.Error(w, "user not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	err := h.service.CreateAction(r.Context(), userID, req.LearningID, req.Type)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

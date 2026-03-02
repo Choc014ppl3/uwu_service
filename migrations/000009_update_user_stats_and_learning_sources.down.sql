@@ -1,12 +1,12 @@
 BEGIN;
 
 -- Drop newly created tables
-DROP TABLE IF EXISTS video_actions CASCADE;
+DROP TABLE IF EXISTS learning_item_actions CASCADE;
 DROP TABLE IF EXISTS user_stats CASCADE;
 DROP TABLE IF EXISTS learning_sources CASCADE;
 
 -- Drop newly created ENUM types
-DROP TYPE IF EXISTS video_action_type_enum CASCADE;
+DROP TYPE IF EXISTS learning_item_action_type_enum CASCADE;
 DROP TYPE IF EXISTS learning_source_type_enum CASCADE;
 DROP TYPE IF EXISTS user_stat_status_enum CASCADE;
 

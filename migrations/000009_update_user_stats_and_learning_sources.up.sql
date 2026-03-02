@@ -3,7 +3,7 @@ BEGIN;
 -- 1. Create enum types
 CREATE TYPE learning_source_type_enum AS ENUM ('word', 'sentence');
 CREATE TYPE user_stat_status_enum AS ENUM ('new', 'pass', 'recognize');
-CREATE TYPE video_action_type_enum AS ENUM ('passed', 'failed', 'saved');
+CREATE TYPE learning_item_action_type_enum AS ENUM ('quiz_passed', 'quiz_attempted', 'quiz_saved', 'dialogue_passed', 'dialogue_saved', 'chat_attempted', 'chat_passed', 'speech_attempted', 'speech_passed');
 
 -- 2. Create learning_sources table
 CREATE TABLE learning_sources (
@@ -32,31 +32,34 @@ CREATE TABLE user_stats (
     language TEXT NOT NULL,
     type learning_source_type_enum NOT NULL,
     status user_stat_status_enum DEFAULT 'new',
-    total_listen INTEGER DEFAULT 0,
-    total_speak INTEGER DEFAULT 0,
-    total_read INTEGER DEFAULT 0,
-    total_write INTEGER DEFAULT 0,
+    listen_count INTEGER DEFAULT 0,
+    speak_count INTEGER DEFAULT 0,
+    read_count INTEGER DEFAULT 0,
+    write_count INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
 );
 
--- 4. Create video_actions table
-CREATE TABLE video_actions (
-    video_id UUID NOT NULL REFERENCES learning_items(id) ON DELETE CASCADE,
+-- 4. Create learning_item_actions table
+CREATE TABLE learning_item_actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type video_action_type_enum NOT NULL,
-    total_pass INTEGER DEFAULT 0,
-    total_fail INTEGER DEFAULT 0,
+    learning_id UUID NOT NULL REFERENCES learning_items(id) ON DELETE CASCADE,
+    action_type learning_item_action_type_enum NOT NULL,
+    attempt_count INTEGER DEFAULT 0,
+    pass_count INTEGER DEFAULT 0,
+    fail_count INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
-    PRIMARY KEY (video_id, user_id)
+    UNIQUE (learning_id, user_id)
 );
 
 -- 5. Indexes
 CREATE INDEX idx_learning_sources_lang_type ON learning_sources(language, type);
 CREATE INDEX idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX idx_user_stats_source_id ON user_stats(source_id);
-CREATE INDEX idx_video_actions_user_id ON video_actions(user_id);
+CREATE INDEX idx_learning_item_actions_user_id ON learning_item_actions(user_id);
 
 COMMIT;
