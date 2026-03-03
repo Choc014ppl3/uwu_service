@@ -36,6 +36,7 @@ func NewHTTPServer(
 	quizHandler *httphandler.QuizHandler,
 	retellHandler *httphandler.RetellHandler,
 	workoutHandler *httphandler.WorkoutHandler,
+	userStatsHandler *httphandler.UserStatsHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -96,6 +97,7 @@ func NewHTTPServer(
 			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
 			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
 			r.Post("/learning-items/actions", learningItemHandler.CreateAction)
+			r.Get("/learning-summarizes", userStatsHandler.GetLearningSummary)
 
 			// Conversation Scenarios endpoints
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)

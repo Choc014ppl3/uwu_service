@@ -8,7 +8,7 @@ CREATE TYPE learning_item_action_type_enum AS ENUM ('quiz_passed', 'quiz_attempt
 -- 2. Create learning_sources table
 CREATE TABLE learning_sources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    content TEXT NOT NULL,
+    content TEXT NOT NULL UNIQUE,
     language VARCHAR(20) NOT NULL,
     type learning_source_type_enum NOT NULL,
     level VARCHAR(20),

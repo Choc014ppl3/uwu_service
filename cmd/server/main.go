@@ -148,6 +148,7 @@ func main() {
 	mediaItemRepo := repository.NewPostgresMediaItemRepository(postgresClient)
 	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
 	userRepo := repository.NewPostgresUserRepository(postgresClient)
+	userStatsRepo := repository.NewPostgresUserStatsRepository(postgresClient)
 	// videoRepo := repository.NewPostgresVideoRepository(postgresClient) // Deprecated
 
 	// Initialize services
@@ -164,6 +165,7 @@ func main() {
 	quizService := service.NewQuizService(quizRepo)
 	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
 	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)
+	userStatsService := service.NewUserStatsService(userStatsRepo)
 
 	// Initialize handlers
 	healthHandler := http.NewHealthHandler()
@@ -175,9 +177,10 @@ func main() {
 	quizHandler := http.NewQuizHandler(log, quizService)
 	retellHandler := http.NewRetellHandler(log, retellService)
 	workoutHandler := http.NewWorkoutHandler(log, workoutService, batchService)
+	userStatsHandler := http.NewUserStatsHandler(userStatsService)
 
 	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler, workoutHandler)
+	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler, workoutHandler, userStatsHandler)
 
 	// Start servers
 	go func() {
