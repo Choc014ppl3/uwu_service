@@ -301,7 +301,7 @@ func (s *AIService) GenerateAndUploadAudio(ctx context.Context, id string, index
 // GenerateLearningItemReq defines the request for generating a learning item.
 type GenerateLearningItemReq struct {
 	Context    string `json:"context"`     // e.g., "Food"
-	LangCode   string `json:"lang_code"`   // "en-US", "zh-CN"
+	Language   string `json:"language"`   // "en-US", "zh-CN"
 	NativeLang string `json:"native_lang"` // "th"
 }
 
@@ -322,7 +322,7 @@ Your task is to generate a valid JSON object for a language learning database.
 
 Input Parameters:
 - Context: "{{context}}" (The content to analyze)
-- Target Language: "{{lang_code}}" (The language being learned)
+- Target Language: "{{language}}" (The language being learned)
 - Native Language: "{{native_lang}}" (The user's native language)
 
 Strict Rules:
@@ -334,7 +334,7 @@ Strict Rules:
    - "sentence": A complete sentence (e.g., "How are you?", "今天天气很好。")
 3. Field "meanings": Must contain ONLY the translation in the Native Language ("{{native_lang}}").
 4. Field "media.image_prompt": Write in English. Must be DETAILED and DESCRIPTIVE. Include subject details, background, lighting, and style (e.g., "minimalist vector art").
-5. All other fields (metadata, tags): MUST be in the Target Language ("{{lang_code}}").
+5. All other fields (metadata, tags): MUST be in the Target Language ("{{language}}").
 6. If specific data is not applicable, use null.
 
 Return a JSON object with this structure based on the inferred context_type:
@@ -362,7 +362,7 @@ Return a JSON object with this structure based on the inferred context_type:
 `
 	// Replace placeholders
 	prompt := strings.ReplaceAll(promptTemplate, "{{context}}", req.Context)
-	prompt = strings.ReplaceAll(prompt, "{{lang_code}}", req.LangCode)
+	prompt = strings.ReplaceAll(prompt, "{{language}}", req.Language)
 	prompt = strings.ReplaceAll(prompt, "{{native_lang}}", req.NativeLang)
 
 	return prompt
@@ -710,8 +710,8 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		li = &repository.LearningItem{
 			FeatureID:      &featureID,
 			Content:        req.Topic,
-			LangCode:       req.Language,
-			EstimatedLevel: levelPtr,
+			Language:       req.Language,
+			Level: levelPtr,
 			Tags:           tagsBytes,
 			Metadata:       metadataBytes,
 			Details:        detailsBytes,
@@ -1010,7 +1010,7 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 		"audio_url":    details["audio_url"],
 		"speech_mode":  meta["speech_mode"],
 		"chat_mode":    meta["chat_mode"],
-		"level":        masterItem.EstimatedLevel,
+		"level":        masterItem.Level,
 		"tags":         tags,
 	}
 

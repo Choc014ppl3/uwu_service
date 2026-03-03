@@ -15,8 +15,8 @@ type LearningItem struct {
 	ID                 uuid.UUID       `json:"id"`
 	FeatureID          *FeatureType    `json:"feature_id"`
 	Content            string          `json:"content"`
-	LangCode           string          `json:"lang_code"`
-	EstimatedLevel     *string         `json:"estimated_level"`
+	Language           string          `json:"language"`
+	Level     *string         `json:"level"`
 	Details            json.RawMessage `json:"details"`
 	Metadata           json.RawMessage `json:"metadata"`
 	Tags               json.RawMessage `json:"tags"`
@@ -68,7 +68,7 @@ func (r *PostgresLearningItemRepository) Create(ctx context.Context, item *Learn
 
 	query := `
 		INSERT INTO learning_items (
-			feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active
+			feature_id, content, language, level, details, tags, metadata, is_active
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8
 		) RETURNING id, created_at, updated_at
@@ -77,8 +77,8 @@ func (r *PostgresLearningItemRepository) Create(ctx context.Context, item *Learn
 	err := r.db.Pool.QueryRow(ctx, query,
 		item.FeatureID,
 		item.Content,
-		item.LangCode,
-		item.EstimatedLevel,
+		item.Language,
+		item.Level,
 		item.Details,
 		item.Tags,
 		item.Metadata,
@@ -98,7 +98,7 @@ func (r *PostgresLearningItemRepository) GetByID(ctx context.Context, id uuid.UU
 	}
 
 	query := `
-		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
+		SELECT id, feature_id, content, language, level, details, tags, metadata, is_active, created_at, updated_at
 		FROM learning_items
 		WHERE id = $1
 	`
@@ -108,8 +108,8 @@ func (r *PostgresLearningItemRepository) GetByID(ctx context.Context, id uuid.UU
 		&item.ID,
 		&item.FeatureID,
 		&item.Content,
-		&item.LangCode,
-		&item.EstimatedLevel,
+		&item.Language,
+		&item.Level,
 		&item.Details,
 		&item.Tags,
 		&item.Metadata,
@@ -137,7 +137,7 @@ func (r *PostgresLearningItemRepository) List(ctx context.Context, limit, offset
 
 	// Get paginated items
 	query := `
-		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
+		SELECT id, feature_id, content, language, level, details, tags, metadata, is_active, created_at, updated_at
 		FROM learning_items
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -156,8 +156,8 @@ func (r *PostgresLearningItemRepository) List(ctx context.Context, limit, offset
 			&item.ID,
 			&item.FeatureID,
 			&item.Content,
-			&item.LangCode,
-			&item.EstimatedLevel,
+			&item.Language,
+			&item.Level,
 			&item.Details,
 			&item.Tags,
 			&item.Metadata,
@@ -188,7 +188,7 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	// Get paginated items
 	query := `
 		SELECT 
-			li.id, li.feature_id, li.content, li.lang_code, li.estimated_level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
+			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
 			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_passed' OR lia.action_type = 'dialogue_passed' THEN 1 ELSE 0 END), 0) AS pass_count,
 			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
 			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_saved' OR lia.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
@@ -217,8 +217,8 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 			&item.ID,
 			&item.FeatureID,
 			&item.Content,
-			&item.LangCode,
-			&item.EstimatedLevel,
+			&item.Language,
+			&item.Level,
 			&item.Details,
 			&item.Tags,
 			&item.Metadata,
@@ -284,7 +284,7 @@ func (r *PostgresLearningItemRepository) GetVideoPlaylist(ctx context.Context, u
 	// It joins with user_actions to determine if a video is "new" (no action), "saved", or "done"
 	query := fmt.Sprintf(`
 		SELECT 
-			li.id, li.feature_id, li.content, li.lang_code, li.estimated_level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
+			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
 			COALESCE(ua.type::text, 'new') as status
 		FROM learning_items li
 		LEFT JOIN user_actions ua ON li.id = ua.learning_item_id AND ua.user_id = $1
@@ -309,8 +309,8 @@ func (r *PostgresLearningItemRepository) GetVideoPlaylist(ctx context.Context, u
 			&item.ID,
 			&item.FeatureID,
 			&item.Content,
-			&item.LangCode,
-			&item.EstimatedLevel,
+			&item.Language,
+			&item.Level,
 			&item.Details,
 			&item.Tags,
 			&item.Metadata,
@@ -370,7 +370,7 @@ func (r *PostgresLearningItemRepository) Update(ctx context.Context, item *Learn
 
 	query := `
 		UPDATE learning_items
-		SET feature_id = $1, content = $2, lang_code = $3, estimated_level = $4, details = $5,
+		SET feature_id = $1, content = $2, language = $3, level = $4, details = $5,
 		    tags = $6, metadata = $7, is_active = $8, updated_at = NOW()
 		WHERE id = $9
 		RETURNING updated_at
@@ -378,8 +378,8 @@ func (r *PostgresLearningItemRepository) Update(ctx context.Context, item *Learn
 	err := r.db.Pool.QueryRow(ctx, query,
 		item.FeatureID,
 		item.Content,
-		item.LangCode,
-		item.EstimatedLevel,
+		item.Language,
+		item.Level,
 		item.Details,
 		item.Tags,
 		item.Metadata,
@@ -411,7 +411,7 @@ func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batch
 	}
 
 	query := `
-		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
+		SELECT id, feature_id, content, language, level, details, tags, metadata, is_active, created_at, updated_at
 		FROM learning_items
 		WHERE details->>'batch_id' = $1
 		ORDER BY created_at ASC
@@ -427,7 +427,7 @@ func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batch
 	for rows.Next() {
 		var item LearningItem
 		if err := rows.Scan(
-			&item.ID, &item.FeatureID, &item.Content, &item.LangCode, &item.EstimatedLevel,
+			&item.ID, &item.FeatureID, &item.Content, &item.Language, &item.Level,
 			&item.Details, &item.Tags, &item.Metadata, &item.IsActive,
 			&item.CreatedAt, &item.UpdatedAt,
 		); err != nil {

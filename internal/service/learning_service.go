@@ -26,7 +26,7 @@ func NewLearningService(ai *AIService, repo repository.LearningItemRepository) *
 
 type CreateLearningItemReq struct {
 	Context    string `json:"context"`
-	LangCode   string `json:"lang_code"`
+	Language   string `json:"language"`
 	NativeLang string `json:"native_lang"`
 	IsActive   bool   `json:"is_active"`
 }
@@ -35,7 +35,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 	// 1. Generate Content via AI
 	aiResp, err := s.ai.GenerateLearningItem(ctx, GenerateLearningItemReq{
 		Context:    req.Context,
-		LangCode:   req.LangCode,
+		Language:   req.Language,
 		NativeLang: req.NativeLang,
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 
 	newItem := &repository.LearningItem{
 		Content:   req.Context,
-		LangCode:  req.LangCode,
+		Language:  req.Language,
 		Details:   detailsJSON,
 		Tags:      tagsJSON,
 		Metadata:  itemData.Metadata,
@@ -96,7 +96,7 @@ func (s *LearningService) CreateLearningItem(ctx context.Context, req CreateLear
 
 	// 5. Async Media Generation (if active)
 	if req.IsActive {
-		go s.generateMediaAsync(newItem.ID, itemData.Media.ImagePrompt, req.Context, req.LangCode, itemData.Meanings, req.NativeLang, itemData.Media)
+		go s.generateMediaAsync(newItem.ID, itemData.Media.ImagePrompt, req.Context, req.Language, itemData.Meanings, req.NativeLang, itemData.Media)
 	}
 
 	return newItem, nil
@@ -126,7 +126,7 @@ func (s *LearningService) GetLearningItemsByFeature(ctx context.Context, feature
 
 type UpdateLearningItemReq struct {
 	Content  string          `json:"content"`
-	LangCode string          `json:"lang_code"`
+	Language string          `json:"language"`
 	Details  json.RawMessage `json:"details"`
 	Tags     []string        `json:"tags"`
 	Metadata json.RawMessage `json:"metadata"`
@@ -140,7 +140,7 @@ func (s *LearningService) UpdateLearningItem(ctx context.Context, id uuid.UUID, 
 	item := &repository.LearningItem{
 		ID:       id,
 		Content:  req.Content,
-		LangCode: req.LangCode,
+		Language: req.Language,
 		Details:  detailsJSON,
 		Tags:     tagsJSON,
 		Metadata: req.Metadata,

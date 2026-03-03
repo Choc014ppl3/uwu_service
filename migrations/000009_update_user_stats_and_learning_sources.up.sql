@@ -63,3 +63,7 @@ CREATE INDEX idx_user_stats_source_id ON user_stats(source_id);
 CREATE INDEX idx_learning_item_actions_user_id ON learning_item_actions(user_id);
 
 COMMIT;
+
+-- 6. Rename columns in learning_items
+ALTER TABLE learning_items RENAME COLUMN lang_code TO language;
+ALTER TABLE learning_items RENAME COLUMN estimated_level TO level;

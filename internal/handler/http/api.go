@@ -256,7 +256,7 @@ func (h *APIHandler) AnalyzeVocab(w http.ResponseWriter, r *http.Request) {
 
 	// Get reference text
 	referenceText := r.FormValue("reference_text")
-	langCode := r.FormValue("lang_code") // "en-US", etc.
+	langCode := r.FormValue("language") // "en-US", etc.
 
 	// Read file content
 	// In production, might want to check file type/magic bytes here
@@ -301,7 +301,7 @@ func (h *APIHandler) AnalyzeShadowing(w http.ResponseWriter, r *http.Request) {
 
 	// Get reference text and language
 	referenceText := r.FormValue("reference_text")
-	langCode := r.FormValue("lang_code") // Optional, defaults to en-US
+	langCode := r.FormValue("language") // Optional, defaults to en-US
 
 	// Read file content
 	audioData := make([]byte, 0)

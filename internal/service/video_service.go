@@ -26,8 +26,8 @@ You are an expert Linguistic and Educational Content Analyzer. Your task is to a
 
 # Instructions
 You must analyze the description and determine:
-1. lang_code: The BCP-47 language tag (e.g., "en-US", "zh-CN", "ja-JP", "es-ES") that best represents the spoken language.
-2. estimated_level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
+1. language: The BCP-47 language tag (e.g., "en-US", "zh-CN", "ja-JP", "es-ES") that best represents the spoken language.
+2. level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
     * For English: Use the CEFR scale (A1, A2, B1, B2, C1, C2).
     * For Chinese: Use the HSK scale (HSK1, HSK2, HSK3, HSK4, HSK5, HSK6).
     * For Japanese: Use the JLPT scale (N5, N4, N3, N2, N1).
@@ -66,8 +66,8 @@ Do not output any markdown text, introductory phrases, or code blocks. Output ON
 Use the structure below:
 
 {
-  "lang_code": "string",
-  "estimated_level": "string",
+  "language": "string",
+  "level": "string",
   "tags": ["string"],
   "gist_quiz": [
     {
@@ -254,7 +254,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	learningItem := &repository.LearningItem{
 		FeatureID: nil,
 		Content:   "",       // Will be populated with transcript later
-		LangCode:  language, // Default, will be updated detection
+		Language:  language, // Default, will be updated detection
 		Details:   json.RawMessage("{}"),
 		Tags:      json.RawMessage("[]"),
 		Metadata:  metadataJSON,
@@ -500,7 +500,7 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 
 	// Update Fields
 	item.Content = result.Text
-	item.LangCode = result.Language
+	item.Language = result.Language
 
 	// Convert transcript segments to map/struct for metadata storage
 	// Store in `details` column
@@ -540,10 +540,10 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 		})
 	}
 
-	s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, item.LangCode)
+	s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, item.Language)
 }
 
-// generateContentInfo generates lang_code, estimated_level, tags, gist_quiz, retell_story in one go.
+// generateContentInfo generates language, level, tags, gist_quiz, retell_story in one go.
 func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) {
 	_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "processing", "")
 
@@ -580,8 +580,8 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 	s.log.Info().Str("video_id", videoID.String()).Str("response", responseText).Msg("AI response for details and quiz")
 
 	var detailsAndQuiz struct {
-		LangCode       string                   `json:"lang_code"`
-		EstimatedLevel string                   `json:"estimated_level"`
+		Language       string                   `json:"language"`
+		Level string                   `json:"level"`
 		Tags           []string                 `json:"tags"`
 		GistQuiz       []map[string]interface{} `json:"gist_quiz"`
 		RetellStory    []map[string]interface{} `json:"retell_story"`
@@ -598,11 +598,11 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 	}
 
 	// 1. Update LearningItem Details
-	if detailsAndQuiz.LangCode != "" {
-		latestItem.LangCode = detailsAndQuiz.LangCode
+	if detailsAndQuiz.Language != "" {
+		latestItem.Language = detailsAndQuiz.Language
 	}
-	if detailsAndQuiz.EstimatedLevel != "" {
-		latestItem.EstimatedLevel = &detailsAndQuiz.EstimatedLevel
+	if detailsAndQuiz.Level != "" {
+		latestItem.Level = &detailsAndQuiz.Level
 	}
 	if len(detailsAndQuiz.Tags) > 0 {
 		tagsJSON, _ := json.Marshal(detailsAndQuiz.Tags)
@@ -628,7 +628,7 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 	gistItem := &repository.LearningItem{
 		FeatureID: &gistFeature,
 		Content:   "Gist Quiz",
-		LangCode:  latestItem.LangCode,
+		Language:  latestItem.Language,
 		Details:   gistQuizDetailsJSON,
 		Tags:      json.RawMessage("[]"),
 		Metadata:  gistMetaJSON,
@@ -653,7 +653,7 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 	retellItem := &repository.LearningItem{
 		FeatureID: &retellFeature,
 		Content:   "Retell Story",
-		LangCode:  latestItem.LangCode,
+		Language:  latestItem.Language,
 		Details:   retellStoryDetailsJSON,
 		Tags:      json.RawMessage("[]"),
 		Metadata:  retellMetaJSON,

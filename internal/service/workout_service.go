@@ -623,7 +623,7 @@ func (s *WorkoutService) processLearningItemsAsync(batchID string, scenario *rep
 
 		dbItem := &repository.LearningItem{
 			Content:  fmt.Sprintf("[%s] %s", item.Category, item.ItemID),
-			LangCode: scenario.TargetLang,
+			Language: scenario.TargetLang,
 			Details:  detailsJSON,
 			Tags:     tagsJSON,
 			Metadata: metadata,
@@ -860,7 +860,7 @@ func (s *WorkoutService) saveLearningItem(ctx context.Context, wli workoutLearni
 
 	item := &repository.LearningItem{
 		Content:   wli.Content,
-		LangCode:  langCode,
+		Language:  langCode,
 		Details:   detailsJSON,
 		Tags:      tagsJSON,
 		Metadata:  metaBytes,
