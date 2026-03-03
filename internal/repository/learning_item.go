@@ -12,17 +12,18 @@ import (
 )
 
 type LearningItem struct {
-	ID             uuid.UUID       `json:"id"`
-	FeatureID      *FeatureType    `json:"feature_id"`
-	Content        string          `json:"content"`
-	LangCode       string          `json:"lang_code"`
-	EstimatedLevel *string         `json:"estimated_level"`
-	Details        json.RawMessage `json:"details"`
-	Metadata       json.RawMessage `json:"metadata"`
-	Tags           json.RawMessage `json:"tags"`
-	IsActive       bool            `json:"is_active"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID                 uuid.UUID       `json:"id"`
+	FeatureID          *FeatureType    `json:"feature_id"`
+	Content            string          `json:"content"`
+	LangCode           string          `json:"lang_code"`
+	EstimatedLevel     *string         `json:"estimated_level"`
+	Details            json.RawMessage `json:"details"`
+	Metadata           json.RawMessage `json:"metadata"`
+	Tags               json.RawMessage `json:"tags"`
+	IsActive           bool            `json:"is_active"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	LearningItemAction map[string]int  `json:"learning_item_action,omitempty" db:"-"`
 }
 
 type FeatureType int
@@ -186,10 +187,18 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 
 	// Get paginated items
 	query := `
-		SELECT id, feature_id, content, lang_code, estimated_level, details, tags, metadata, is_active, created_at, updated_at
-		FROM learning_items
-		WHERE feature_id = $1
-		ORDER BY created_at DESC
+		SELECT 
+			li.id, li.feature_id, li.content, li.lang_code, li.estimated_level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
+			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_passed' OR lia.action_type = 'dialogue_passed' THEN 1 ELSE 0 END), 0) AS pass_count,
+			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
+			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_saved' OR lia.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
+			COALESCE(SUM(CASE WHEN lia.action_type = 'chat_attempted' THEN 1 ELSE 0 END), 0) AS chat_attempt_count,
+			COALESCE(SUM(CASE WHEN lia.action_type = 'speech_attempted' THEN 1 ELSE 0 END), 0) AS speech_attempt_count
+		FROM learning_items li
+		LEFT JOIN learning_item_actions lia ON li.id = lia.learning_id
+		WHERE li.feature_id = $1
+		GROUP BY li.id
+		ORDER BY li.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -202,6 +211,8 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	var items []*LearningItem
 	for rows.Next() {
 		var item LearningItem
+		var pass, attempt, save, chatAttempt, speechAttempt int
+
 		if err := rows.Scan(
 			&item.ID,
 			&item.FeatureID,
@@ -214,9 +225,33 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 			&item.IsActive,
 			&item.CreatedAt,
 			&item.UpdatedAt,
+			&pass,
+			&attempt,
+			&save,
+			&chatAttempt,
+			&speechAttempt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan learning item: %w", err)
 		}
+
+		if item.FeatureID != nil {
+			switch *item.FeatureID {
+			case NativeImmersion:
+				item.LearningItemAction = map[string]int{
+					"pass_count":    pass,
+					"attempt_count": attempt,
+					"save_count":    save,
+				}
+			case DialogueGuide:
+				item.LearningItemAction = map[string]int{
+					"pass_count":           pass,
+					"chat_attempt_count":   chatAttempt,
+					"speech_attempt_count": speechAttempt,
+					"save_count":           save,
+				}
+			}
+		}
+
 		items = append(items, &item)
 	}
 
