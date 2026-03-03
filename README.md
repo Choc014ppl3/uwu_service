@@ -189,43 +189,20 @@ curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&pa
 
 ### Learning Summarizes Example
 ```bash
-curl -X GET "http://localhost:8080/api/v1/learning-summarizes" \
-  -H "Authorization: Bearer <your_jwt_token>" \
-  -H "Language: english"
+curl -X GET "http://localhost:8080/api/v1/learning-summarizes?language=english&status=listen&status=speak" \
+  -H "Authorization: Bearer <your_jwt_token>"
   
 # Response:
 # {
 #   "success": true,
-#   "data": [
-#     {
-#       "type": "listen",
-#       "new_words": 10,
-#       "new_sentences": 5,
-#       "pass_words": 20,
-#       "pass_sentences": 8
-#     },
-#     {
-#       "type": "read",
-#       "new_words": 10,
-#       "new_sentences": 5,
-#       "pass_words": 20,
-#       "pass_sentences": 8
-#     },
-#     {
-#       "type": "write",
-#       "new_words": 10,
-#       "new_sentences": 5,
-#       "pass_words": 20,
-#       "pass_sentences": 8
-#     },
-#     {
-#       "type": "speak",
-#       "new_words": 10,
-#       "new_sentences": 5,
-#       "pass_words": 20,
-#       "pass_sentences": 8
-#     }
-#   ]
+#   "data": {
+#     "new_words": 10,
+#     "new_sentences": 5,
+#     "pass_words": 20,
+#     "pass_sentences": 8,
+#     "recognize_words": 5,
+#     "recognize_sentences": 2
+#   }
 # }
 ```
 

@@ -23,13 +23,17 @@ func (h *UserStatsHandler) GetLearningSummary(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	language := r.Header.Get("language")
+	language := r.URL.Query().Get("language")
 	if language == "" {
-		http.Error(w, "language header is required", http.StatusBadRequest)
+		http.Error(w, "language query parameter is required", http.StatusBadRequest)
 		return
 	}
 
-	summary, err := h.service.GetLearningSummary(r.Context(), userID, language)
+	// Parse array of statuses
+	r.ParseForm()
+	statuses := r.Form["status"]
+
+	summary, err := h.service.GetLearningSummary(r.Context(), userID, language, statuses)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
