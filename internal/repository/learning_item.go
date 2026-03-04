@@ -16,7 +16,7 @@ type LearningItem struct {
 	FeatureID          *FeatureType    `json:"feature_id"`
 	Content            string          `json:"content"`
 	Language           string          `json:"language"`
-	Level     *string         `json:"level"`
+	Level              string          `json:"level"`
 	Details            json.RawMessage `json:"details"`
 	Metadata           json.RawMessage `json:"metadata"`
 	Tags               json.RawMessage `json:"tags"`
@@ -29,16 +29,16 @@ type LearningItem struct {
 type FeatureType int
 
 const (
-	NativeImmersion FeatureType = 1
-	GistQuiz        FeatureType = 2
-	RetellStory     FeatureType = 3
-	DialogueGuide   FeatureType = 4
-	RhythmAndFlow   FeatureType = 5
-	VocabularyReps  FeatureType = 6
-	PrecisionCheck  FeatureType = 7
-	StructureDrill  FeatureType = 8
-	SparringMode    FeatureType = 9
-	MissionGuide    FeatureType = 10
+	NativeVideo    FeatureType = 1
+	GistQuiz       FeatureType = 2
+	RetellStory    FeatureType = 3
+	DialogueGuide  FeatureType = 4
+	RhythmAndFlow  FeatureType = 5
+	VocabularyReps FeatureType = 6
+	PrecisionCheck FeatureType = 7
+	StructureDrill FeatureType = 8
+	SparringMode   FeatureType = 9
+	MissionGuide   FeatureType = 10
 )
 
 type LearningItemRepository interface {
@@ -236,7 +236,7 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 
 		if item.FeatureID != nil {
 			switch *item.FeatureID {
-			case NativeImmersion:
+			case NativeVideo:
 				item.LearningItemAction = map[string]int{
 					"pass_count":    pass,
 					"attempt_count": attempt,

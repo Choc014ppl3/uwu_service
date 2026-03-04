@@ -1,7 +1,6 @@
 package http
 
 import (
-	"mime/multipart"
 	"net/http"
 	"strings"
 
@@ -48,8 +47,15 @@ func NewVideoHandler(log zerolog.Logger, videoService *service.VideoService, bat
 	}
 }
 
-// Upload handles POST /api/v1/videos/upload
-func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
+// UploadNativeVideo handles POST /api/v1/native-videos/upload
+func (h *VideoHandler) UploadNativeVideo(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from auth context
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.Unauthorized(w, "user not authenticated")
+		return
+	}
+
 	// Limit request body to 30MB
 	const maxUploadSize = 30 << 20 // 30MB
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
@@ -60,40 +66,27 @@ func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get file from form
-	file, header, err := r.FormFile("video")
+	vFile, vHeader, err := r.FormFile("video")
 	if err != nil {
 		response.BadRequest(w, "video file is required (form field: 'video')")
 		return
 	}
-	defer file.Close()
+	defer vFile.Close()
 
 	// Validate MIME type
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		// Fallback: detect from filename extension
-		if strings.HasSuffix(strings.ToLower(header.Filename), ".mp4") {
-			contentType = "video/mp4"
-		} else if strings.HasSuffix(strings.ToLower(header.Filename), ".mov") {
-			contentType = "video/quicktime"
+	vContentType := vHeader.Header.Get("Content-Type")
+	if vContentType == "" {
+		if strings.HasSuffix(strings.ToLower(vHeader.Filename), ".mp4") {
+			vContentType = "video/mp4"
+		} else if strings.HasSuffix(strings.ToLower(vHeader.Filename), ".mov") {
+			vContentType = "video/quicktime"
 		}
 	}
 
-	if !allowedVideoMIME[contentType] {
+	if !allowedVideoMIME[vContentType] {
 		response.BadRequest(w, "invalid file type, allowed: mp4, mov, avi, webm")
 		return
 	}
-
-	// Get user ID from auth context
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		response.Unauthorized(w, "user not authenticated")
-		return
-	}
-
-	// Get language from headers (optional but recommended)
-	language := r.Header.Get("Language")
-	var thumbFile multipart.File
-	var thumbContentType string
 
 	// Get thumbnail (required)
 	tFile, tHeader, tErr := r.FormFile("thumbnail")
@@ -101,28 +94,29 @@ func (h *VideoHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "thumbnail file is required (form field: 'thumbnail')")
 		return
 	}
-
-	thumbFile = tFile
 	defer tFile.Close()
 
-	thumbContentType = tHeader.Header.Get("Content-Type")
-	if thumbContentType == "" {
+	tContentType := tHeader.Header.Get("Content-Type")
+	if tContentType == "" {
 		if strings.HasSuffix(strings.ToLower(tHeader.Filename), ".jpg") || strings.HasSuffix(strings.ToLower(tHeader.Filename), ".jpeg") {
-			thumbContentType = "image/jpeg"
+			tContentType = "image/jpeg"
 		} else if strings.HasSuffix(strings.ToLower(tHeader.Filename), ".png") {
-			thumbContentType = "image/png"
+			tContentType = "image/png"
 		} else if strings.HasSuffix(strings.ToLower(tHeader.Filename), ".webp") {
-			thumbContentType = "image/webp"
+			tContentType = "image/webp"
 		}
 	}
 
-	if !allowedImageMIME[thumbContentType] {
+	if !allowedImageMIME[tContentType] {
 		response.BadRequest(w, "invalid thumbnail type, allowed: jpeg, png, webp")
 		return
 	}
 
+	// Get language from headers (optional but recommended)
+	language := r.Header.Get("Language")
+
 	// Process upload
-	result, err := h.videoService.ProcessUpload(r.Context(), userID, file, language, thumbFile, thumbContentType)
+	result, err := h.videoService.ProcessUpload(r.Context(), userID, vFile, vContentType, tFile, tContentType, language)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -201,7 +195,30 @@ func (h *VideoHandler) GetBatchStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	batch, err := h.batchService.GetBatch(r.Context(), batchID)
+	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	if batch == nil {
+		response.NotFound(w, "batch not found")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, batch)
+}
+
+// GetUploadProgress handles GET /api/v1/native-videos/upload/{batchID}
+// Returns the batch progress for a native video upload.
+func (h *VideoHandler) GetUploadProgress(w http.ResponseWriter, r *http.Request) {
+	batchID := chi.URLParam(r, "batchID")
+	if batchID == "" {
+		response.BadRequest(w, "batch ID is required")
+		return
+	}
+
+	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -225,7 +242,7 @@ func (h *VideoHandler) GetBatchImmersion(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 1. Try to get status from Redis
-	batch, err := h.batchService.GetBatch(r.Context(), batchID)
+	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
 	if err != nil {
 		h.handleError(w, err)
 		return

@@ -161,7 +161,7 @@ func main() {
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
 	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
 	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
-	videoService := service.NewVideoService(learningItemRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
+	videoService := service.NewVideoService(learningItemRepo, learningSourceRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
 	quizService := service.NewQuizService(quizRepo)
 	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
 	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)

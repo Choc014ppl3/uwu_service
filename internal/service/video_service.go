@@ -26,8 +26,9 @@ You are an expert Linguistic and Educational Content Analyzer. Your task is to a
 
 # Instructions
 You must analyze the description and determine:
-1. language: The BCP-47 language tag (e.g., "en-US", "zh-CN", "ja-JP", "es-ES") that best represents the spoken language.
-2. level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
+1. topic: Identify the main topic of the video based solely on the transcript. The topic should be concise (1 short sentence or a short phrase).
+2. description: Generate a clear and summarizing the video content. The description must be based only on the transcript. Do not invent information that is not present in the transcript. Keep it 3-5 sentences long.
+3. level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
     * For English: Use the CEFR scale (A1, A2, B1, B2, C1, C2).
     * For Chinese: Use the HSK scale (HSK1, HSK2, HSK3, HSK4, HSK5, HSK6).
     * For Japanese: Use the JLPT scale (N5, N4, N3, N2, N1).
@@ -35,7 +36,7 @@ You must analyze the description and determine:
     * For French: Use the DELF/DALF scale (A1, A2, B1, B2, C1, C2).
 	* For Russian: Use the TORFL scale (TORFL1, TORFL2, TORFL3, TORFL4, TORFL5, TORFL6).
 	* For Portuguese: Use the CAPLE scale (A1, A2, B1, B2, C1, C2).
-3. tags: A list of 3-5 relevant topic or thematic tags for the video (e.g., ["travel", "food", "daily life"]).
+4. tags: A list of 3-5 relevant topic or thematic tags for the video (e.g., ["travel", "food", "daily life"]).
 
 ## CRITICAL STEP: THOUGHT PROCESS FOR QUIZ
 Before generating the JSON quiz, you must identify the chronological order of events for the "Sequence" question to ensure accuracy.
@@ -43,7 +44,7 @@ Before generating the JSON quiz, you must identify the chronological order of ev
 2. Verify their order in the description.
 3. Only then, map them to the JSON output.
 
-## Part 1: Gist Quiz (Total 4-5 Questions)
+## Part 1: Gist Quiz 3 Questions
 1.  **Context/Tone (1 Question):**
     * category: "context"
     * type: "multiple_response"
@@ -59,14 +60,21 @@ Before generating the JSON quiz, you must identify the chronological order of ev
     * Provide the correct_order array containing the correct sequence of Option IDs (e.g., ["B", "A", "C", "D"]).
 
 ## Part 2: Retell Story
-Generate 3 distinct and concise examples of how the user could retell the story based on the provided description. Each example must comprehensively cover the main flow and key points of the narrative, offering different ways to express the same core message.
+Generate a concise example of how the user could retell the story based on the transcript following elements:
+1. "retell_example": Create a concise, natural-sounding summary of the story. This serves as a model answer or a good example for a student to follow. It should use clear chronological order and appropriate transition words.
+2. "key_points": Extract 3 to 5 essential plot points, main events, or key takeaways that the student MUST include in their retelling like in "retell_example" to be considered complete and accurate.
+
+## Part 3: Vocabulary & Sentence Extraction Logic
+* **Words Extraction:** Extract 5-10 key vocabulary words directly from the generated "Gist Quiz" and "Retell Story". Provide accurate IPA ("reading_standard"), show syllable stress ("reading_stress"), provide the definition ("definition"), and ensure the "ex_sentence" matches the word's specific meaning in this context.
+* **Sentences Extraction:** Extract 3-5 high-value or structurally important sentences directly from the generated "Gist Quiz" and "Retell Story". Provide sentence-level intonation/stress markers, breakdown the grammatical structure ("structure_format"), and detail its specific usage context.
 
 # Output Format (STRICT JSON)
 Do not output any markdown text, introductory phrases, or code blocks. Output ONLY the raw JSON object.
 Use the structure below:
 
 {
-  "language": "string",
+  "topic": "string",
+  "description": "string",
   "level": "string",
   "tags": ["string"],
   "gist_quiz": [
@@ -81,8 +89,37 @@ Use the structure below:
       "correct_order": ["string"] // null for non-ordering types
     }
   ],
-  "retell_story": [
-    { "id": 1, "example": "string" }
+  "retell_story": {
+    "retell_example": "string",
+	"key_points": ["string"] // 3-5 
+  },
+  "words": [
+    {
+      "text": "string", // The target word extracted from the script
+      "level": "string", // CEFR level of the word (e.g., A1, B2)
+      "tags": ["string"], // Relevant categories (e.g., "noun", "business", "travel")
+      "reading_standard": "string", // IPA transcription (e.g., /ˈkæm.rə/)
+      "reading_stress": "string", // Syllable stress representation (e.g., CA-me-ra)
+      "pos": "string", // Part of Speech (e.g., Noun, Verb, Adjective)
+	  "definition": "string", // Definition of the word
+      "ex_sentence": "string" // An example sentence using the word
+    }
+  ],
+  "sentences": [
+    {
+      "text": "string", // The target sentence extracted from the script
+      "level": "string", // CEFR level of the sentence structure
+      "tags": ["string"], // Grammatical or topical tags (e.g., "request", "present perfect")
+      "reading_standard": "string", // Broad phonetic transcription or pronunciation guide
+      "reading_stress": "string", // Highlight stressed words/intonation in the sentence
+      "structure_format": "string", // Grammatical structure explanation (e.g., "Subject + modal verb (would) + like + infinitive")
+      "usage": {
+        "formality": "string", // e.g., "Formal", "Informal", "Neutral"
+        "tone": "string", // e.g., "Polite", "Direct", "Friendly"
+        "context": "string", // Explanation of when to use this sentence
+        "situations": ["string"] // Specific situations where this is applicable
+      }
+    }
   ]
 }
 
@@ -91,21 +128,23 @@ Use the structure below:
 
 // VideoService handles video upload and processing.
 type VideoService struct {
-	learningRepo  repository.LearningItemRepository
-	mediaRepo     repository.MediaItemRepository
-	quizRepo      repository.QuizRepository
-	r2Client      *client.CloudflareClient
-	azureSpeech   *client.AzureSpeechClient
-	whisperClient *client.AzureWhisperClient
-	azureChat     *client.AzureChatClient
-	geminiClient  *client.GeminiClient
-	batchService  *BatchService
-	log           zerolog.Logger
+	learningRepo       repository.LearningItemRepository
+	learningSourceRepo repository.LearningSourceRepository
+	mediaRepo          repository.MediaItemRepository
+	quizRepo           repository.QuizRepository
+	r2Client           *client.CloudflareClient
+	azureSpeech        *client.AzureSpeechClient
+	whisperClient      *client.AzureWhisperClient
+	azureChat          *client.AzureChatClient
+	geminiClient       *client.GeminiClient
+	batchService       *BatchService
+	log                zerolog.Logger
 }
 
 // NewVideoService creates a new VideoService.
 func NewVideoService(
 	learningRepo repository.LearningItemRepository,
+	learningSourceRepo repository.LearningSourceRepository,
 	mediaRepo repository.MediaItemRepository,
 	quizRepo repository.QuizRepository,
 	r2Client *client.CloudflareClient,
@@ -117,24 +156,25 @@ func NewVideoService(
 	log zerolog.Logger,
 ) *VideoService {
 	return &VideoService{
-		learningRepo:  learningRepo,
-		mediaRepo:     mediaRepo,
-		quizRepo:      quizRepo,
-		r2Client:      r2Client,
-		azureSpeech:   azureSpeech,
-		whisperClient: whisperClient,
-		azureChat:     azureChat,
-		geminiClient:  geminiClient,
-		batchService:  batchService,
-		log:           log,
+		learningRepo:       learningRepo,
+		learningSourceRepo: learningSourceRepo,
+		mediaRepo:          mediaRepo,
+		quizRepo:           quizRepo,
+		r2Client:           r2Client,
+		azureSpeech:        azureSpeech,
+		whisperClient:      whisperClient,
+		azureChat:          azureChat,
+		geminiClient:       geminiClient,
+		batchService:       batchService,
+		log:                log,
 	}
 }
 
 // VideoUploadResult is returned after a successful upload.
 type VideoUploadResult struct {
-	Video   *repository.LearningItem `json:"video"`
-	BatchID string                   `json:"batch_id"`
-	Status  string                   `json:"status"`
+	VideoID string `json:"video_id"`
+	BatchID string `json:"batch_id"`
+	Status  string `json:"status"`
 }
 
 // BatchImmersionResult contains all items generated for a batch.
@@ -144,6 +184,36 @@ type BatchImmersionResult struct {
 	RetellStory *repository.LearningItem `json:"retell_story,omitempty"`
 	BatchID     string                   `json:"batch_id"`
 	Status      string                   `json:"status"`
+}
+
+type GeneratedVideoContent struct {
+	Topic       string                         `json:"topic"`
+	Description string                         `json:"description"`
+	Language    string                         `json:"language"`
+	Level       string                         `json:"level"`
+	Tags        []string                       `json:"tags"`
+	GistQuiz    []map[string]interface{}       `json:"gist_quiz"`
+	RetellStory json.RawMessage                `json:"retell_story"`
+	Segments    []repository.TranscriptSegment `json:"segments"`
+	Words       []struct {
+		Text            string   `json:"text"`
+		Level           string   `json:"level"`
+		Tags            []string `json:"tags"`
+		ReadingStandard string   `json:"reading_standard"`
+		ReadingStress   string   `json:"reading_stress"`
+		POS             string   `json:"pos"`
+		Definition      string   `json:"definition"`
+		ExSentence      string   `json:"ex_sentence"`
+	} `json:"words"`
+	Sentences []struct {
+		Text            string          `json:"text"`
+		Level           string          `json:"level"`
+		Tags            []string        `json:"tags"`
+		ReadingStandard string          `json:"reading_standard"`
+		ReadingStress   string          `json:"reading_stress"`
+		StructureFormat string          `json:"structure_format"`
+		Usage           json.RawMessage `json:"usage"`
+	} `json:"sentences"`
 }
 
 // GetVideo retrieves a video learning item by its ID.
@@ -216,29 +286,27 @@ func (s *VideoService) GetImmersionByBatchID(ctx context.Context, batchID string
 // 2. Async A: Upload to R2 -> Create MediaItem
 // 3. Async B (Optional): Upload Thumbnail to R2 -> Create MediaItem
 // 4. Async C: Extract Audio -> Transcribe -> Generate Details -> Update LearningItem
-func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file multipart.File, language string, thumbnailFile multipart.File, thumbContentType string) (*VideoUploadResult, error) {
+func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFile multipart.File, videoContentType string, thumbnailFile multipart.File, thumbContentType string, language string) (*VideoUploadResult, error) {
 	// 1. Setup IDs and Paths
 	videoID := uuid.New()
 	batchID := uuid.New().String()
-	inputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_input.mp4", videoID))
-
-	thumbInputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb_input", videoID))
+	videoInputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_video_input.%s", videoID, strings.Split(videoContentType, "/")[1]))
+	thumbInputPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb_input.%s", videoID, strings.Split(thumbContentType, "/")[1]))
 
 	// 2. Initialize Batch in Redis
 	customJobNames := []string{"video_upload", "thumbnail_upload", "generate_transcripts", "generate_details"}
 	_ = s.batchService.CreateBatchWithJobs(ctx, batchID, videoID.String(), customJobNames)
 
 	// 3. Save uploaded files to temp
-	if err := s.saveTempFile(inputPath, file); err != nil {
-		os.Remove(inputPath) // Clean up immediately on failure
+	if err := s.saveTempFile(videoInputPath, videoFile); err != nil {
+		os.Remove(videoInputPath) // Clean up immediately on failure
 		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to save temp video file", err)
 	}
 
 	if err := s.saveTempFile(thumbInputPath, thumbnailFile); err != nil {
-		os.Remove(inputPath)
 		os.Remove(thumbInputPath)
-		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", "failed to save temp thumbnail file")
+		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", "failed to save temp thumbnail file")
 		return nil, errors.InternalWrap("failed to save temp thumbnail file", err)
 	}
 
@@ -251,8 +319,9 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 
+	featureID := repository.NativeVideo
 	learningItem := &repository.LearningItem{
-		FeatureID: nil,
+		FeatureID: &featureID,
 		Content:   "",       // Will be populated with transcript later
 		Language:  language, // Default, will be updated detection
 		Details:   json.RawMessage("{}"),
@@ -261,21 +330,20 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 		IsActive:  false, // Not active until processed
 	}
 
-	// We need to inject the ID we generated earlier or let the DB generate it.
-	// The repository Create method allows passing the struct, but usually ID is generated by DB.
-	// However, distinct from the previous implementation, we want to return the ID immediately.
-	// Let's rely on the DB returning the ID, and we use that ID for the media item link.
 	if err := s.learningRepo.Create(ctx, learningItem); err != nil {
-		os.Remove(inputPath)
-		if thumbInputPath != "" {
-			os.Remove(thumbInputPath)
-		}
+		os.Remove(videoInputPath)
+		os.Remove(thumbInputPath)
 		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
+		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", err.Error())
 		return nil, errors.InternalWrap("failed to create learning item", err)
 	}
 
 	// Use the DB-generated ID
 	videoID = learningItem.ID
+
+	bgCtx := context.Background()
 
 	// 5. Spawn Async Jobs
 	// We use a WaitGroup in a separate goroutine to manage cleanup of the temp file
@@ -287,250 +355,153 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, file mu
 		var wg sync.WaitGroup
 		wg.Add(3)
 
-		// Job A1: Upload to R2
+		// Job A1: Upload Video to R2
+		var videoURL string
 		go func() {
 			defer wg.Done()
-			s.processR2Upload(context.Background(), videoID, batchID, inputPath, userID)
+
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "video_upload", "processing", "")
+			r2Path := fmt.Sprintf("videos/%s.%s", videoID, strings.Split(videoContentType, "/")[1])
+			url, err := s.processR2Upload(bgCtx, videoID, batchID, videoInputPath, r2Path, videoContentType)
+			if err != nil {
+				_ = s.batchService.UpdateJob(bgCtx, batchID, "video_upload", "failed", err.Error())
+				return
+			}
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "video_upload", "completed", "")
+			videoURL = url
 		}()
 
 		// Job A2: Upload Thumbnail to R2
+		var thumbnailURL string
 		go func() {
 			defer wg.Done()
-			s.processR2ThumbnailUpload(context.Background(), videoID, batchID, thumbInputPath, thumbContentType, userID)
+
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "thumbnail_upload", "processing", "")
+			r2Path := fmt.Sprintf("thumbnails/%s.%s", videoID, strings.Split(thumbContentType, "/")[1])
+			url, err := s.uploadToR2(bgCtx, r2Path, thumbInputPath, thumbContentType)
+			if err != nil {
+				_ = s.batchService.UpdateJob(bgCtx, batchID, "thumbnail_upload", "failed", err.Error())
+				return
+			}
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "thumbnail_upload", "completed", "")
+			thumbnailURL = url
 		}()
 
 		// Job B: Transcribe & Details
+		var transcript GeneratedVideoContent
 		go func() {
 			defer wg.Done()
-			s.processTranscriptionAndDetails(context.Background(), videoID, batchID, inputPath, language)
+
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "generate_transcripts", "processing", "")
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "generate_details", "processing", "")
+			result, err := s.processTranscriptionAndDetails(bgCtx, videoID, batchID, videoInputPath, language)
+			if err != nil {
+				s.log.Error().Err(err).Msg("Transcription and detail generation failed or skipped.")
+				return
+			}
+			transcript = result
 		}()
 
 		// Wait for both to finish, then clean up temp file
 		wg.Wait()
-		os.Remove(inputPath)
-		if thumbInputPath != "" {
-			os.Remove(thumbInputPath)
+
+		// Update LearningItem metadata with thumbnail_url
+		item, err := s.learningRepo.GetByID(bgCtx, videoID)
+		if err != nil {
+			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for final update")
+			_ = s.batchService.UpdateJob(bgCtx, batchID, "video_upload", "failed", "db fetch failed on completion")
+			return
 		}
 
-		// Update final batch status if needed (Redis service handles job updates)
+		var currentMeta map[string]interface{}
+		_ = json.Unmarshal(item.Metadata, &currentMeta)
+
+		currentMeta["video_url"] = videoURL
+		currentMeta["thumbnail_url"] = thumbnailURL
+
+		item.Content = transcript.Topic
+		item.Level = transcript.Level
+		item.Language = transcript.Language
+
+		// Build transcript text
+		var sb strings.Builder
+		for _, seg := range transcript.Segments {
+			sb.WriteString(seg.Text)
+			sb.WriteString(" ")
+		}
+		transcriptText := strings.TrimSpace(sb.String())
+
+		currentMeta["processing_status"] = "completed"
+		item.IsActive = true
+
+		tagsB, _ := json.Marshal(transcript.Tags)
+		item.Tags = tagsB
+		detailsB, _ := json.Marshal(map[string]interface{}{
+			"topic":        transcript.Topic,
+			"language":     transcript.Language,
+			"level":        transcript.Level,
+			"description":  transcript.Description,
+			"transcript":   transcriptText,
+			"gist_quiz":    transcript.GistQuiz,
+			"retell_story": transcript.RetellStory,
+			"segments":     transcript.Segments,
+		})
+		item.Details = detailsB
+		newMetaJSON, _ := json.Marshal(currentMeta)
+		item.Metadata = newMetaJSON
+
+		if err := s.learningRepo.Update(bgCtx, item); err != nil {
+			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with video_url")
+			return
+		}
+
+		_ = s.batchService.UpdateJob(bgCtx, batchID, "generate_details", "completed", "")
+		os.Remove(videoInputPath)
+		os.Remove(thumbInputPath)
 	}()
 
-	// Fetch the latest state of the learning item to return, as it might have been updated
-	// by the goroutines (e.g., thumbnail_url in metadata).
-	// This is a best effort to return the most up-to-date item at the time of the main function's return.
-	latestItem, err := s.learningRepo.GetByID(ctx, learningItem.ID)
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", learningItem.ID.String()).Msg("Failed to fetch latest learning item after spawning async jobs")
-		// If we can't fetch the latest, return the initial one, but log the error.
-		latestItem = learningItem
-	}
-
 	return &VideoUploadResult{
-		Video:   latestItem,
+		VideoID: videoID.String(),
 		BatchID: batchID,
 		Status:  "processing",
 	}, nil
 }
 
 // processR2Upload handles uploading the video file to R2 and creating the MediaItem.
-func (s *VideoService) processR2Upload(ctx context.Context, videoID uuid.UUID, batchID, inputPath, userID string) {
-	r2Key := fmt.Sprintf("videos/%s.mp4", videoID)
-	videoURL, err := s.uploadToR2(ctx, r2Key, inputPath, "video/mp4")
+func (s *VideoService) processR2Upload(ctx context.Context, videoID uuid.UUID, batchID, inputPath, r2Path, mimeType string) (string, error) {
+	videoURL, err := s.uploadToR2(ctx, r2Path, inputPath, mimeType)
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to upload to R2")
 		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
 		// We should also fail the item in DB? For now, just mark the job.
-		return
+		return "", err
 	}
 
-	// Create MediaItem linked to LearningItem
-	mediaMetadata := map[string]interface{}{
-		"r2_key":           r2Key,
-		"content_type":     "video/mp4",
-		"type":             "video",
-		"learning_item_id": videoID,
-	}
-	mediaMetadataJSON, _ := json.Marshal(mediaMetadata)
-
-	mediaItem := &repository.MediaItem{
-		FilePath:  videoURL,
-		Metadata:  mediaMetadataJSON,
-		CreatedBy: userID,
-	}
-
-	if err := s.mediaRepo.Create(ctx, mediaItem); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to create media item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
-		return
-	}
-
-	// Update LearningItem metadata with thumbnail_url
-	item, err := s.learningRepo.GetByID(ctx, videoID)
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for thumbnail update")
-		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", "db fetch failed")
-		return
-	}
-
-	var currentMeta map[string]interface{}
-	if len(item.Metadata) > 0 {
-		_ = json.Unmarshal(item.Metadata, &currentMeta)
-	} else {
-		currentMeta = make(map[string]interface{})
-	}
-
-	currentMeta["video_url"] = videoURL
-	newMetaJSON, _ := json.Marshal(currentMeta)
-	item.Metadata = newMetaJSON
-
-	if err := s.learningRepo.Update(ctx, item); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with video_url")
-		_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "failed", err.Error())
-		return
-	}
-
-	_ = s.batchService.UpdateJob(ctx, batchID, "video_upload", "completed", "")
-	s.log.Info().Str("video_id", videoID.String()).Str("url", videoURL).Msg("R2 upload and MediaItem created")
-}
-
-// processR2ThumbnailUpload handles uploading the thumbnail file to R2 and updating LearningItem metadata.
-func (s *VideoService) processR2ThumbnailUpload(ctx context.Context, videoID uuid.UUID, batchID, inputPath, contentType, userID string) {
-	_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "processing", "")
-
-	ext := ".jpg"
-	if strings.Contains(contentType, "png") {
-		ext = ".png"
-	} else if strings.Contains(contentType, "webp") {
-		ext = ".webp"
-	}
-
-	r2Key := fmt.Sprintf("thumbnails/%s%s", videoID, ext)
-	thumbURL, err := s.uploadToR2(ctx, r2Key, inputPath, contentType)
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to upload thumbnail to R2")
-		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", err.Error())
-		return
-	}
-
-	// Create MediaItem for thumbnail
-	mediaMetadata := map[string]interface{}{
-		"r2_key":           r2Key,
-		"content_type":     contentType,
-		"type":             "thumbnail",
-		"learning_item_id": videoID,
-	}
-	mediaMetadataJSON, _ := json.Marshal(mediaMetadata)
-
-	mediaItem := &repository.MediaItem{
-		FilePath:  thumbURL,
-		Metadata:  mediaMetadataJSON,
-		CreatedBy: userID,
-	}
-
-	if err := s.mediaRepo.Create(ctx, mediaItem); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to create thumbnail media item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", err.Error())
-		return
-	}
-
-	// Update LearningItem metadata with thumbnail_url
-	item, err := s.learningRepo.GetByID(ctx, videoID)
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for thumbnail update")
-		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", "db fetch failed")
-		return
-	}
-
-	var currentMeta map[string]interface{}
-	if len(item.Metadata) > 0 {
-		_ = json.Unmarshal(item.Metadata, &currentMeta)
-	} else {
-		currentMeta = make(map[string]interface{})
-	}
-
-	currentMeta["thumbnail_url"] = thumbURL
-	newMetaJSON, _ := json.Marshal(currentMeta)
-	item.Metadata = newMetaJSON
-
-	if err := s.learningRepo.Update(ctx, item); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with thumbnail_url")
-		_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "failed", err.Error())
-		return
-	}
-
-	_ = s.batchService.UpdateJob(ctx, batchID, "thumbnail_upload", "completed", "")
-	s.log.Info().Str("video_id", videoID.String()).Str("url", thumbURL).Msg("R2 thumbnail upload and MediaItem created")
+	return videoURL, nil
 }
 
 // processTranscriptionAndDetails handles audio extraction, transcription, and details generation.
-func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, videoID uuid.UUID, batchID, videoPath, language string) {
-	// Clean up audio file specifically for this job
+func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, videoID uuid.UUID, batchID, videoPath, language string) (GeneratedVideoContent, error) {
 	audioPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_audio.wav", videoID))
 	defer os.Remove(audioPath)
 
-	// --- Transcript Job ---
-	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "processing", "")
-
-	// 1. Extract audio with FFmpeg
 	if err := s.extractAudio(videoPath, audioPath); err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to extract audio")
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "skipped: generate details failed")
-		return
+		return GeneratedVideoContent{}, err
 	}
 
-	// 2. Transcribe with Whisper
 	result, err := s.whisperClient.TranscribeFile(ctx, audioPath, language)
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "skipped: generate details failed")
-		return
+		return GeneratedVideoContent{}, err
 	}
-
-	// Update LearningItem with transcript
-	// We read the current item first to merge metadata
-	item, err := s.learningRepo.GetByID(ctx, videoID)
-	if err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for update")
-		// Continue anyway? No, strict failure.
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", "db fetch failed")
-		return
-	}
-
-	// Update Fields
-	item.Content = result.Text
-	item.Language = result.Language
-
-	// Convert transcript segments to map/struct for metadata storage
-	// Store in `details` column
-	detailsJSON, _ := json.Marshal(result)
-	item.Details = detailsJSON
-
-	// Merge with existing metadata
-	var currentMeta map[string]interface{}
-	if len(item.Metadata) > 0 {
-		_ = json.Unmarshal(item.Metadata, &currentMeta)
-	} else {
-		currentMeta = make(map[string]interface{})
-	}
-
-	currentMeta["processing_status"] = "completed"
-
-	newMetaJSON, _ := json.Marshal(currentMeta)
-	item.Metadata = newMetaJSON
-	item.IsActive = true // Activate item
-
-	if err := s.learningRepo.Update(ctx, item); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item with transcript")
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
-		return
-	}
-
-	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "completed", "")
 	s.log.Info().Str("video_id", videoID.String()).Msg("Transcript generation completed")
+	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "completed", "")
 
-	// --- Content Info Job ---
 	var transcriptSegments []repository.TranscriptSegment
 	for _, ws := range result.Segments {
 		transcriptSegments = append(transcriptSegments, repository.TranscriptSegment{
@@ -540,13 +511,71 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 		})
 	}
 
-	s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, item.Language)
+	generatedContent, err := s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, result.Language)
+	if err != nil {
+		return GeneratedVideoContent{}, err
+	}
+	generatedContent.Segments = transcriptSegments
+	generatedContent.Language = result.Language
+
+	var sources []repository.LearningSource
+	for _, w := range generatedContent.Words {
+		tagsBytes, _ := json.Marshal(w.Tags)
+
+		metadataMap := map[string]interface{}{
+			"reading_standard": w.ReadingStandard,
+			"reading_stress":   w.ReadingStress,
+			"ex_sentence":      w.ExSentence,
+			"definition":       w.Definition,
+			"pos":              w.POS,
+		}
+		metadataBytes, _ := json.Marshal(metadataMap)
+
+		ls := repository.LearningSource{
+			Content:  w.Text,
+			Language: result.Language,
+			Type:     repository.LearningSourceTypeWord,
+			Level:    w.Level,
+			Tags:     tagsBytes,
+			Metadata: metadataBytes,
+		}
+		sources = append(sources, ls)
+	}
+
+	for _, st := range generatedContent.Sentences {
+		tagsBytes, _ := json.Marshal(st.Tags)
+
+		metadataMap := map[string]interface{}{
+			"reading_standard": st.ReadingStandard,
+			"reading_stress":   st.ReadingStress,
+			"structure_format": st.StructureFormat,
+			"usage":            st.Usage,
+		}
+		metadataBytes, _ := json.Marshal(metadataMap)
+
+		ls := repository.LearningSource{
+			Content:  st.Text,
+			Language: result.Language,
+			Type:     repository.LearningSourceTypeSentence,
+			Level:    st.Level,
+			Tags:     tagsBytes,
+			Metadata: metadataBytes,
+		}
+		sources = append(sources, ls)
+	}
+
+	// Save learning sources
+	if len(sources) > 0 {
+		if err := s.learningSourceRepo.CreateSources(ctx, sources); err != nil {
+			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to save learning sources")
+		}
+	}
+
+	return generatedContent, nil
 }
 
 // generateContentInfo generates language, level, tags, gist_quiz, retell_story in one go.
-func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) {
-	_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "processing", "")
-
+func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUID, batchID string, segments []repository.TranscriptSegment, detectedLang string) (GeneratedVideoContent, error) {
 	// Build transcript text
 	var sb strings.Builder
 	for _, seg := range segments {
@@ -557,16 +586,16 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 
 	if transcriptText == "" {
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "empty transcript")
-		return
+		return GeneratedVideoContent{}, errors.New(errors.ErrAIService, "empty transcript")
 	}
 
 	userMessage := fmt.Sprintf("Transcript:\n\"\"\"\n%s\n\"\"\"\n\nLanguage: %s", transcriptText, detectedLang)
 
-	// Call AI
-	responseText, _, err := s.callAI(ctx, videoID, userMessage)
+	// Generate Video Details
+	responseText, _, err := s.generateVideoDetails(ctx, videoID, userMessage, "gemini")
 	if err != nil {
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", err.Error())
-		return
+		return GeneratedVideoContent{}, err
 	}
 
 	// Clean response
@@ -576,121 +605,37 @@ func (s *VideoService) generateContentInfo(ctx context.Context, videoID uuid.UUI
 	responseText = strings.TrimSuffix(responseText, "```")
 	responseText = strings.TrimSpace(responseText)
 
-	// Debug log
-	s.log.Info().Str("video_id", videoID.String()).Str("response", responseText).Msg("AI response for details and quiz")
-
-	var detailsAndQuiz struct {
-		Language       string                   `json:"language"`
-		Level string                   `json:"level"`
-		Tags           []string                 `json:"tags"`
-		GistQuiz       []map[string]interface{} `json:"gist_quiz"`
-		RetellStory    []map[string]interface{} `json:"retell_story"`
-	}
-	if err := json.Unmarshal([]byte(responseText), &detailsAndQuiz); err != nil {
+	var generatedContent GeneratedVideoContent
+	if err := json.Unmarshal([]byte(responseText), &generatedContent); err != nil {
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "invalid JSON: "+err.Error())
-		return
+		return generatedContent, err
 	}
 
-	latestItem, err := s.learningRepo.GetByID(ctx, videoID)
-	if err != nil {
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "refetch parent item failed")
-		return
-	}
-
-	// 1. Update LearningItem Details
-	if detailsAndQuiz.Language != "" {
-		latestItem.Language = detailsAndQuiz.Language
-	}
-	if detailsAndQuiz.Level != "" {
-		latestItem.Level = &detailsAndQuiz.Level
-	}
-	if len(detailsAndQuiz.Tags) > 0 {
-		tagsJSON, _ := json.Marshal(detailsAndQuiz.Tags)
-		latestItem.Tags = tagsJSON
-	}
-
-	if err := s.learningRepo.Update(ctx, latestItem); err != nil {
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to update learning item details")
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save details")
-	} else {
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "completed", "")
-	}
-
-	// 2. Create GistQuiz LearningItem
-	gistQuizDetailsJSON, _ := json.Marshal(detailsAndQuiz.GistQuiz)
-	gistMeta := map[string]interface{}{
-		"parent_id": videoID,
-		"batch_id":  batchID,
-	}
-	gistMetaJSON, _ := json.Marshal(gistMeta)
-
-	gistFeature := repository.GistQuiz
-	gistItem := &repository.LearningItem{
-		FeatureID: &gistFeature,
-		Content:   "Gist Quiz",
-		Language:  latestItem.Language,
-		Details:   gistQuizDetailsJSON,
-		Tags:      json.RawMessage("[]"),
-		Metadata:  gistMetaJSON,
-		IsActive:  true,
-	}
-
-	if err := s.learningRepo.Create(ctx, gistItem); err != nil {
-		s.log.Error().Err(err).Str("parent_video_id", videoID.String()).Msg("Failed to create Gist Quiz learning item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save gist quiz")
-		return
-	}
-
-	// 3. Create RetellStory LearningItem
-	retellStoryDetailsJSON, _ := json.Marshal(detailsAndQuiz.RetellStory)
-	retellMeta := map[string]interface{}{
-		"parent_id": videoID,
-		"batch_id":  batchID,
-	}
-	retellMetaJSON, _ := json.Marshal(retellMeta)
-
-	retellFeature := repository.RetellStory
-	retellItem := &repository.LearningItem{
-		FeatureID: &retellFeature,
-		Content:   "Retell Story",
-		Language:  latestItem.Language,
-		Details:   retellStoryDetailsJSON,
-		Tags:      json.RawMessage("[]"),
-		Metadata:  retellMetaJSON,
-		IsActive:  true,
-	}
-
-	if err := s.learningRepo.Create(ctx, retellItem); err != nil {
-		s.log.Error().Err(err).Str("parent_video_id", videoID.String()).Msg("Failed to create Retell Story learning item")
-		_ = s.batchService.UpdateJob(ctx, batchID, "generate_details", "failed", "failed to save retell story")
-		return
-	}
-
-	s.log.Info().Str("video_id", videoID.String()).Msg("Details and Quiz generated successfully")
+	return generatedContent, nil
 }
 
-// callAI tries Azure Chat first, then falls back to Gemini.
+// generateVideoDetails tries Azure Chat first, then falls back to Gemini.
 // Returns the response text, the provider name used, and any error.
-func (s *VideoService) callAI(ctx context.Context, videoID uuid.UUID, userMessage string) (string, string, error) {
-	// Try Azure Chat first
-	if s.azureChat != nil {
-		responseText, err := s.azureChat.ChatCompletion(ctx, contentAnalysisSystemPrompt, userMessage)
-		if err == nil {
-			return responseText, "azure", nil
-		}
-		s.log.Warn().Err(err).Str("video_id", videoID.String()).Msg("Azure Chat failed, falling back to Gemini")
-	}
-
-	// Fallback to Gemini
-	if s.geminiClient != nil {
+func (s *VideoService) generateVideoDetails(ctx context.Context, videoID uuid.UUID, userMessage, model string) (string, string, error) {
+	// Gemini Chat
+	if model == "gemini" && s.geminiClient != nil {
 		// Gemini Chat takes a single message, so combine system prompt + user message
 		fullPrompt := contentAnalysisSystemPrompt + "\n" + userMessage
 		responseText, err := s.geminiClient.Chat(ctx, fullPrompt)
 		if err == nil {
 			return responseText, "gemini", nil
 		}
-		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Gemini fallback also failed")
+		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Gemini failed")
 		return "", "", fmt.Errorf("all AI providers failed: gemini: %w", err)
+	}
+
+	// Azure Chat
+	if model == "azure" && s.azureChat != nil {
+		responseText, err := s.azureChat.ChatCompletion(ctx, contentAnalysisSystemPrompt, userMessage)
+		if err == nil {
+			return responseText, "azure", nil
+		}
+		s.log.Warn().Err(err).Str("video_id", videoID.String()).Msg("Azure Chat failed, falling back to Gemini")
 	}
 
 	return "", "", fmt.Errorf("no AI provider configured")
@@ -737,7 +682,7 @@ func (s *VideoService) saveTempFile(path string, src multipart.File) error {
 }
 
 // uploadToR2 reads a file from disk and uploads it to Cloudflare R2.
-func (s *VideoService) uploadToR2(ctx context.Context, key, filePath string, contentType string) (string, error) {
+func (s *VideoService) uploadToR2(ctx context.Context, key, filePath, contentType string) (string, error) {
 	if s.r2Client == nil {
 		return "", fmt.Errorf("cloudflare R2 client not configured")
 	}

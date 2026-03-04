@@ -24,7 +24,7 @@ type LearningSource struct {
 	Content   string             `json:"content"`
 	Language  string             `json:"language"`
 	Type      LearningSourceType `json:"type"`
-	Level     *string            `json:"level"`
+	Level     string             `json:"level"`
 	Tags      json.RawMessage    `json:"tags"`
 	Media     json.RawMessage    `json:"media"`
 	Metadata  json.RawMessage    `json:"metadata"`
@@ -35,6 +35,7 @@ type LearningSource struct {
 
 type LearningSourceRepository interface {
 	Create(ctx context.Context, item *LearningSource) error
+	CreateSources(ctx context.Context, items []LearningSource) error
 	GetByBatchID(ctx context.Context, batchID string) ([]*LearningSource, error)
 }
 
@@ -72,6 +73,52 @@ func (r *PostgresLearningSourceRepository) Create(ctx context.Context, item *Lea
 
 	if err != nil {
 		return fmt.Errorf("failed to create learning source: %w", err)
+	}
+
+	return nil
+}
+
+func (r *PostgresLearningSourceRepository) CreateSources(ctx context.Context, items []LearningSource) error {
+	if r.db == nil || r.db.Pool == nil {
+		return fmt.Errorf("database not configured")
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	query := `
+		INSERT INTO learning_sources (
+			content, language, type, level, tags, media, metadata, translate
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		) ON CONFLICT (content) DO NOTHING
+	`
+
+	for _, item := range items {
+		_, err := tx.Exec(ctx, query,
+			item.Content,
+			item.Language,
+			item.Type,
+			item.Level,
+			item.Tags,
+			item.Media,
+			item.Metadata,
+			item.Translate,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to batch create learning sources: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

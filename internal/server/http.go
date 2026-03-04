@@ -108,7 +108,8 @@ func NewHTTPServer(
 			r.Get("/dialogue-guilds/batches/{batchID}", apiHandler.GetDialogueGuildBatch)
 
 			// Video endpoints
-			r.Post("/videos/upload", videoHandler.Upload)
+			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
+			r.Get("/native-videos/upload/{batchID}", videoHandler.GetUploadProgress)
 			r.Get("/videos/playlist", videoHandler.GetVideoPlaylist)
 			r.Get("/videos/{videoID}", videoHandler.Get)
 			// Quiz grading endpoint

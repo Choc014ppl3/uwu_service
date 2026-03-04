@@ -301,7 +301,7 @@ func (s *AIService) GenerateAndUploadAudio(ctx context.Context, id string, index
 // GenerateLearningItemReq defines the request for generating a learning item.
 type GenerateLearningItemReq struct {
 	Context    string `json:"context"`     // e.g., "Food"
-	Language   string `json:"language"`   // "en-US", "zh-CN"
+	Language   string `json:"language"`    // "en-US", "zh-CN"
 	NativeLang string `json:"native_lang"` // "th"
 }
 
@@ -598,11 +598,6 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 	// 1. Save Learning Sources (Words & Sentences)
 	if s.learningSourceRepo != nil {
 		for _, w := range parsedResp.Words {
-			levelPtr := &w.Level
-			if w.Level == "" {
-				levelPtr = &parsedResp.Level
-			}
-
 			tagsBytes, _ := json.Marshal(w.Tags)
 
 			metadataMap := map[string]interface{}{
@@ -619,7 +614,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 				Content:  w.Text,
 				Language: req.Language,
 				Type:     repository.LearningSourceTypeWord,
-				Level:    levelPtr,
+				Level:    w.Level,
 				Tags:     tagsBytes,
 				Metadata: metadataBytes,
 			}
@@ -633,11 +628,6 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		}
 
 		for _, st := range parsedResp.Sentences {
-			levelPtr := &st.Level
-			if st.Level == "" {
-				levelPtr = nil
-			}
-
 			tagsBytes, _ := json.Marshal(st.Tags)
 
 			metadataMap := map[string]interface{}{
@@ -653,7 +643,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 				Content:  st.Text,
 				Language: req.Language,
 				Type:     repository.LearningSourceTypeSentence,
-				Level:    levelPtr,
+				Level:    st.Level,
 				Tags:     tagsBytes,
 				Metadata: metadataBytes,
 			}
@@ -681,9 +671,9 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 	var li *repository.LearningItem
 	if s.learningItemRepo != nil {
 		featureID := repository.DialogueGuide
-		levelPtr := &req.Level
+		levelPtr := req.Level
 		if req.Level == "" {
-			levelPtr = &parsedResp.Level
+			levelPtr = parsedResp.Level
 		}
 
 		tagsBytes, _ := json.Marshal(parsedResp.Tags)
@@ -708,14 +698,14 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		detailsBytes, _ := json.Marshal(detailsMap)
 
 		li = &repository.LearningItem{
-			FeatureID:      &featureID,
-			Content:        req.Topic,
-			Language:       req.Language,
-			Level: levelPtr,
-			Tags:           tagsBytes,
-			Metadata:       metadataBytes,
-			Details:        detailsBytes,
-			IsActive:       true,
+			FeatureID: &featureID,
+			Content:   req.Topic,
+			Language:  req.Language,
+			Level:     levelPtr,
+			Tags:      tagsBytes,
+			Metadata:  metadataBytes,
+			Details:   detailsBytes,
+			IsActive:  true,
 		}
 		if err := s.learningItemRepo.Create(ctx, li); err != nil {
 			fmt.Printf("Warning: failed to create learning item: %v\n", err)
