@@ -129,8 +129,8 @@ func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// GetDialogueGuildBatch handles GET /api/v1/dialogue-guilds/batches/{batchID}
-func (h *APIHandler) GetDialogueGuildBatch(w http.ResponseWriter, r *http.Request) {
+// GetGenerateProgress handles GET /api/v1/dialogue-guilds/generate/{batchID}
+func (h *APIHandler) GetGenerateProgress(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")
 	if batchID == "" {
 		h.handleError(w, errors.Validation("batch ID is required"))

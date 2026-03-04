@@ -454,15 +454,14 @@ func (s *AIService) processDialogueGuildAsync(batchID string, req GenerateDialog
 	/** แบบที่ 1: Still Life / Macro Object (เน้นสิ่งของ สวยคมชัด)
 	  ## 1. Content Generation Logic
 	  * **Image Prompt:** Create a prompt for a text-to-image model in English.
-	      * *Style:* **Vertical 9:16 aspect ratio, First-person POV shot (from the user's perspective), Shallow depth of field, Extreme bokeh background, Cinematic lighting, Wallpaper aesthetic, No clear faces, Faceless composition, No text/words in image.**
-	      * *Content:* Depict the scene as if the user is looking at it. User's hands might be partially visible in the foreground performing an action related to the topic (e.g., holding a menu, handing over a credit card). Any people in the background (like staff or other customers) must be completely blurred or obscured to avoid showing clear faces.
-	*/
+		* *Style:* **Vertical 9:16 aspect ratio, Macro photography, Close-up still life shot, Cinematic lighting, Highly detailed textures, Shallow depth of field (bokeh background), Wallpaper aesthetic, Strictly no people, No text/words in image.**
+		* *Content:* Strictly depict a **close-up view of specific objects or details** central to the conversation topic and description (e.g., a steaming coffee cup on a wooden table, a hotel room key card on a marble counter, a pen signing a document). The background should be heavily blurred but subtly hint at the location's atmosphere.
 
 	/** แบบที่ 2: Dynamic Mood (คุมโทนแสงตามอารมณ์บทสนทนา)
 	  ## 1. Content Generation Logic
 	  * **Image Prompt:** Create a prompt for a text-to-image model in English.
-	      * *Style:* **Vertical 9:16 aspect ratio, Macro photography, Close-up still life shot, Cinematic lighting, Highly detailed textures, Shallow depth of field (bokeh background), Wallpaper aesthetic, Strictly no people, No text/words in image.**
-	      * *Content:* Strictly depict a **close-up view of specific objects or details** central to the conversation topic and description (e.g., a steaming coffee cup, a hotel room key card, business documents). The background should be heavily blurred but subtly hint at the location's atmosphere. **Adjust the lighting and color grading to match the emotional tone and difficulty level of the situation (e.g., bright and cozy for a friendly chat, moody and tense for a dispute).**
+		* *Style:* **Vertical 9:16 aspect ratio, Macro photography, Close-up still life shot, Cinematic lighting, Highly detailed textures, Shallow depth of field (bokeh background), Wallpaper aesthetic, Strictly no people, No text/words in image.**
+		* *Content:* Strictly depict a **close-up view of specific objects or details** central to the conversation topic and description (e.g., a steaming coffee cup, a hotel room key card, business documents). The background should be heavily blurred but subtly hint at the location's atmosphere. **Adjust the lighting and color grading to match the emotional tone and difficulty level of the situation (e.g., bright and cozy for a friendly chat, moody and tense for a dispute).**
 	*/
 
 	/** แบบที่ 3: First-Person POV (มุมมองสายตาเรา เบลอคนอื่น)
@@ -487,8 +486,8 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 
 ## 1. Content Generation Logic
 * **Image Prompt:** Create a prompt for a text-to-image model in English.
-	* *Style:* **Vertical 9:16 aspect ratio, First-person POV shot (from the user's perspective), Shallow depth of field, Extreme bokeh background, Cinematic lighting, Wallpaper aesthetic, No clear faces, Faceless composition, No text/words in image.**
-	* *Content:* Depict the scene as if the user is looking at it. User's hands might be partially visible in the foreground performing an action related to the topic (e.g., holding a menu, handing over a credit card). Any people in the background (like staff or other customers) must be completely blurred or obscured to avoid showing clear faces.
+	* *Style:* **Vertical 9:16 aspect ratio, Macro photography, Close-up still life shot, Cinematic lighting, Highly detailed textures, Shallow depth of field (bokeh background), Wallpaper aesthetic, Strictly no people, No text/words in image.**
+	* *Content:* Strictly depict a **close-up view of specific objects or details** central to the conversation topic and description (e.g., a steaming coffee cup on a wooden table, a hotel room key card on a marble counter, a pen signing a document). The background should be heavily blurred but subtly hint at the location's atmosphere.
 * **Speech Mode (Script) - OPTIMIZED FOR LEARNING:**
     * **Length Constraint:** Generate **ONLY 6-10 turns for Beginner level, 10-16 turns for Intermediate level, and 16-24 turns for Advanced level**. Keep it concise.
     * **Cognitive Load Control:** Ensure each "user" turn is **1-3 sentences max**. Avoid long monologues (too hard to memorize) and avoid single words (too easy).

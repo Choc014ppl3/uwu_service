@@ -105,7 +105,7 @@ func NewHTTPServer(
 
 			// Dialogue Guild endpoints
 			r.Post("/dialogue-guilds/generate", apiHandler.GenerateDialogueGuild)
-			r.Get("/dialogue-guilds/batches/{batchID}", apiHandler.GetDialogueGuildBatch)
+			r.Get("/dialogue-guilds/generate/{batchID}", apiHandler.GetGenerateProgress)
 
 			// Video endpoints
 			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
