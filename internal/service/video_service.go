@@ -14,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"golang.org/x/text/cases"
+	lang "golang.org/x/text/language"
 
 	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/errors"
@@ -281,11 +283,7 @@ func (s *VideoService) GetImmersionByBatchID(ctx context.Context, batchID string
 	return result, nil
 }
 
-// ProcessUpload handles the full video upload pipeline in PARALLEL:
-// 1. Create LearningItem (processing)
-// 2. Async A: Upload to R2 -> Create MediaItem
-// 3. Async B (Optional): Upload Thumbnail to R2 -> Create MediaItem
-// 4. Async C: Extract Audio -> Transcribe -> Generate Details -> Update LearningItem
+// ProcessUpload handles the full video upload pipeline in PARALLEL
 func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFile multipart.File, videoContentType string, thumbnailFile multipart.File, thumbContentType string, language string) (*VideoUploadResult, error) {
 	// 1. Setup IDs and Paths
 	videoID := uuid.New()
@@ -389,6 +387,7 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 
 		// Job B: Transcribe & Details
 		var transcript GeneratedVideoContent
+		var transcriptErr error
 		go func() {
 			defer wg.Done()
 
@@ -397,19 +396,21 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 			result, err := s.processTranscriptionAndDetails(bgCtx, videoID, batchID, videoInputPath, language)
 			if err != nil {
 				s.log.Error().Err(err).Msg("Transcription and detail generation failed or skipped.")
+				transcriptErr = err
 				return
 			}
 			transcript = result
 		}()
 
-		// Wait for both to finish, then clean up temp file
+		// Wait for all jobs to finish, then clean up temp files
 		wg.Wait()
+		defer os.Remove(videoInputPath)
+		defer os.Remove(thumbInputPath)
 
-		// Update LearningItem metadata with thumbnail_url
+		// Fetch the learning item for final update
 		item, err := s.learningRepo.GetByID(bgCtx, videoID)
 		if err != nil {
 			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to get learning item for final update")
-			_ = s.batchService.UpdateJob(bgCtx, batchID, "video_upload", "failed", "db fetch failed on completion")
 			return
 		}
 
@@ -418,6 +419,17 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 
 		currentMeta["video_url"] = videoURL
 		currentMeta["thumbnail_url"] = thumbnailURL
+
+		// If transcription failed, mark item as failed and return
+		if transcriptErr != nil {
+			currentMeta["processing_status"] = "failed"
+			currentMeta["error"] = transcriptErr.Error()
+			newMetaJSON, _ := json.Marshal(currentMeta)
+			item.Metadata = newMetaJSON
+			item.IsActive = false
+			_ = s.learningRepo.Update(bgCtx, item)
+			return
+		}
 
 		item.Content = transcript.Topic
 		item.Level = transcript.Level
@@ -445,6 +457,8 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 			"gist_quiz":    transcript.GistQuiz,
 			"retell_story": transcript.RetellStory,
 			"segments":     transcript.Segments,
+			"words":        transcript.Words,
+			"sentences":    transcript.Sentences,
 		})
 		item.Details = detailsB
 		newMetaJSON, _ := json.Marshal(currentMeta)
@@ -456,8 +470,6 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 		}
 
 		_ = s.batchService.UpdateJob(bgCtx, batchID, "generate_details", "completed", "")
-		os.Remove(videoInputPath)
-		os.Remove(thumbInputPath)
 	}()
 
 	return &VideoUploadResult{
@@ -492,7 +504,7 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 		return GeneratedVideoContent{}, err
 	}
 
-	result, err := s.whisperClient.TranscribeFile(ctx, audioPath, language)
+	transcript, err := s.whisperClient.TranscribeFile(ctx, audioPath, language)
 	if err != nil {
 		s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Whisper transcription failed")
 		_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "failed", err.Error())
@@ -503,7 +515,7 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 	_ = s.batchService.UpdateJob(ctx, batchID, "generate_transcripts", "completed", "")
 
 	var transcriptSegments []repository.TranscriptSegment
-	for _, ws := range result.Segments {
+	for _, ws := range transcript.Segments {
 		transcriptSegments = append(transcriptSegments, repository.TranscriptSegment{
 			Text:     ws.Text,
 			Start:    ws.Start,
@@ -511,12 +523,14 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 		})
 	}
 
-	generatedContent, err := s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, result.Language)
+	generatedContent, err := s.generateContentInfo(ctx, videoID, batchID, transcriptSegments, transcript.Language)
 	if err != nil {
 		return GeneratedVideoContent{}, err
 	}
+
+	caser := cases.Title(lang.English)
+	generatedContent.Language = caser.String(transcript.Language)
 	generatedContent.Segments = transcriptSegments
-	generatedContent.Language = result.Language
 
 	var sources []repository.LearningSource
 	for _, w := range generatedContent.Words {
@@ -533,13 +547,14 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 
 		ls := repository.LearningSource{
 			Content:  w.Text,
-			Language: result.Language,
+			Language: transcript.Language,
 			Type:     repository.LearningSourceTypeWord,
 			Level:    w.Level,
 			Tags:     tagsBytes,
 			Metadata: metadataBytes,
 		}
 		sources = append(sources, ls)
+
 	}
 
 	for _, st := range generatedContent.Sentences {
@@ -555,13 +570,14 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 
 		ls := repository.LearningSource{
 			Content:  st.Text,
-			Language: result.Language,
+			Language: transcript.Language,
 			Type:     repository.LearningSourceTypeSentence,
 			Level:    st.Level,
 			Tags:     tagsBytes,
 			Metadata: metadataBytes,
 		}
 		sources = append(sources, ls)
+
 	}
 
 	// Save learning sources

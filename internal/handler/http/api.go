@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/windfall/uwu_service/internal/errors"
+	"github.com/windfall/uwu_service/internal/middleware"
 	"github.com/windfall/uwu_service/internal/service"
 	"github.com/windfall/uwu_service/pkg/response"
 )
@@ -95,7 +96,11 @@ func (h *APIHandler) GetConversationScenario(w http.ResponseWriter, r *http.Requ
 
 // GenerateDialogueGuild handles POST /api/v1/dialogue-guilds/generate
 func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		h.handleError(w, errors.Validation("user not authenticated"))
+		return
+	}
 
 	var req service.GenerateDialogueGuildReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,7 +122,7 @@ func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	batchID, err := h.aiService.GenerateDialogueGuild(ctx, req)
+	batchID, err := h.aiService.GenerateDialogueGuild(r.Context(), userID, req.Topic, req.Description, req.Language, req.Level, req.Tags)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -125,6 +130,7 @@ func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Reques
 
 	response.JSON(w, http.StatusAccepted, map[string]string{
 		"batch_id": batchID,
+		"user_id":  userID,
 		"message":  "Dialogue guild generation started",
 	})
 }

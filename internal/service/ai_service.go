@@ -417,7 +417,7 @@ const (
 
 // GenerateDialogueGuild initiates speech and chat conversations generation for a dialogue guild using Gemini asynchronously.
 // Returns a batch_id immediately which can be used to poll for the result.
-func (s *AIService) GenerateDialogueGuild(ctx context.Context, req GenerateDialogueGuildReq) (string, error) {
+func (s *AIService) GenerateDialogueGuild(ctx context.Context, userID, topic, description, language, level string, tags []string) (string, error) {
 	if s.geminiClient == nil {
 		return "", errors.New(errors.ErrAIService, "Gemini client not configured")
 	}
@@ -426,7 +426,7 @@ func (s *AIService) GenerateDialogueGuild(ctx context.Context, req GenerateDialo
 
 	// Create batch with a single job
 	if s.batchService != nil {
-		_ = s.batchService.CreateBatchWithJobs(ctx, batchID, req.Topic, []string{
+		_ = s.batchService.CreateBatchWithJobs(ctx, batchID, topic, []string{
 			dialogueGuildJobName,
 			dialogueGuildImageJobName,
 			dialogueGuildUploadJobName,
@@ -438,13 +438,13 @@ func (s *AIService) GenerateDialogueGuild(ctx context.Context, req GenerateDialo
 	}
 
 	// Run processing in background
-	go s.processDialogueGuildAsync(batchID, req)
+	go s.processDialogueGuildAsync(batchID, userID, topic, description, language, level, tags)
 
 	return batchID, nil
 }
 
 // processDialogueGuildAsync runs the AI call, parses, saves to DB, and updates the batch status.
-func (s *AIService) processDialogueGuildAsync(batchID string, req GenerateDialogueGuildReq) {
+func (s *AIService) processDialogueGuildAsync(batchID, userID, topic, description, language, level string, tags []string) {
 	ctx := context.Background()
 
 	if s.batchService != nil {
@@ -561,14 +561,14 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 }`
 
 	tagsStr := ""
-	if len(req.Tags) > 0 {
-		tagsStr = strings.Join(req.Tags, ", ")
+	if len(tags) > 0 {
+		tagsStr = strings.Join(tags, ", ")
 	}
 
-	prompt := strings.ReplaceAll(promptTemplate, "{{TOPIC}}", req.Topic)
-	prompt = strings.ReplaceAll(prompt, "{{DESCRIPTION}}", req.Description)
-	prompt = strings.ReplaceAll(prompt, "{{LANGUAGE}}", req.Language)
-	prompt = strings.ReplaceAll(prompt, "{{LEVEL}}", req.Level)
+	prompt := strings.ReplaceAll(promptTemplate, "{{TOPIC}}", topic)
+	prompt = strings.ReplaceAll(prompt, "{{DESCRIPTION}}", description)
+	prompt = strings.ReplaceAll(prompt, "{{LANGUAGE}}", language)
+	prompt = strings.ReplaceAll(prompt, "{{LEVEL}}", level)
 	prompt = strings.ReplaceAll(prompt, "{{TAGS}}", tagsStr)
 
 	respText, err := s.geminiClient.Chat(ctx, prompt)
@@ -595,60 +595,58 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 	}
 
 	// 1. Save Learning Sources (Words & Sentences)
-	if s.learningSourceRepo != nil {
-		for _, w := range parsedResp.Words {
-			tagsBytes, _ := json.Marshal(w.Tags)
+	var words []repository.LearningSource
+	var sentences []repository.LearningSource
+	for _, w := range parsedResp.Words {
+		tagsBytes, _ := json.Marshal(w.Tags)
 
-			metadataMap := map[string]interface{}{
-				"reading_standard": w.ReadingStandard,
-				"reading_stress":   w.ReadingStress,
-				"ex_sentence":      w.ExSentence,
-				"definition":       w.Definition,
-				"pos":              w.POS,
-				"batch_id":         batchID,
-			}
-			metadataBytes, _ := json.Marshal(metadataMap)
-
-			ls := &repository.LearningSource{
-				Content:  w.Text,
-				Language: req.Language,
-				Type:     repository.LearningSourceTypeWord,
-				Level:    w.Level,
-				Tags:     tagsBytes,
-				Metadata: metadataBytes,
-			}
-			var err error
-			if s.learningSourceRepo != nil {
-				err = s.learningSourceRepo.Create(ctx, ls)
-				if err != nil {
-					fmt.Printf("Warning: failed to trace save word: %v\n", err)
-				}
-			}
+		metadataMap := map[string]interface{}{
+			"reading_standard": w.ReadingStandard,
+			"reading_stress":   w.ReadingStress,
+			"ex_sentence":      w.ExSentence,
+			"definition":       w.Definition,
+			"pos":              w.POS,
 		}
+		metadataBytes, _ := json.Marshal(metadataMap)
 
-		for _, st := range parsedResp.Sentences {
-			tagsBytes, _ := json.Marshal(st.Tags)
+		ls := repository.LearningSource{
+			Content:  w.Text,
+			Language: language,
+			Type:     repository.LearningSourceTypeWord,
+			Level:    w.Level,
+			Tags:     tagsBytes,
+			Metadata: metadataBytes,
+		}
+		words = append(words, ls)
+	}
 
-			metadataMap := map[string]interface{}{
-				"reading_standard": st.ReadingStandard,
-				"reading_stress":   st.ReadingStress,
-				"structure_format": st.StructureFormat,
-				"usage":            st.Usage,
-				"batch_id":         batchID,
-			}
-			metadataBytes, _ := json.Marshal(metadataMap)
+	for _, st := range parsedResp.Sentences {
+		tagsBytes, _ := json.Marshal(st.Tags)
 
-			ls := &repository.LearningSource{
-				Content:  st.Text,
-				Language: req.Language,
-				Type:     repository.LearningSourceTypeSentence,
-				Level:    st.Level,
-				Tags:     tagsBytes,
-				Metadata: metadataBytes,
-			}
-			if s.learningSourceRepo != nil {
-				_ = s.learningSourceRepo.Create(ctx, ls)
-			}
+		metadataMap := map[string]interface{}{
+			"reading_standard": st.ReadingStandard,
+			"reading_stress":   st.ReadingStress,
+			"structure_format": st.StructureFormat,
+			"usage":            st.Usage,
+		}
+		metadataBytes, _ := json.Marshal(metadataMap)
+
+		ls := repository.LearningSource{
+			Content:  st.Text,
+			Language: language,
+			Type:     repository.LearningSourceTypeSentence,
+			Level:    st.Level,
+			Tags:     tagsBytes,
+			Metadata: metadataBytes,
+		}
+		sentences = append(sentences, ls)
+	}
+
+	// Save learning sources
+	var sources = append(words, sentences...)
+	if len(sources) > 0 {
+		if err := s.learningSourceRepo.CreateSources(ctx, sources); err != nil {
+			fmt.Printf("Failed to save learning sources: %v\n", err)
 		}
 	}
 
@@ -670,27 +668,29 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 	var li *repository.LearningItem
 	if s.learningItemRepo != nil {
 		featureID := repository.DialogueGuide
-		levelPtr := req.Level
-		if req.Level == "" {
+		levelPtr := level
+		if level == "" {
 			levelPtr = parsedResp.Level
 		}
 
 		tagsBytes, _ := json.Marshal(parsedResp.Tags)
 
-		// Initial metadata (without audio URLs yet)
-		metadataMap := map[string]interface{}{
-			"speech_mode": parsedResp.SpeechMode, // Original, will be updated later
-			"chat_mode":   parsedResp.ChatMode,
-		}
-
 		// Initial details
 		detailsMap := map[string]interface{}{
+			"topic":        topic,
+			"description":  description,
+			"speech_mode":  parsedResp.SpeechMode, // Original, will be updated later
+			"chat_mode":    parsedResp.ChatMode,
 			"image_prompt": parsedResp.ImagePrompt,
-			"topic":        req.Topic,
-			"description":  req.Description,
-			"language":     req.Language,
-			"level":        req.Level,
-			"batch_id":     batchID,
+			"words":        parsedResp.Words,
+			"sentences":    parsedResp.Sentences,
+		}
+
+		// Initial metadata
+		metadataMap := map[string]interface{}{
+			"batch_id":          batchID,
+			"user_id":           userID,
+			"processing_status": "processing",
 		}
 
 		metadataBytes, _ := json.Marshal(metadataMap)
@@ -698,8 +698,8 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 
 		li = &repository.LearningItem{
 			FeatureID: &featureID,
-			Content:   req.Topic,
-			Language:  req.Language,
+			Content:   topic,
+			Language:  language,
 			Level:     levelPtr,
 			Tags:      tagsBytes,
 			Metadata:  metadataBytes,
@@ -907,29 +907,33 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 	updatedSpeechModeBytes, _ := json.Marshal(speechModeMap)
 
 	if li != nil && learningItemID != "" {
-		// Update metadata with repacked speech_mode (includes audio_url on AI script turns)
-		metadataMap := map[string]interface{}{
-			"speech_mode": json.RawMessage(updatedSpeechModeBytes),
-			"chat_mode":   parsedResp.ChatMode,
-		}
-
-		// Update details with audio URLs
+		// Update details with repacked speech_mode (includes audio_url on AI script turns)
+		// Update metadata with audio URLs
 		var detailsMap map[string]interface{}
 		if len(li.Details) > 0 {
 			_ = json.Unmarshal(li.Details, &detailsMap)
 		}
-		if detailsMap == nil {
-			detailsMap = map[string]interface{}{}
+		detailsMap["speech_mode"] = json.RawMessage(updatedSpeechModeBytes)
+		detailsMap["chat_mode"] = parsedResp.ChatMode
+
+		// Update metadata with audio URLs
+		var metadataMap map[string]interface{}
+		if len(li.Metadata) > 0 {
+			_ = json.Unmarshal(li.Metadata, &metadataMap)
+		}
+		if metadataMap == nil {
+			metadataMap = map[string]interface{}{}
 		}
 		if imageURL != "" {
-			detailsMap["image_url"] = imageURL
+			metadataMap["image_url"] = imageURL
 		}
 		if audioURL != "" {
-			detailsMap["audio_url"] = audioURL
+			metadataMap["audio_url"] = audioURL
 		}
+		metadataMap["processing_status"] = "completed"
 
-		metadataBytes, _ := json.Marshal(metadataMap)
 		detailsBytes, _ := json.Marshal(detailsMap)
+		metadataBytes, _ := json.Marshal(metadataMap)
 		li.Metadata = metadataBytes
 		li.Details = detailsBytes
 
@@ -997,8 +1001,8 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 		"image_prompt": details["image_prompt"],
 		"image_url":    details["image_url"],
 		"audio_url":    details["audio_url"],
-		"speech_mode":  meta["speech_mode"],
-		"chat_mode":    meta["chat_mode"],
+		"speech_mode":  details["speech_mode"],
+		"chat_mode":    details["chat_mode"],
 		"level":        masterItem.Level,
 		"tags":         tags,
 	}
@@ -1013,7 +1017,8 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 		_ = json.Unmarshal(src.Metadata, &srcMeta)
 		_ = json.Unmarshal(src.Tags, &srcTags)
 
-		if src.Type == repository.LearningSourceTypeWord {
+		switch src.Type {
+		case repository.LearningSourceTypeWord:
 			word := map[string]interface{}{
 				"text":             src.Content,
 				"level":            src.Level,
@@ -1025,7 +1030,7 @@ func (s *AIService) GetDialogueGuildByBatchID(ctx context.Context, batchID strin
 				"ex_sentence":      srcMeta["ex_sentence"],
 			}
 			words = append(words, word)
-		} else if src.Type == repository.LearningSourceTypeSentence {
+		case repository.LearningSourceTypeSentence:
 			sentence := map[string]interface{}{
 				"text":             src.Content,
 				"level":            src.Level,
