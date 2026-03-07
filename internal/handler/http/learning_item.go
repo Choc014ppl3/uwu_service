@@ -176,15 +176,15 @@ func (h *LearningItemHandler) DeleteLearningItem(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// CreateActionRequest represents the request body for creating a learning item action.
-type CreateActionRequest struct {
+// CreateUserActionRequest represents the request body for creating a user action.
+type CreateUserActionRequest struct {
 	LearningID string `json:"learning_id"`
 	Type       string `json:"type"`
 }
 
-// CreateAction handles POST /api/v1/learning-items/actions
-func (h *LearningItemHandler) CreateAction(w http.ResponseWriter, r *http.Request) {
-	var req CreateActionRequest
+// CreateUserAction handles POST /api/v1/learning-items/actions
+func (h *LearningItemHandler) CreateUserAction(w http.ResponseWriter, r *http.Request) {
+	var req CreateUserActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -218,7 +218,7 @@ func (h *LearningItemHandler) CreateAction(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err := h.service.CreateAction(r.Context(), userID, req.LearningID, req.Type)
+	err := h.service.CreateUserAction(r.Context(), userID, req.LearningID, req.Type)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

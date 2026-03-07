@@ -312,8 +312,8 @@ func (s *LearningService) generateMediaAsync(
 	}
 }
 
-// CreateAction records a user's action on a learning item.
-func (s *LearningService) CreateAction(ctx context.Context, userIDStr string, learningIDStr string, actionType string) error {
+// CreateUserAction records a user's action on a learning item.
+func (s *LearningService) CreateUserAction(ctx context.Context, userIDStr string, learningIDStr string, actionType string) error {
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return fmt.Errorf("invalid user ID format")
@@ -324,9 +324,9 @@ func (s *LearningService) CreateAction(ctx context.Context, userIDStr string, le
 		return fmt.Errorf("invalid learning item ID format")
 	}
 
-	err = s.repo.AddLearningItemAction(ctx, learningID, userID, actionType)
+	err = s.repo.AddUserAction(ctx, learningID, userID, actionType)
 	if err != nil {
-		return fmt.Errorf("failed to process learning item action: %w", err)
+		return fmt.Errorf("failed to process user action: %w", err)
 	}
 
 	return nil

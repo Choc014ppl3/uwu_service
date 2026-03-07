@@ -12,18 +12,18 @@ import (
 )
 
 type LearningItem struct {
-	ID                 uuid.UUID       `json:"id"`
-	FeatureID          *FeatureType    `json:"feature_id"`
-	Content            string          `json:"content"`
-	Language           string          `json:"language"`
-	Level              string          `json:"level"`
-	Details            json.RawMessage `json:"details"`
-	Metadata           json.RawMessage `json:"metadata"`
-	Tags               json.RawMessage `json:"tags"`
-	IsActive           bool            `json:"is_active"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
-	LearningItemAction map[string]int  `json:"learning_item_action,omitempty" db:"-"`
+	ID         uuid.UUID       `json:"id"`
+	FeatureID  *FeatureType    `json:"feature_id"`
+	Content    string          `json:"content"`
+	Language   string          `json:"language"`
+	Level      string          `json:"level"`
+	Details    json.RawMessage `json:"details"`
+	Metadata   json.RawMessage `json:"metadata"`
+	Tags       json.RawMessage `json:"tags"`
+	IsActive   bool            `json:"is_active"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	UserAction map[string]int  `json:"user_action,omitempty" db:"-"`
 }
 
 type FeatureType int
@@ -50,7 +50,7 @@ type LearningItemRepository interface {
 	List(ctx context.Context, limit, offset int) ([]*LearningItem, int, error)
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	AddLearningItemAction(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string) error
+	AddUserAction(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string) error
 }
 
 type PostgresLearningItemRepository struct {
@@ -189,15 +189,15 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	query := `
 		SELECT 
 			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
-			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_passed' OR lia.action_type = 'dialogue_passed' THEN 1 ELSE 0 END), 0) AS pass_count,
-			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
-			COALESCE(SUM(CASE WHEN lia.action_type = 'quiz_saved' OR lia.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
-			COALESCE(SUM(CASE WHEN lia.action_type = 'chat_attempted' THEN 1 ELSE 0 END), 0) AS chat_attempt_count,
-			COALESCE(SUM(CASE WHEN lia.action_type = 'speech_attempted' THEN 1 ELSE 0 END), 0) AS speech_attempt_count
+			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_passed' OR ua.action_type = 'dialogue_passed' THEN 1 ELSE 0 END), 0) AS pass_count,
+			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
+			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_saved' OR ua.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
+			COALESCE(SUM(CASE WHEN ua.action_type = 'chat_attempted' THEN 1 ELSE 0 END), 0) AS chat_attempt_count,
+			COALESCE(SUM(CASE WHEN ua.action_type = 'speech_attempted' THEN 1 ELSE 0 END), 0) AS speech_attempt_count
 		FROM learning_items li
-		LEFT JOIN learning_item_actions lia ON li.id = lia.learning_id
+		LEFT JOIN user_actions ua ON li.id = ua.learning_id
 		WHERE li.feature_id = $1
-		GROUP BY li.id
+		GROUP BY li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at
 		ORDER BY li.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -237,13 +237,13 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 		if item.FeatureID != nil {
 			switch *item.FeatureID {
 			case NativeVideo:
-				item.LearningItemAction = map[string]int{
+				item.UserAction = map[string]int{
 					"pass_count":    pass,
 					"attempt_count": attempt,
 					"save_count":    save,
 				}
 			case DialogueGuide:
-				item.LearningItemAction = map[string]int{
+				item.UserAction = map[string]int{
 					"pass_count":           pass,
 					"chat_attempt_count":   chatAttempt,
 					"speech_attempt_count": speechAttempt,
@@ -287,7 +287,7 @@ func (r *PostgresLearningItemRepository) GetVideoPlaylist(ctx context.Context, u
 			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
 			COALESCE(ua.type::text, 'new') as status
 		FROM learning_items li
-		LEFT JOIN user_actions ua ON li.id = ua.learning_item_id AND ua.user_id = $1
+		LEFT JOIN user_actions ua ON li.id = ua.learning_id AND ua.user_id = $1
 		WHERE li.feature_id = 1 AND li.created_at >= NOW() - INTERVAL '14 days' %s
 		ORDER BY li.created_at DESC
 		LIMIT $2 OFFSET $3
@@ -351,7 +351,7 @@ func (r *PostgresLearningItemRepository) GetVideoPlaylist(ctx context.Context, u
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(li.id) 
 		FROM learning_items li
-		LEFT JOIN user_actions ua ON li.id = ua.learning_item_id AND ua.user_id = $1
+		LEFT JOIN user_actions ua ON li.id = ua.learning_id AND ua.user_id = $1
 		WHERE li.feature_id = 1 AND li.created_at >= NOW() - INTERVAL '14 days' %s
 	`, condition)
 
@@ -438,8 +438,8 @@ func (r *PostgresLearningItemRepository) GetByBatchID(ctx context.Context, batch
 	return items, nil
 }
 
-// AddLearningItemAction adds or updates a learning item action.
-func (r *PostgresLearningItemRepository) AddLearningItemAction(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string) error {
+// AddUserAction adds or updates a learning item action.
+func (r *PostgresLearningItemRepository) AddUserAction(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string) error {
 	if r.db == nil || r.db.Pool == nil {
 		return fmt.Errorf("database not configured")
 	}
@@ -448,25 +448,25 @@ func (r *PostgresLearningItemRepository) AddLearningItemAction(ctx context.Conte
 	switch {
 	case strings.HasSuffix(actionType, "_passed"):
 		query = `
-			INSERT INTO learning_item_actions (learning_id, user_id, action_type, attempt_count, pass_count, fail_count)
+			INSERT INTO user_actions (learning_id, user_id, action_type, attempt_count, pass_count, fail_count)
 			VALUES ($1, $2, $3, 1, 1, 0)
 			ON CONFLICT (learning_id, user_id) DO UPDATE 
-			SET action_type = $3, attempt_count = learning_item_actions.attempt_count + 1, pass_count = learning_item_actions.pass_count + 1, updated_at = NOW(), deleted_at = NULL
+			SET action_type = $3, attempt_count = user_actions.attempt_count + 1, pass_count = user_actions.pass_count + 1, updated_at = NOW(), deleted_at = NULL
 		`
 	case strings.HasSuffix(actionType, "_attempted") || strings.HasSuffix(actionType, "_failed"):
 		query = `
-			INSERT INTO learning_item_actions (learning_id, user_id, action_type, attempt_count, pass_count, fail_count)
+			INSERT INTO user_actions (learning_id, user_id, action_type, attempt_count, pass_count, fail_count)
 			VALUES ($1, $2, $3, 1, 0, 1)
 			ON CONFLICT (learning_id, user_id) DO UPDATE 
-			SET action_type = $3, attempt_count = learning_item_actions.attempt_count + 1, fail_count = learning_item_actions.fail_count + 1, updated_at = NOW(), deleted_at = NULL
+			SET action_type = $3, attempt_count = user_actions.attempt_count + 1, fail_count = user_actions.fail_count + 1, updated_at = NOW(), deleted_at = NULL
 		`
 	case strings.HasSuffix(actionType, "_saved"):
 		query = `
-			INSERT INTO learning_item_actions (learning_id, user_id, action_type, deleted_at)
+			INSERT INTO user_actions (learning_id, user_id, action_type, deleted_at)
 			VALUES ($1, $2, $3, NULL)
 			ON CONFLICT (learning_id, user_id) DO UPDATE 
 			SET action_type = $3, 
-				deleted_at = CASE WHEN learning_item_actions.deleted_at IS NULL THEN NOW() ELSE NULL END, 
+				deleted_at = CASE WHEN user_actions.deleted_at IS NULL THEN NOW() ELSE NULL END, 
 				updated_at = NOW()
 		`
 	default:
