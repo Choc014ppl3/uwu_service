@@ -196,15 +196,15 @@ func (h *LearningItemHandler) CreateUserAction(w http.ResponseWriter, r *http.Re
 	}
 
 	validTypes := map[string]bool{
-		"quiz_passed":      true,
+		"quiz_done":        true,
 		"quiz_attempted":   true,
 		"quiz_saved":       true,
-		"dialogue_passed":  true,
+		"dialogue_done":    true,
 		"dialogue_saved":   true,
 		"chat_attempted":   true,
-		"chat_passed":      true,
+		"chat_done":        true,
 		"speech_attempted": true,
-		"speech_passed":    true,
+		"speech_done":      true,
 	}
 
 	if !validTypes[req.Type] {

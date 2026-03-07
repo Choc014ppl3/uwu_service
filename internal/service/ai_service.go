@@ -386,25 +386,6 @@ type DialogueGuideResponse struct {
 	Tags        []string        `json:"tags"`
 	SpeechMode  json.RawMessage `json:"speech_mode"`
 	ChatMode    json.RawMessage `json:"chat_mode"`
-	Words       []struct {
-		Text            string   `json:"text"`
-		Level           string   `json:"level"`
-		Tags            []string `json:"tags"`
-		ReadingStandard string   `json:"reading_standard"`
-		ReadingStress   string   `json:"reading_stress"`
-		POS             string   `json:"pos"`
-		Definition      string   `json:"definition"`
-		ExSentence      string   `json:"ex_sentence"`
-	} `json:"words"`
-	Sentences []struct {
-		Text            string          `json:"text"`
-		Level           string          `json:"level"`
-		Tags            []string        `json:"tags"`
-		ReadingStandard string          `json:"reading_standard"`
-		ReadingStress   string          `json:"reading_stress"`
-		StructureFormat string          `json:"structure_format"`
-		Usage           json.RawMessage `json:"usage"`
-	} `json:"sentences"`
 }
 
 const (
@@ -498,10 +479,6 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
     * Create a "Mission" based on the same scenario.
     * Ensure the objectives (requirements/persuasion) are smooth, logical, and match the difficulty level detected.
 
-## 2. Vocabulary & Sentence Extraction Logic
-* **Words Extraction:** Extract 5-10 key vocabulary words directly from the generated "speech_mode" script. Provide accurate IPA ("reading_standard"), show syllable stress ("reading_stress"), provide the definition ("definition"), and ensure the "ex_sentence" matches the word's specific meaning in this context.
-* **Sentences Extraction:** Extract 3-5 high-value or structurally important sentences directly from the script. Provide sentence-level intonation/stress markers, breakdown the grammatical structure ("structure_format"), and detail its specific usage context.
-
 ## 3. Strict Output Constraints
 * **Output ONLY valid JSON.**
 * **DO NOT** use markdown code blocks.
@@ -531,35 +508,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
       "persuasion": ["string"], // 1-2 Goals to achieve in the conversation
       "constraints": ["string"] // 1-2 Behavioral/Tonal constraints
     }
-  },
-  "words": [
-    {
-      "text": "string", // The target word extracted from the script
-      "level": "string", // CEFR level of the word (e.g., A1, B2)
-      "tags": ["string"], // Relevant categories (e.g., "noun", "business", "travel")
-      "reading_standard": "string", // IPA transcription (e.g., /ˈkæm.rə/)
-      "reading_stress": "string", // Syllable stress representation (e.g., CA-me-ra)
-      "pos": "string", // Part of Speech (e.g., Noun, Verb, Adjective)
-	  "definition": "string", // Definition of the word
-      "ex_sentence": "string" // An example sentence using the word
-    }
-  ],
-  "sentences": [
-    {
-      "text": "string", // The target sentence extracted from the script
-      "level": "string", // CEFR level of the sentence structure
-      "tags": ["string"], // Grammatical or topical tags (e.g., "request", "present perfect")
-      "reading_standard": "string", // Broad phonetic transcription or pronunciation guide
-      "reading_stress": "string", // Highlight stressed words/intonation in the sentence
-      "structure_format": "string", // Grammatical structure explanation (e.g., "Subject + modal verb (would) + like + infinitive")
-      "usage": {
-        "formality": "string", // e.g., "Formal", "Informal", "Neutral"
-        "tone": "string", // e.g., "Polite", "Direct", "Friendly"
-        "context": "string", // Explanation of when to use this sentence
-        "situations": ["string"] // Specific situations where this is applicable
-      }
-    }
-  ]
+  }
 }`
 
 	tagsStr := ""
@@ -596,63 +545,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		return
 	}
 
-	// 1. Save Learning Sources (Words & Sentences)
-	var words []repository.LearningSource
-	var sentences []repository.LearningSource
-	for _, w := range parsedResp.Words {
-		tagsBytes, _ := json.Marshal(w.Tags)
-
-		metadataMap := map[string]interface{}{
-			"reading_standard": w.ReadingStandard,
-			"reading_stress":   w.ReadingStress,
-			"ex_sentence":      w.ExSentence,
-			"definition":       w.Definition,
-			"pos":              w.POS,
-		}
-		metadataBytes, _ := json.Marshal(metadataMap)
-
-		ls := repository.LearningSource{
-			Content:  w.Text,
-			Language: language,
-			Type:     repository.LearningSourceTypeWord,
-			Level:    w.Level,
-			Tags:     tagsBytes,
-			Metadata: metadataBytes,
-		}
-		words = append(words, ls)
-	}
-
-	for _, st := range parsedResp.Sentences {
-		tagsBytes, _ := json.Marshal(st.Tags)
-
-		metadataMap := map[string]interface{}{
-			"reading_standard": st.ReadingStandard,
-			"reading_stress":   st.ReadingStress,
-			"structure_format": st.StructureFormat,
-			"usage":            st.Usage,
-		}
-		metadataBytes, _ := json.Marshal(metadataMap)
-
-		ls := repository.LearningSource{
-			Content:  st.Text,
-			Language: language,
-			Type:     repository.LearningSourceTypeSentence,
-			Level:    st.Level,
-			Tags:     tagsBytes,
-			Metadata: metadataBytes,
-		}
-		sentences = append(sentences, ls)
-	}
-
-	// Save learning sources
-	var sources = append(words, sentences...)
-	if len(sources) > 0 {
-		if err := s.learningSourceRepo.CreateSources(ctx, sources); err != nil {
-			fmt.Printf("Failed to save learning sources: %v\n", err)
-		}
-	}
-
-	// 2. Parse SpeechMode JSON to extract situation and scripts
+	// Parse SpeechMode JSON to extract situation and scripts
 	var speechModeMap map[string]interface{}
 	var situationText string
 	if len(parsedResp.SpeechMode) > 0 {
@@ -665,7 +558,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 		}
 	}
 
-	// 3. Create Learning Item FIRST to get the database ID for R2 paths
+	// Create Learning Item FIRST to get the database ID for R2 paths
 	var learningItemID string
 	var li *repository.LearningItem
 	if s.learningItemRepo != nil {
@@ -684,8 +577,7 @@ You are a strictly formatted backend JSON API driven by an expert linguist and n
 			"speech_mode":  parsedResp.SpeechMode, // Original, will be updated later
 			"chat_mode":    parsedResp.ChatMode,
 			"image_prompt": parsedResp.ImagePrompt,
-			"words":        parsedResp.Words,
-			"sentences":    parsedResp.Sentences,
+			"tags":         parsedResp.Tags,
 		}
 
 		// Initial metadata
@@ -978,11 +870,6 @@ func (s *AIService) GetDialogueGuideByBatchID(ctx context.Context, batchID strin
 	}
 	masterItem := items[0]
 
-	sources, err := s.learningSourceRepo.GetByBatchID(ctx, batchID)
-	if err != nil {
-		return nil, nil
-	}
-
 	// Reconstruct the response data
 	var meta map[string]interface{}
 	if len(masterItem.Metadata) > 0 {
@@ -1008,46 +895,6 @@ func (s *AIService) GetDialogueGuideByBatchID(ctx context.Context, batchID strin
 		"level":        masterItem.Level,
 		"tags":         tags,
 	}
-
-	// Extract words and sentences
-	var words []map[string]interface{}
-	var sentences []map[string]interface{}
-
-	for _, src := range sources {
-		var srcMeta map[string]interface{}
-		var srcTags []string
-		_ = json.Unmarshal(src.Metadata, &srcMeta)
-		_ = json.Unmarshal(src.Tags, &srcTags)
-
-		switch src.Type {
-		case repository.LearningSourceTypeWord:
-			word := map[string]interface{}{
-				"text":             src.Content,
-				"level":            src.Level,
-				"tags":             srcTags,
-				"reading_standard": srcMeta["reading_standard"],
-				"reading_stress":   srcMeta["reading_stress"],
-				"pos":              srcMeta["pos"],
-				"definition":       srcMeta["definition"],
-				"ex_sentence":      srcMeta["ex_sentence"],
-			}
-			words = append(words, word)
-		case repository.LearningSourceTypeSentence:
-			sentence := map[string]interface{}{
-				"text":             src.Content,
-				"level":            src.Level,
-				"tags":             srcTags,
-				"reading_standard": srcMeta["reading_standard"],
-				"reading_stress":   srcMeta["reading_stress"],
-				"structure_format": srcMeta["structure_format"],
-				"usage":            srcMeta["usage"],
-			}
-			sentences = append(sentences, sentence)
-		}
-	}
-
-	resultMap["words"] = words
-	resultMap["sentences"] = sentences
 
 	// Assemble final BatchStatus structure matching Redis model
 	resultJSON, _ := json.Marshal(resultMap)

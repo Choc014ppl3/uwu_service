@@ -9,7 +9,7 @@ DROP TYPE IF EXISTS learning_item_action_type_enum CASCADE;
 -- 1. Create enum types
 CREATE TYPE learning_source_type_enum AS ENUM ('word', 'sentence');
 CREATE TYPE user_stat_status_enum AS ENUM ('new', 'pass', 'recognize');
-CREATE TYPE user_action_type_enum AS ENUM ('quiz_passed', 'quiz_attempted', 'quiz_saved', 'dialogue_passed', 'dialogue_saved', 'chat_attempted', 'chat_passed', 'speech_attempted', 'speech_passed');
+CREATE TYPE user_action_type_enum AS ENUM ('quiz_done', 'quiz_attempted', 'quiz_saved', 'dialogue_done', 'dialogue_saved', 'chat_attempted', 'chat_done', 'speech_attempted', 'speech_done');
 
 -- 1b. Drop deprecated tables from old schema
 DROP TABLE IF EXISTS meaning_items CASCADE;

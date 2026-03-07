@@ -189,7 +189,7 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	query := `
 		SELECT 
 			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
-			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_passed' OR ua.action_type = 'dialogue_passed' THEN 1 ELSE 0 END), 0) AS pass_count,
+			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_done' OR ua.action_type = 'dialogue_done' THEN 1 ELSE 0 END), 0) AS pass_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_saved' OR ua.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'chat_attempted' THEN 1 ELSE 0 END), 0) AS chat_attempt_count,
@@ -446,7 +446,7 @@ func (r *PostgresLearningItemRepository) AddUserAction(ctx context.Context, lear
 
 	var query string
 	switch {
-	case strings.HasSuffix(actionType, "_passed"):
+	case strings.HasSuffix(actionType, "_done"):
 		query = `
 			INSERT INTO user_actions (learning_id, user_id, action_type, attempt_count, pass_count, fail_count)
 			VALUES ($1, $2, $3, 1, 1, 0)

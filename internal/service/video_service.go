@@ -66,9 +66,7 @@ Generate a concise example of how the user could retell the story based on the t
 1. "retell_example": Create a concise, natural-sounding summary of the story. This serves as a model answer or a good example for a student to follow. It should use clear chronological order and appropriate transition words.
 2. "key_points": Extract 3 to 5 essential plot points, main events, or key takeaways that the student MUST include in their retelling like in "retell_example" to be considered complete and accurate.
 
-## Part 3: Vocabulary & Sentence Extraction Logic
-* **Words Extraction:** Extract 5-10 key vocabulary words directly from the generated "Gist Quiz" and "Retell Story". Provide accurate IPA ("reading_standard"), show syllable stress ("reading_stress"), provide the definition ("definition"), and ensure the "ex_sentence" matches the word's specific meaning in this context.
-* **Sentences Extraction:** Extract 3-5 high-value or structurally important sentences directly from the generated "Gist Quiz" and "Retell Story". Provide sentence-level intonation/stress markers, breakdown the grammatical structure ("structure_format"), and detail its specific usage context.
+2. "key_points": Extract 3 to 5 essential plot points, main events, or key takeaways that the student MUST include in their retelling like in "retell_example" to be considered complete and accurate.
 
 # Output Format (STRICT JSON)
 Do not output any markdown text, introductory phrases, or code blocks. Output ONLY the raw JSON object.
@@ -94,35 +92,7 @@ Use the structure below:
   "retell_story": {
     "retell_example": "string",
 	"key_points": ["string"] // 3-5 
-  },
-  "words": [
-    {
-      "text": "string", // The target word extracted from the script
-      "level": "string", // CEFR level of the word (e.g., A1, B2)
-      "tags": ["string"], // Relevant categories (e.g., "noun", "business", "travel")
-      "reading_standard": "string", // IPA transcription (e.g., /ˈkæm.rə/)
-      "reading_stress": "string", // Syllable stress representation (e.g., CA-me-ra)
-      "pos": "string", // Part of Speech (e.g., Noun, Verb, Adjective)
-	  "definition": "string", // Definition of the word
-      "ex_sentence": "string" // An example sentence using the word
-    }
-  ],
-  "sentences": [
-    {
-      "text": "string", // The target sentence extracted from the script
-      "level": "string", // CEFR level of the sentence structure
-      "tags": ["string"], // Grammatical or topical tags (e.g., "request", "present perfect")
-      "reading_standard": "string", // Broad phonetic transcription or pronunciation guide
-      "reading_stress": "string", // Highlight stressed words/intonation in the sentence
-      "structure_format": "string", // Grammatical structure explanation (e.g., "Subject + modal verb (would) + like + infinitive")
-      "usage": {
-        "formality": "string", // e.g., "Formal", "Informal", "Neutral"
-        "tone": "string", // e.g., "Polite", "Direct", "Friendly"
-        "context": "string", // Explanation of when to use this sentence
-        "situations": ["string"] // Specific situations where this is applicable
-      }
-    }
-  ]
+  }
 }
 
 * Ensure the JSON is valid and parsable.
@@ -197,25 +167,6 @@ type GeneratedVideoContent struct {
 	GistQuiz    []map[string]interface{}       `json:"gist_quiz"`
 	RetellStory json.RawMessage                `json:"retell_story"`
 	Segments    []repository.TranscriptSegment `json:"segments"`
-	Words       []struct {
-		Text            string   `json:"text"`
-		Level           string   `json:"level"`
-		Tags            []string `json:"tags"`
-		ReadingStandard string   `json:"reading_standard"`
-		ReadingStress   string   `json:"reading_stress"`
-		POS             string   `json:"pos"`
-		Definition      string   `json:"definition"`
-		ExSentence      string   `json:"ex_sentence"`
-	} `json:"words"`
-	Sentences []struct {
-		Text            string          `json:"text"`
-		Level           string          `json:"level"`
-		Tags            []string        `json:"tags"`
-		ReadingStandard string          `json:"reading_standard"`
-		ReadingStress   string          `json:"reading_stress"`
-		StructureFormat string          `json:"structure_format"`
-		Usage           json.RawMessage `json:"usage"`
-	} `json:"sentences"`
 }
 
 // GetVideo retrieves a video learning item by its ID.
@@ -457,8 +408,6 @@ func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFi
 			"gist_quiz":    transcript.GistQuiz,
 			"retell_story": transcript.RetellStory,
 			"segments":     transcript.Segments,
-			"words":        transcript.Words,
-			"sentences":    transcript.Sentences,
 		})
 		item.Details = detailsB
 		newMetaJSON, _ := json.Marshal(currentMeta)
@@ -531,61 +480,6 @@ func (s *VideoService) processTranscriptionAndDetails(ctx context.Context, video
 	caser := cases.Title(lang.English)
 	generatedContent.Language = caser.String(transcript.Language)
 	generatedContent.Segments = transcriptSegments
-
-	var sources []repository.LearningSource
-	for _, w := range generatedContent.Words {
-		tagsBytes, _ := json.Marshal(w.Tags)
-
-		metadataMap := map[string]interface{}{
-			"reading_standard": w.ReadingStandard,
-			"reading_stress":   w.ReadingStress,
-			"ex_sentence":      w.ExSentence,
-			"definition":       w.Definition,
-			"pos":              w.POS,
-		}
-		metadataBytes, _ := json.Marshal(metadataMap)
-
-		ls := repository.LearningSource{
-			Content:  w.Text,
-			Language: transcript.Language,
-			Type:     repository.LearningSourceTypeWord,
-			Level:    w.Level,
-			Tags:     tagsBytes,
-			Metadata: metadataBytes,
-		}
-		sources = append(sources, ls)
-
-	}
-
-	for _, st := range generatedContent.Sentences {
-		tagsBytes, _ := json.Marshal(st.Tags)
-
-		metadataMap := map[string]interface{}{
-			"reading_standard": st.ReadingStandard,
-			"reading_stress":   st.ReadingStress,
-			"structure_format": st.StructureFormat,
-			"usage":            st.Usage,
-		}
-		metadataBytes, _ := json.Marshal(metadataMap)
-
-		ls := repository.LearningSource{
-			Content:  st.Text,
-			Language: transcript.Language,
-			Type:     repository.LearningSourceTypeSentence,
-			Level:    st.Level,
-			Tags:     tagsBytes,
-			Metadata: metadataBytes,
-		}
-		sources = append(sources, ls)
-
-	}
-
-	// Save learning sources
-	if len(sources) > 0 {
-		if err := s.learningSourceRepo.CreateSources(ctx, sources); err != nil {
-			s.log.Error().Err(err).Str("video_id", videoID.String()).Msg("Failed to save learning sources")
-		}
-	}
 
 	return generatedContent, nil
 }
