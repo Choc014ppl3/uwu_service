@@ -206,10 +206,10 @@ curl -X GET "http://localhost:8080/api/v1/learning-summarizes?language=english&s
 # }
 ```
 
-### Dialogue Guild Example
+### Dialogue Guide Example
 ```bash
 # 1. Start generation (Async)
-curl -X POST http://localhost:8080/api/v1/dialogue-guilds/generate \
+curl -X POST http://localhost:8080/api/v1/dialogue-guides/generate \
   -H "Authorization: Bearer <your_jwt_token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -223,11 +223,11 @@ curl -X POST http://localhost:8080/api/v1/dialogue-guilds/generate \
 # Response:
 # {
 #   "batch_id": "abc-123-xyz",
-#   "message": "Dialogue guild generation started"
+#   "message": "Dialogue guide generation started"
 # }
 
 # 2. Check status and get results
-curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
+curl -GET http://localhost:8080/api/v1/dialogue-guides/generate/abc-123-xyz \
   -H "Authorization: Bearer <your_jwt_token>"
 
 # Response:
@@ -238,7 +238,7 @@ curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
 #   "total_jobs": 7,
 #   "completed_jobs": 7,
 #   "jobs": [
-#     { "name": "generate_dialogue_guild", "status": "completed" },
+#     { "name": "generate_dialogue_guide", "status": "completed" },
 #     { "name": "generate_image", "status": "completed" },
 #     { "name": "upload_image", "status": "completed" },
 #     { "name": "generate_audio", "status": "completed" },
@@ -248,8 +248,8 @@ curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
 #   ],
 #   "result": {
 #     "image_prompt": "...",
-#     "image_url": "https://pub-...r2.dev/dialogue_guilds/...",
-#     "audio_url": "https://pub-...r2.dev/dialogue_guilds/...",
+#     "image_url": "https://pub-...r2.dev/dialogue_guides/...",
+#     "audio_url": "https://pub-...r2.dev/dialogue_guides/...",
 #     "tags": ["food", "cafe", "ordering", "morning", "daily-life"],
 #     "speech_mode": {
 #       "situation": "You are at a local cafe ordering a drink.",
@@ -264,6 +264,26 @@ curl -GET http://localhost:8080/api/v1/dialogue-guilds/batches/abc-123-xyz \
 #       }
 #     }
 #   }
+# }
+```
+
+### Submit Dialogue Speech Example
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogue-guides/submit-speech \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -F "audio=@/path/to/audio.wav" \
+  -F "reference_text=I would like a coffee, please." \
+  -F "language=en-US" \
+  -F "learning_item_id=abc-123" \
+  -F "speech_index=0"
+
+# Response:
+# {
+#   "AccuracyScore": 95.5,
+#   "FluencyScore": 90.0,
+#   "PronScore": 92.5,
+#   "Words": [...],
+#   "user_audio_url": "https://pub-...r2.dev/user-input/abc-123-0.m4a"
 # }
 ```
 

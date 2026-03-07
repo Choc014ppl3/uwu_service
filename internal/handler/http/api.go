@@ -94,15 +94,15 @@ func (h *APIHandler) GetConversationScenario(w http.ResponseWriter, r *http.Requ
 	response.JSON(w, http.StatusOK, result)
 }
 
-// GenerateDialogueGuild handles POST /api/v1/dialogue-guilds/generate
-func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Request) {
+// GenerateDialogueGuide handles POST /api/v1/dialogue-guides/generate
+func (h *APIHandler) GenerateDialogueGuide(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
 		h.handleError(w, errors.Validation("user not authenticated"))
 		return
 	}
 
-	var req service.GenerateDialogueGuildReq
+	var req service.GenerateDialogueGuideReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.handleError(w, errors.Validation("invalid request body"))
 		return
@@ -122,7 +122,7 @@ func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	batchID, err := h.aiService.GenerateDialogueGuild(r.Context(), userID, req.Topic, req.Description, req.Language, req.Level, req.Tags)
+	batchID, err := h.aiService.GenerateDialogueGuide(r.Context(), userID, req.Topic, req.Description, req.Language, req.Level, req.Tags)
 	if err != nil {
 		h.handleError(w, err)
 		return
@@ -131,11 +131,11 @@ func (h *APIHandler) GenerateDialogueGuild(w http.ResponseWriter, r *http.Reques
 	response.JSON(w, http.StatusAccepted, map[string]string{
 		"batch_id": batchID,
 		"user_id":  userID,
-		"message":  "Dialogue guild generation started",
+		"message":  "Dialogue guide generation started",
 	})
 }
 
-// GetGenerateProgress handles GET /api/v1/dialogue-guilds/generate/{batchID}
+// GetGenerateProgress handles GET /api/v1/dialogue-guides/generate/{batchID}
 func (h *APIHandler) GetGenerateProgress(w http.ResponseWriter, r *http.Request) {
 	batchID := chi.URLParam(r, "batchID")
 	if batchID == "" {
@@ -150,15 +150,15 @@ func (h *APIHandler) GetGenerateProgress(w http.ResponseWriter, r *http.Request)
 
 	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
 	if err != nil {
-		h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guild batch status")
+		h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guide batch status")
 		h.handleError(w, errors.Internal("failed to get batch status"))
 		return
 	}
 
 	if batch == nil {
-		batch, err = h.aiService.GetDialogueGuildByBatchID(r.Context(), batchID)
+		batch, err = h.aiService.GetDialogueGuideByBatchID(r.Context(), batchID)
 		if err != nil {
-			h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guild batch fallback")
+			h.log.Error().Err(err).Str("batch_id", batchID).Msg("Failed to get dialogue guide batch fallback")
 			h.handleError(w, errors.Internal("failed to get batch status fallback"))
 			return
 		}
@@ -398,4 +398,66 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	}
 	h.log.Error().Err(err).Msg("Internal server error")
 	response.Error(w, http.StatusInternalServerError, errors.Internal("internal server error"))
+}
+
+// SubmitDialogueSpeech handles POST /api/v1/dialogue-guides/submit-speech
+func (h *APIHandler) SubmitDialogueSpeech(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get user ID from middleware
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		h.handleError(w, errors.Validation("user not authenticated"))
+		return
+	}
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.handleError(w, errors.Validation("failed to parse multipart form"))
+		return
+	}
+
+	// Get file
+	file, _, err := r.FormFile("audio")
+	if err != nil {
+		h.handleError(w, errors.Validation("audio file is required"))
+		return
+	}
+	defer file.Close()
+
+	// Get reference text, language, learning_item_id, and speech_index
+	referenceText := r.FormValue("reference_text")
+	langCode := r.FormValue("language")
+	learningItemID := r.FormValue("learning_item_id")
+	if learningItemID == "" {
+		h.handleError(w, errors.Validation("learning_item_id is required"))
+		return
+	}
+	speechIndex := r.FormValue("speech_index")
+	if speechIndex == "" {
+		h.handleError(w, errors.Validation("speech_index is required"))
+		return
+	}
+
+	// Read file content into memory
+	audioData := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			audioData = append(audioData, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	// Convert and upload audio to R2, then run speech analysis via AIService
+	result, err := h.aiService.SubmitDialogueSpeechWithR2(ctx, audioData, referenceText, langCode, learningItemID, userID, speechIndex)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
 }

@@ -103,9 +103,10 @@ func NewHTTPServer(
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
 			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
 
-			// Dialogue Guild endpoints
-			r.Post("/dialogue-guilds/generate", apiHandler.GenerateDialogueGuild)
-			r.Get("/dialogue-guilds/generate/{batchID}", apiHandler.GetGenerateProgress)
+			// Dialogue Guide endpoints
+			r.Post("/dialogue-guides/generate", apiHandler.GenerateDialogueGuide)
+			r.Get("/dialogue-guides/generate/{batchID}", apiHandler.GetGenerateProgress)
+			r.Post("/dialogue-guides/submit-speech", apiHandler.SubmitDialogueSpeech)
 
 			// Video endpoints
 			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
