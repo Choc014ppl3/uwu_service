@@ -153,7 +153,7 @@ func main() {
 
 	// Initialize services
 	batchService := service.NewBatchService(redisClient, log)
-	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient, learningItemRepo, learningSourceRepo, batchService)
+	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient, learningItemRepo, learningSourceRepo, userStatsRepo, batchService)
 	scenarioService := service.NewScenarioService(aiService, scenarioRepo)
 	speechService := service.NewSpeechService(azureSpeechClient)
 	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)

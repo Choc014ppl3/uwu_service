@@ -37,6 +37,7 @@ type LearningSourceRepository interface {
 	Create(ctx context.Context, item *LearningSource) error
 	CreateSources(ctx context.Context, items []LearningSource) error
 	GetByBatchID(ctx context.Context, batchID string) ([]*LearningSource, error)
+	GetByContentAndLanguage(ctx context.Context, content, language string) (*LearningSource, error)
 }
 
 type PostgresLearningSourceRepository struct {
@@ -155,4 +156,29 @@ func (r *PostgresLearningSourceRepository) GetByBatchID(ctx context.Context, bat
 		items = append(items, &item)
 	}
 	return items, nil
+}
+
+func (r *PostgresLearningSourceRepository) GetByContentAndLanguage(ctx context.Context, content, language string) (*LearningSource, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
+
+	query := `
+		SELECT id, content, language, type, level, tags, media, metadata, translate, created_at, updated_at
+		FROM learning_sources
+		WHERE LOWER(content) = LOWER($1) AND language = $2
+	`
+
+	var item LearningSource
+	err := r.db.Pool.QueryRow(ctx, query, content, language).Scan(
+		&item.ID, &item.Content, &item.Language, &item.Type, &item.Level,
+		&item.Tags, &item.Media, &item.Metadata, &item.Translate,
+		&item.CreatedAt, &item.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err // often pgx.ErrNoRows if not found
+	}
+
+	return &item, nil
 }

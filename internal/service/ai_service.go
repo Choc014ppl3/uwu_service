@@ -23,6 +23,7 @@ type AIService struct {
 	azureSpeechClient  *client.AzureSpeechClient
 	learningItemRepo   repository.LearningItemRepository
 	learningSourceRepo repository.LearningSourceRepository
+	userStatsRepo      repository.UserStatsRepository
 	batchService       *BatchService
 }
 
@@ -33,6 +34,7 @@ func NewAIService(
 	azureSpeechClient *client.AzureSpeechClient,
 	learningItemRepo repository.LearningItemRepository,
 	learningSourceRepo repository.LearningSourceRepository,
+	userStatsRepo repository.UserStatsRepository,
 	batchService *BatchService,
 ) *AIService {
 	return &AIService{
@@ -41,6 +43,7 @@ func NewAIService(
 		azureSpeechClient:  azureSpeechClient,
 		learningItemRepo:   learningItemRepo,
 		learningSourceRepo: learningSourceRepo,
+		userStatsRepo:      userStatsRepo,
 		batchService:       batchService,
 	}
 }
@@ -969,49 +972,345 @@ func (s *AIService) SubmitDialogueSpeechWithR2(ctx context.Context, wavData []by
 	tmpWav.Close()
 
 	// 2. Process and convert audio using ffmpeg:
-	//    - afftdn: remove background noise
-	//    - loudnorm I=-16: normalize volume to -16 LUFS
-	//    - aac 64kbps: encode to AAC in .m4a container
-	m4aPath := tmpWav.Name() + ".m4a"
-	defer os.Remove(m4aPath)
+	//    Move this to a background goroutine so we don't block the API response
+	go func(tmpName string) {
+		bgCtx := context.Background()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", tmpWav.Name(),
-		"-af", "afftdn,loudnorm=I=-16:TP=-1.5:LRA=11",
-		"-c:a", "aac", "-b:a", "64k", "-movflags", "faststart",
-		m4aPath,
-	)
-	if err := cmd.Run(); err != nil {
-		return nil, errors.Wrap(errors.ErrInternal, "failed to process and convert audio", err)
-	}
+		m4aPath := tmpName + ".m4a"
+		defer func() {
+			os.Remove(tmpName)
+			os.Remove(m4aPath)
+		}()
 
-	m4aData, err := os.ReadFile(m4aPath)
-	if err != nil {
-		return nil, errors.Wrap(errors.ErrInternal, "failed to read converted m4a", err)
-	}
-
-	// 3. Upload to Cloudflare R2
-	var userAudioURL string
-	if s.cloudflareClient != nil {
-		r2Path := fmt.Sprintf("user-input/%s/%s-%s.m4a", userID, learningItemID, speechIndex)
-		userAudioURL, err = s.cloudflareClient.UploadR2Object(ctx, r2Path, m4aData, "audio/mp4")
-		if err != nil {
-			fmt.Printf("Warning: failed to upload user speech to R2: %v\n", err)
-			userAudioURL = "" // Allow graceful fallback
+		cmd := exec.CommandContext(bgCtx, "ffmpeg", "-y", "-i", tmpName,
+			"-af", "afftdn,loudnorm=I=-16:TP=-1.5:LRA=11",
+			"-c:a", "aac", "-b:a", "64k", "-movflags", "faststart",
+			m4aPath,
+		)
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Warning: background audio conversion failed: %v\n", err)
+			return
 		}
-	} else {
-		fmt.Printf("Warning: cloudflare client not configured for user speech upload\n")
-	}
 
-	// 4. Analyze with Azure Speech (using the original WAV data because Azure STT prefers WAV)
+		m4aData, err := os.ReadFile(m4aPath)
+		if err != nil {
+			fmt.Printf("Warning: failed to read converted m4a in background: %v\n", err)
+			return
+		}
+
+		// Upload to Cloudflare R2
+		if s.cloudflareClient != nil {
+			r2Path := fmt.Sprintf("user-input/%s/%s-%s.m4a", userID, learningItemID, speechIndex)
+			_, err = s.cloudflareClient.UploadR2Object(bgCtx, r2Path, m4aData, "audio/mp4")
+			if err != nil {
+				fmt.Printf("Warning: failed to upload user speech to R2 in background: %v\n", err)
+			}
+		} else {
+			fmt.Printf("Warning: cloudflare client not configured for user speech upload\n")
+		}
+	}(tmpWav.Name())
+
+	// 3. Analyze with Azure Speech (using the original WAV data synchronously)
 	result, err := s.azureSpeechClient.AnalyzeShadowingAudio(ctx, wavData, referenceText, langCode)
 	if err != nil {
+		// If analysis fails, we don't care about background process much.
 		return nil, errors.Wrap(errors.ErrAIService, "failed to analyze shadowing audio", err)
 	}
 
-	// 5. Append uploaded audio URL to the result
-	if userAudioURL != "" {
-		result["user_audio_url"] = userAudioURL
+	// 4. Append deterministic audio URL to the result
+	// We know where the background worker is putting it
+	if s.cloudflareClient != nil {
+		r2URL := fmt.Sprintf("%s/user-input/%s/%s-%s.m4a", s.cloudflareClient.PublicURL(), userID, learningItemID, speechIndex)
+		result["user_audio_url"] = r2URL
 	}
 
+	// 5. Fire background worker for learning sources and user stats
+	go s.processSpeechAnalysisResults(userID, referenceText, langCode, result)
+
 	return result, nil
+}
+
+// processSpeechAnalysisResults handles checking/creating learning sources and updating user stats based on audio evaluation.
+func (s *AIService) processSpeechAnalysisResults(userIDStr, referenceText, langCode string, result map[string]interface{}) {
+	if s.learningSourceRepo == nil || s.userStatsRepo == nil {
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		fmt.Printf("Background worker error: invalid userID: %s\n", err)
+		return
+	}
+
+	ctx := context.Background()
+	normalizedLang := "english" // default
+	if langCode == "zh-CN" {
+		normalizedLang = "chinese"
+	}
+
+	// Helper to calculate increments
+	getIncrements := func(score float64, errType string) (listen, speak, read, write float64) {
+		listen = 0.0
+		read = 0.5
+		write = 0.0
+		speak = 0.0
+
+		if score >= 85 && (errType == "None" || errType == "") {
+			speak = 1.0
+		} else if score >= 60 || errType == "Insertion" {
+			speak = 0.5
+		} else if errType == "Mispronunciation" {
+			speak = 0.25
+		}
+
+		return
+	}
+
+	// We'll collect missing words/sentences here to generate their details in one prompt
+	type missingItem struct {
+		Content   string
+		Type      repository.LearningSourceType
+		Score     float64
+		ErrorType string
+	}
+	var missingItems []missingItem
+
+	// 1. Process Reference Sentence
+	// The sentence doesn't have a specific score in STT word breakdown, so we'll use a neutral or combined metric, or just +0.5 for reading.
+	// For this requirement, we'll try to use the overall pronunciation score if available, else just base values
+	var overallScore float64
+	if pronScoreObj, ok := result["pronunciation_score"]; ok {
+		if val, err := parseToFloat(pronScoreObj); err == nil {
+			overallScore = val
+		}
+	}
+	listen, speak, read, write := getIncrements(overallScore, "None")
+
+	ls, err := s.learningSourceRepo.GetByContentAndLanguage(ctx, referenceText, normalizedLang)
+	if err == nil && ls != nil {
+		// Exists, update stats directly
+		_ = s.userStatsRepo.UpsertUserStat(ctx, ls.ID, userID, referenceText, normalizedLang, "sentence", listen, speak, read, write)
+	} else {
+		missingItems = append(missingItems, missingItem{
+			Content:   referenceText,
+			Type:      repository.LearningSourceTypeSentence,
+			Score:     overallScore,
+			ErrorType: "None",
+		})
+	}
+
+	// 2. Process Extracted Words
+	if dataObj, ok := result["data"]; ok {
+		if dataMap, ok := dataObj.(map[string]interface{}); ok {
+			if nbestObj, ok := dataMap["NBest"].([]interface{}); ok && len(nbestObj) > 0 {
+				if firstNBest, ok := nbestObj[0].(map[string]interface{}); ok {
+					if wordsArr, ok := firstNBest["Words"].([]interface{}); ok {
+						for _, wObj := range wordsArr {
+							if wMap, ok := wObj.(map[string]interface{}); ok {
+								wordText, _ := wMap["Word"].(string)
+								errType, _ := wMap["ErrorType"].(string)
+								var wScore float64
+								var accScore float64
+								if pronObj, ok := wMap["PronunciationAssessment"].(map[string]interface{}); ok {
+									if val, err := parseToFloat(pronObj["AccuracyScore"]); err == nil {
+										accScore = val
+										// We use accuracy score for the +1 checks if available
+										wScore = accScore
+									}
+								}
+
+								wListen, wSpeak, wRead, wWrite := getIncrements(wScore, errType)
+
+								wLs, err := s.learningSourceRepo.GetByContentAndLanguage(ctx, wordText, normalizedLang)
+								if err == nil && wLs != nil {
+									_ = s.userStatsRepo.UpsertUserStat(ctx, wLs.ID, userID, wordText, normalizedLang, "word", wListen, wSpeak, wRead, wWrite)
+								} else {
+									missingItems = append(missingItems, missingItem{
+										Content:   wordText,
+										Type:      repository.LearningSourceTypeWord,
+										Score:     wScore,
+										ErrorType: errType,
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Generate missing using Gemini AI
+	if len(missingItems) > 0 {
+		var contentList []string
+		for _, mi := range missingItems {
+			contentList = append(contentList, fmt.Sprintf("- [%s] %s", mi.Type, mi.Content))
+		}
+
+		prompt := fmt.Sprintf(`Generate learning details for the following missing %s vocabulary and sentences.
+You MUST format your output EXACTLY as the following JSON structure, with no extra markdown.
+
+{
+  "words": [
+    {
+      "text": "string", // The exact word requested
+      "level": "string",
+      "tags": ["string"],
+      "reading_standard": "string",
+      "reading_stress": "string",
+      "pos": "string",
+      "definition": "string",
+      "ex_sentence": "string"
+    }
+  ],
+  "sentences": [
+    {
+      "text": "string", // The exact sentence requested
+      "level": "string",
+      "tags": ["string"],
+      "reading_standard": "string",
+      "reading_stress": "string",
+      "structure_format": "string",
+      "usage": {
+        "formality": "string",
+        "tone": "string",
+        "context": "string",
+        "situations": ["string"]
+      }
+    }
+  ]
+}
+
+Items to generate:
+%s`, normalizedLang, contentList)
+
+		aiResponse, err := s.geminiClient.Chat(ctx, prompt)
+		if err == nil {
+			// clean JSON markdown
+			cleanResp := strings.TrimPrefix(aiResponse, "```json")
+			cleanResp = strings.TrimPrefix(cleanResp, "```")
+			cleanResp = strings.TrimSuffix(cleanResp, "```\n")
+			cleanResp = strings.TrimSuffix(cleanResp, "```")
+			cleanResp = strings.TrimSpace(cleanResp)
+
+			var parsedResp struct {
+				Words []struct {
+					Text            string   `json:"text"`
+					Level           string   `json:"level"`
+					Tags            []string `json:"tags"`
+					ReadingStandard string   `json:"reading_standard"`
+					ReadingStress   string   `json:"reading_stress"`
+					POS             string   `json:"pos"`
+					Definition      string   `json:"definition"`
+					ExSentence      string   `json:"ex_sentence"`
+				} `json:"words"`
+				Sentences []struct {
+					Text            string          `json:"text"`
+					Level           string          `json:"level"`
+					Tags            []string        `json:"tags"`
+					ReadingStandard string          `json:"reading_standard"`
+					ReadingStress   string          `json:"reading_stress"`
+					StructureFormat string          `json:"structure_format"`
+					Usage           json.RawMessage `json:"usage"`
+				} `json:"sentences"`
+			}
+
+			if jsonErr := json.Unmarshal([]byte(cleanResp), &parsedResp); jsonErr == nil {
+				// Insert newly generated words
+				for _, w := range parsedResp.Words {
+					// find original missing item to get its scores
+					var originalItem missingItem
+					for _, mi := range missingItems {
+						if strings.EqualFold(mi.Content, w.Text) {
+							originalItem = mi
+							break
+						}
+					}
+
+					tagsBytes, _ := json.Marshal(w.Tags)
+					metadataMap := map[string]interface{}{
+						"reading_standard": w.ReadingStandard,
+						"reading_stress":   w.ReadingStress,
+						"ex_sentence":      w.ExSentence,
+						"definition":       w.Definition,
+						"pos":              w.POS,
+					}
+					metadataBytes, _ := json.Marshal(metadataMap)
+
+					newID := uuid.New()
+					ls := &repository.LearningSource{
+						ID:       newID,
+						Content:  w.Text,
+						Language: normalizedLang,
+						Type:     repository.LearningSourceTypeWord,
+						Level:    w.Level,
+						Tags:     tagsBytes,
+						Metadata: metadataBytes,
+					}
+
+					// Attempt to insert
+					if err := s.learningSourceRepo.Create(ctx, ls); err == nil {
+						lListen, lSpeak, lRead, lWrite := getIncrements(originalItem.Score, originalItem.ErrorType)
+						_ = s.userStatsRepo.UpsertUserStat(ctx, newID, userID, w.Text, normalizedLang, "word", lListen, lSpeak, lRead, lWrite)
+					}
+				}
+
+				// Insert newly generated sentences
+				for _, st := range parsedResp.Sentences {
+					var originalItem missingItem
+					for _, mi := range missingItems {
+						if strings.EqualFold(mi.Content, st.Text) {
+							originalItem = mi
+							break
+						}
+					}
+
+					tagsBytes, _ := json.Marshal(st.Tags)
+					metadataMap := map[string]interface{}{
+						"reading_standard": st.ReadingStandard,
+						"reading_stress":   st.ReadingStress,
+						"structure_format": st.StructureFormat,
+						"usage":            st.Usage,
+					}
+					metadataBytes, _ := json.Marshal(metadataMap)
+
+					newID := uuid.New()
+					ls := &repository.LearningSource{
+						ID:       newID,
+						Content:  st.Text,
+						Language: normalizedLang,
+						Type:     repository.LearningSourceTypeSentence,
+						Level:    st.Level,
+						Tags:     tagsBytes,
+						Metadata: metadataBytes,
+					}
+
+					if err := s.learningSourceRepo.Create(ctx, ls); err == nil {
+						lListen, lSpeak, lRead, lWrite := getIncrements(originalItem.Score, originalItem.ErrorType)
+						_ = s.userStatsRepo.UpsertUserStat(ctx, newID, userID, st.Text, normalizedLang, "sentence", lListen, lSpeak, lRead, lWrite)
+					}
+				}
+			} else {
+				fmt.Printf("Warning: failed to unmarshal AI generated learning_sources mapping: %v\n", jsonErr)
+			}
+		} else {
+			fmt.Printf("Warning: failing Gemini generation for missing sources: %v\n", err)
+		}
+	}
+}
+
+// Helper to safely parse float64 out of various JSON types
+func parseToFloat(val interface{}) (float64, error) {
+	switch v := val.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("could not parse to float")
+	}
 }

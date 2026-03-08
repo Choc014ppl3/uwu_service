@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/internal/client"
 )
 
@@ -18,6 +19,7 @@ type LearningSummary struct {
 
 type UserStatsRepository interface {
 	GetLearningSummary(ctx context.Context, userID, language string, statuses []string) (*LearningSummary, error)
+	UpsertUserStat(ctx context.Context, sourceID, userID uuid.UUID, content, language, sourceType string, listen, speak, read, write float64) error
 }
 
 type PostgresUserStatsRepository struct {
@@ -133,4 +135,56 @@ func (r *PostgresUserStatsRepository) GetLearningSummary(ctx context.Context, us
 	}
 
 	return &summary, nil
+}
+
+func (r *PostgresUserStatsRepository) UpsertUserStat(ctx context.Context, sourceID, userID uuid.UUID, content, language, sourceType string, listen, speak, read, write float64) error {
+	if r.db == nil || r.db.Pool == nil {
+		return fmt.Errorf("database not configured")
+	}
+
+	query := `
+		INSERT INTO user_stats (
+			source_id, user_id, content, language, type, 
+			listen_count, speak_count, read_count, write_count, status
+		) VALUES (
+			$1, $2, $3, $4, $5, 
+			$6, $7, $8, $9,
+			CASE 
+				WHEN $6 + $7 + $8 + $9 > 9 THEN 'recognize'::user_stat_status_enum
+				WHEN $6 + $7 + $8 + $9 > 4 THEN 'pass'::user_stat_status_enum
+				ELSE 'new'::user_stat_status_enum
+			END
+		)
+		ON CONFLICT (source_id, user_id) DO UPDATE SET
+			listen_count = user_stats.listen_count + EXCLUDED.listen_count,
+			speak_count = user_stats.speak_count + EXCLUDED.speak_count,
+			read_count = user_stats.read_count + EXCLUDED.read_count,
+			write_count = user_stats.write_count + EXCLUDED.write_count,
+			updated_at = NOW(),
+			status = CASE 
+				WHEN user_stats.listen_count + EXCLUDED.listen_count + 
+					 user_stats.speak_count + EXCLUDED.speak_count + 
+					 user_stats.read_count + EXCLUDED.read_count + 
+					 user_stats.write_count + EXCLUDED.write_count > 9 
+				THEN 'recognize'::user_stat_status_enum
+				
+				WHEN user_stats.listen_count + EXCLUDED.listen_count + 
+					 user_stats.speak_count + EXCLUDED.speak_count + 
+					 user_stats.read_count + EXCLUDED.read_count + 
+					 user_stats.write_count + EXCLUDED.write_count > 4 
+				THEN 'pass'::user_stat_status_enum
+				
+				ELSE 'new'::user_stat_status_enum
+			END
+	`
+
+	_, err := r.db.Pool.Exec(ctx, query,
+		sourceID, userID, content, language, sourceType,
+		listen, speak, read, write,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert user stat: %w", err)
+	}
+
+	return nil
 }
