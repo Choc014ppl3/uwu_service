@@ -224,49 +224,36 @@ func (h *VideoHandler) GetUploadProgress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if batch == nil {
-		response.NotFound(w, "batch not found")
-		return
-	}
-
-	response.JSON(w, http.StatusOK, batch)
-}
-
-// GetBatchImmersion handles GET /api/v1/batches/{batchID}/immersion
-// It returns the batch progress if processing, or the final video upload response if completed/expired and found in DB.
-func (h *VideoHandler) GetBatchImmersion(w http.ResponseWriter, r *http.Request) {
-	batchID := chi.URLParam(r, "batchID")
-	if batchID == "" {
-		response.BadRequest(w, "batch ID is required")
-		return
-	}
-
-	// 1. Try to get status from Redis
-	batch, err := h.batchService.GetBatchWithJobs(r.Context(), batchID)
-	if err != nil {
-		h.handleError(w, err)
-		return
-	}
-
-	// If batch is found and still valid (or recently completed/failed), return it
 	if batch != nil {
-		// If it's completed, we try to fetch the video to return the full result
+		// If batch is completed, fetch the full video item from DB
 		if batch.Status == "completed" {
-			// fallthrough to fetch from DB
-		} else {
-			response.JSON(w, http.StatusOK, batch)
-			return
+			video, dbErr := h.videoService.GetVideoByBatchID(r.Context(), batchID)
+			if dbErr == nil && video != nil {
+				responsePayload := map[string]interface{}{
+					"batch": batch,
+					"video": video,
+				}
+				response.JSON(w, http.StatusOK, responsePayload)
+				return
+			}
 		}
-	}
 
-	// 2. If Redis missing or completed, fetch persistence data from DB
-	result, err := h.videoService.GetImmersionByBatchID(r.Context(), batchID)
-	if err != nil {
-		h.handleError(w, err)
+		response.JSON(w, http.StatusOK, batch)
 		return
 	}
 
-	response.JSON(w, http.StatusOK, result)
+	// 2. If Redis expired or missing, fallback to check DB directly
+	video, dbErr := h.videoService.GetVideoByBatchID(r.Context(), batchID)
+	if dbErr == nil && video != nil {
+		responsePayload := map[string]interface{}{
+			"batch": map[string]string{"id": batchID, "status": "completed"},
+			"video": video,
+		}
+		response.JSON(w, http.StatusOK, responsePayload)
+		return
+	}
+
+	response.NotFound(w, "batch not found")
 }
 
 func (h *VideoHandler) handleError(w http.ResponseWriter, err error) {

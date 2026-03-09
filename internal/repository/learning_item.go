@@ -29,16 +29,8 @@ type LearningItem struct {
 type FeatureType int
 
 const (
-	NativeVideo    FeatureType = 1
-	GistQuiz       FeatureType = 2
-	RetellStory    FeatureType = 3
-	DialogueGuide  FeatureType = 4
-	RhythmAndFlow  FeatureType = 5
-	VocabularyReps FeatureType = 6
-	PrecisionCheck FeatureType = 7
-	StructureDrill FeatureType = 8
-	SparringMode   FeatureType = 9
-	MissionGuide   FeatureType = 10
+	NativeVideo   FeatureType = 1
+	DialogueGuide FeatureType = 2
 )
 
 type LearningItemRepository interface {

@@ -149,14 +149,7 @@ type VideoUploadResult struct {
 	Status  string `json:"status"`
 }
 
-// BatchImmersionResult contains all items generated for a batch.
-type BatchImmersionResult struct {
-	Video       *repository.LearningItem `json:"video"`
-	GistQuiz    *repository.LearningItem `json:"gist_quiz,omitempty"`
-	RetellStory *repository.LearningItem `json:"retell_story,omitempty"`
-	BatchID     string                   `json:"batch_id"`
-	Status      string                   `json:"status"`
-}
+// GeneratedVideoContent represents AI outputs structured inside the video item's details DB payload
 
 type GeneratedVideoContent struct {
 	Topic       string                         `json:"topic"`
@@ -204,34 +197,6 @@ func (s *VideoService) GetVideoByBatchID(ctx context.Context, batchID string) (*
 	}
 	// Assuming one video per batch for now
 	return items[0], nil
-}
-
-// GetImmersionByBatchID retrieves all immersion learning items by its batch ID.
-func (s *VideoService) GetImmersionByBatchID(ctx context.Context, batchID string) (*BatchImmersionResult, error) {
-	items, err := s.learningRepo.GetByBatchID(ctx, batchID)
-	if err != nil {
-		return nil, errors.InternalWrap("failed to get items by batch ID", err)
-	}
-	if len(items) == 0 {
-		return nil, errors.NotFound("items not found for batch ID")
-	}
-
-	result := &BatchImmersionResult{
-		BatchID: batchID,
-		Status:  "completed",
-	}
-
-	for _, item := range items {
-		if item.FeatureID == nil {
-			result.Video = item
-		} else if *item.FeatureID == repository.GistQuiz {
-			result.GistQuiz = item
-		} else if *item.FeatureID == repository.RetellStory {
-			result.RetellStory = item
-		}
-	}
-
-	return result, nil
 }
 
 // ProcessUpload handles the full video upload pipeline in PARALLEL

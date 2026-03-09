@@ -142,7 +142,6 @@ func NewHTTPServer(
 
 			// Batch status endpoint
 			r.Get("/batches/{batchID}", videoHandler.GetBatchStatus)
-			r.Get("/batches/{batchID}/immersions", videoHandler.GetBatchImmersion)
 
 		})
 	})
