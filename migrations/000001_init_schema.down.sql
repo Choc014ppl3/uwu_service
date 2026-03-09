@@ -1,20 +1,14 @@
--- 000001_init_schema.down.sql
--- Rollback initial schema
+BEGIN;
 
--- Drop indexes
-DROP INDEX IF EXISTS idx_conversation_scenarios_is_active;
-DROP INDEX IF EXISTS idx_conversation_scenarios_target_lang;
-DROP INDEX IF EXISTS idx_learning_items_is_active;
-DROP INDEX IF EXISTS idx_learning_items_type;
-DROP INDEX IF EXISTS idx_learning_items_lang_code;
+DROP TABLE IF EXISTS user_actions CASCADE;
+DROP TABLE IF EXISTS user_stats CASCADE;
+DROP TABLE IF EXISTS learning_sources CASCADE;
+DROP TABLE IF EXISTS learning_items CASCADE;
+DROP TABLE IF EXISTS features CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
--- Drop tables
-DROP TABLE IF EXISTS conversation_scenarios;
-DROP TABLE IF EXISTS learning_items;
+DROP TYPE IF EXISTS learning_source_type_enum CASCADE;
+DROP TYPE IF EXISTS user_stat_status_enum CASCADE;
+DROP TYPE IF EXISTS user_action_type_enum CASCADE;
 
--- Drop ENUMs
-DROP TYPE IF EXISTS interaction_type_enum;
-DROP TYPE IF EXISTS item_type_enum;
-DROP TYPE IF EXISTS lang_code_enum;
-
--- Note: We don't drop uuid-ossp extension as it might be used by other schemas
+COMMIT;
