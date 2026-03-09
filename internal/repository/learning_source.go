@@ -37,6 +37,7 @@ type LearningSourceRepository interface {
 	Create(ctx context.Context, item *LearningSource) error
 	CreateSources(ctx context.Context, items []LearningSource) error
 	GetByBatchID(ctx context.Context, batchID string) ([]*LearningSource, error)
+	GetByContentsAndLanguage(ctx context.Context, contents []string, language string) ([]*LearningSource, error)
 }
 
 type PostgresLearningSourceRepository struct {
@@ -54,13 +55,14 @@ func (r *PostgresLearningSourceRepository) Create(ctx context.Context, item *Lea
 
 	query := `
 		INSERT INTO learning_sources (
-			content, language, type, level, tags, media, metadata, translate
+			id, content, language, type, level, tags, media, metadata, translate
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		) RETURNING id, created_at, updated_at
 	`
 
 	err := r.db.Pool.QueryRow(ctx, query,
+		item.ID,
 		item.Content,
 		item.Language,
 		item.Type,
@@ -95,14 +97,15 @@ func (r *PostgresLearningSourceRepository) CreateSources(ctx context.Context, it
 
 	query := `
 		INSERT INTO learning_sources (
-			content, language, type, level, tags, media, metadata, translate
+			id, content, language, type, level, tags, media, metadata, translate
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
-		) ON CONFLICT (content) DO NOTHING
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
+		) ON CONFLICT (content, language) DO NOTHING
 	`
 
 	for _, item := range items {
 		_, err := tx.Exec(ctx, query,
+			item.ID,
 			item.Content,
 			item.Language,
 			item.Type,
@@ -139,6 +142,39 @@ func (r *PostgresLearningSourceRepository) GetByBatchID(ctx context.Context, bat
 	rows, err := r.db.Pool.Query(ctx, query, batchID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get learning sources by batch_id: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*LearningSource
+	for rows.Next() {
+		var item LearningSource
+		if err := rows.Scan(
+			&item.ID, &item.Content, &item.Language, &item.Type, &item.Level,
+			&item.Tags, &item.Media, &item.Metadata, &item.Translate,
+			&item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan learning source: %w", err)
+		}
+		items = append(items, &item)
+	}
+	return items, nil
+}
+
+// GetByContentsAndLanguage gets learning sources by contents and language
+func (r *PostgresLearningSourceRepository) GetByContentsAndLanguage(ctx context.Context, contents []string, language string) ([]*LearningSource, error) {
+	if r.db == nil || r.db.Pool == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
+
+	query := `
+		SELECT id, content, language, type, level, tags, media, metadata, translate, created_at, updated_at
+		FROM learning_sources
+		WHERE LOWER(content) = ANY(LOWER($1)) AND language = $2
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query, contents, language)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get learning sources by contents and language: %w", err)
 	}
 	defer rows.Close()
 

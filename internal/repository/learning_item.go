@@ -181,7 +181,6 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	query := `
 		SELECT 
 			li.id, li.feature_id, li.content, li.language, li.level, li.details, li.tags, li.metadata, li.is_active, li.created_at, li.updated_at,
-			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_done' OR ua.action_type = 'dialogue_done' THEN 1 ELSE 0 END), 0) AS pass_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_attempted' THEN 1 ELSE 0 END), 0) AS attempt_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'quiz_saved' OR ua.action_type = 'dialogue_saved' THEN 1 ELSE 0 END), 0) AS save_count,
 			COALESCE(SUM(CASE WHEN ua.action_type = 'chat_attempted' THEN 1 ELSE 0 END), 0) AS chat_attempt_count,
@@ -203,7 +202,7 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 	var items []*LearningItem
 	for rows.Next() {
 		var item LearningItem
-		var pass, attempt, save, chatAttempt, speechAttempt int
+		var attempt, save, chatAttempt, speechAttempt int
 
 		if err := rows.Scan(
 			&item.ID,
@@ -217,7 +216,6 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 			&item.IsActive,
 			&item.CreatedAt,
 			&item.UpdatedAt,
-			&pass,
 			&attempt,
 			&save,
 			&chatAttempt,
@@ -230,13 +228,11 @@ func (r *PostgresLearningItemRepository) GetByFeatureID(ctx context.Context, fea
 			switch *item.FeatureID {
 			case NativeVideo:
 				item.UserAction = map[string]int{
-					"pass_count":    pass,
 					"attempt_count": attempt,
 					"save_count":    save,
 				}
 			case DialogueGuide:
 				item.UserAction = map[string]int{
-					"pass_count":           pass,
 					"chat_attempt_count":   chatAttempt,
 					"speech_attempt_count": speechAttempt,
 					"save_count":           save,
