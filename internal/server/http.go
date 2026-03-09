@@ -83,6 +83,7 @@ func NewHTTPServer(
 			r.Post("/dialogue-guides/generate", apiHandler.GenerateDialogueGuide)
 			r.Get("/dialogue-guides/generate/{batchID}", apiHandler.GetGenerateProgress)
 			r.Post("/dialogue-guides/submit-speech", apiHandler.SubmitDialogueSpeech)
+			r.Post("/dialogue-guides/submit-chat", apiHandler.SubmitDialogueChat)
 
 			// Native Video endpoints
 			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)

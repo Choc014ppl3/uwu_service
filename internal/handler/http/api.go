@@ -400,6 +400,45 @@ func (h *APIHandler) handleError(w http.ResponseWriter, err error) {
 	response.Error(w, http.StatusInternalServerError, errors.Internal("internal server error"))
 }
 
+// SubmitDialogueChatReq represents the payload for chatting during dialogue practice.
+type SubmitDialogueChatReq struct {
+	LearningItemID string              `json:"learning_item_id"`
+	CurrentInput   string              `json:"current_input"`
+	History        []service.ChatEntry `json:"history"`
+	MaxTurns       int                 `json:"max_turns"`
+}
+
+// SubmitDialogueChat handles POST /api/v1/dialogue-guides/submit-chat
+func (h *APIHandler) SubmitDialogueChat(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get user ID from middleware
+	userID := middleware.GetUserID(ctx)
+	if userID == "" {
+		h.handleError(w, errors.Validation("user not authenticated"))
+		return
+	}
+
+	var req SubmitDialogueChatReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.handleError(w, errors.Validation("invalid request body"))
+		return
+	}
+
+	if req.LearningItemID == "" || req.CurrentInput == "" {
+		h.handleError(w, errors.Validation("learning_item_id and current_input are required"))
+		return
+	}
+
+	result, err := h.aiService.SubmitDialogueChat(ctx, userID, req.LearningItemID, req.CurrentInput, req.History, req.MaxTurns)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, result)
+}
+
 // SubmitDialogueSpeech handles POST /api/v1/dialogue-guides/submit-speech
 func (h *APIHandler) SubmitDialogueSpeech(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

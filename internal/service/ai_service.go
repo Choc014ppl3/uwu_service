@@ -1356,3 +1356,153 @@ func parseToFloat(val interface{}) (float64, error) {
 		return 0, fmt.Errorf("could not parse to float")
 	}
 }
+
+// ChatEntry represents a single turn in the chat history.
+type ChatEntry struct {
+	Role string `json:"role"` // "user" or "model"
+	Text string `json:"text"`
+}
+
+// SubmitDialogueChatResponse represents the API response for chat mode.
+type SubmitDialogueChatResponse struct {
+	AIResponse          string                 `json:"ai_response"`
+	TurnCount           int                    `json:"turn_count"`
+	IsCompleted         bool                   `json:"is_completed"`
+	ObjectivesCompleted map[string]interface{} `json:"objectives_completed"`
+}
+
+// SubmitDialogueChat handles stateless chat iterations for dialogue guides.
+func (s *AIService) SubmitDialogueChat(ctx context.Context, userIDStr, learningItemID, currentInput string, history []ChatEntry, maxTurns int) (*SubmitDialogueChatResponse, error) {
+	if s.geminiClient == nil {
+		return nil, errors.New(errors.ErrAIService, "Gemini client not configured")
+	}
+
+	itemID, err := uuid.Parse(learningItemID)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrValidation, "invalid learning_item_id", err)
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrValidation, "invalid user_id", err)
+	}
+
+	// 1. Fetch Learning Item for context (situation & objectives)
+	item, err := s.learningItemRepo.GetByID(ctx, itemID)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrNotFound, "failed to fetch learning item", err)
+	}
+
+	var detailsMap map[string]interface{}
+	if len(item.Details) > 0 {
+		_ = json.Unmarshal(item.Details, &detailsMap)
+	}
+
+	chatModeData, err := json.Marshal(detailsMap["chat_mode"])
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrInternal, "failed to read chat_mode", err)
+	}
+
+	// 2. Format Chat History
+	var historyStrBuilder strings.Builder
+	for _, entry := range history {
+		historyStrBuilder.WriteString(fmt.Sprintf("%s: %s\n", entry.Role, entry.Text))
+	}
+	historyStrBuilder.WriteString(fmt.Sprintf("user: %s\n", currentInput))
+
+	// 3. Construct Gemini Prompt
+	prompt := fmt.Sprintf(`You are an AI roleplaying a conversational partner based on the following context.
+Respond to the user naturally based on the situation and evaluate their objectives.
+
+CHAT CONTEXT:
+%s
+
+CONVERSATION HISTORY:
+%s
+
+Analyze the conversation history, including the user's latest input, to determine if they've met the objectives listed in the chat context.
+
+OUTPUT INSTRUCTIONS:
+You MUST format your output EXACTLY as the following JSON structure, with no extra markdown or conversational text.
+
+{
+  "reply": "Your natural conversational response here as the other person in the scenario.",
+  "evaluation": {
+    "persuasion": [false, false], // Array of booleans corresponding exactly to the "persuasion" array in chat context. True if met.
+    "constraints": [true, true], // Array of booleans corresponding exactly to the "constraints" array. True if adhered to.
+    "requirements": [true, false, false] // Array of booleans corresponding exactly to the "requirements" array. True if accomplished.
+  }
+}
+`, string(chatModeData), historyStrBuilder.String())
+
+	// 4. Send to Gemini
+	aiResponse, err := s.geminiClient.Chat(ctx, prompt)
+	if err != nil {
+		return nil, errors.Wrap(errors.ErrAIService, "failed to get AI chat response", err)
+	}
+
+	// 5. Parse AI Response
+	cleanResp := strings.TrimPrefix(aiResponse, "```json")
+	cleanResp = strings.TrimPrefix(cleanResp, "```")
+	cleanResp = strings.TrimSuffix(cleanResp, "```\n")
+	cleanResp = strings.TrimSuffix(cleanResp, "```")
+	cleanResp = strings.TrimSpace(cleanResp)
+
+	var parsedResp struct {
+		Reply      string                 `json:"reply"`
+		Evaluation map[string]interface{} `json:"evaluation"`
+	}
+
+	if err := json.Unmarshal([]byte(cleanResp), &parsedResp); err != nil {
+		// Fallback if AI fails to output strict JSON
+		fmt.Printf("Warning: failed to unmarshal AI chat response: %v\n", err)
+		parsedResp.Reply = aiResponse // Send raw text as reply fallback
+		parsedResp.Evaluation = make(map[string]interface{})
+	}
+
+	// 6. Calculate Turn Count and Completion
+	turnCount := (len(history) / 2) + 1
+	isCompleted := false
+
+	if maxTurns > 0 && turnCount >= maxTurns {
+		isCompleted = true
+	}
+
+	// Check if all objectives are met
+	if !isCompleted {
+		allMet := true
+		for _, v := range parsedResp.Evaluation {
+			if boolArray, ok := v.([]interface{}); ok {
+				for _, b := range boolArray {
+					if val, isBool := b.(bool); isBool && !val {
+						allMet = false
+						break
+					}
+				}
+			}
+			if !allMet {
+				break
+			}
+		}
+		if allMet && len(parsedResp.Evaluation) > 0 {
+			isCompleted = true
+		}
+	}
+
+	// Log chat_attempted to user_actions if completed
+	if isCompleted && s.learningItemRepo != nil {
+		evaluationJSON, err := json.Marshal(parsedResp.Evaluation)
+		if err == nil {
+			logErr := s.learningItemRepo.AddUserActionWithMetadata(ctx, itemID, userID, "chat_attempted", evaluationJSON)
+			if logErr != nil {
+				fmt.Printf("Warning: failed to add chat_attempted user action: %v\n", logErr)
+			}
+		}
+	}
+
+	return &SubmitDialogueChatResponse{
+		AIResponse:          parsedResp.Reply,
+		TurnCount:           turnCount,
+		IsCompleted:         isCompleted,
+		ObjectivesCompleted: parsedResp.Evaluation,
+	}, nil
+}

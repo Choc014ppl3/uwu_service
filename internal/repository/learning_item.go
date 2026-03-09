@@ -43,6 +43,7 @@ type LearningItemRepository interface {
 	Update(ctx context.Context, item *LearningItem) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	AddUserAction(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string) error
+	AddUserActionWithMetadata(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string, metadata json.RawMessage) error
 }
 
 type PostgresLearningItemRepository struct {
@@ -464,6 +465,30 @@ func (r *PostgresLearningItemRepository) AddUserAction(ctx context.Context, lear
 	_, err := r.db.Pool.Exec(ctx, query, learningID, userID, actionType)
 	if err != nil {
 		return fmt.Errorf("failed to add learning item action: %w", err)
+	}
+
+	return nil
+}
+
+// AddUserActionWithMetadata adds a user action (e.g., chat_attempted) for a learning item, including tracking objective completion checklists in metadata.
+func (r *PostgresLearningItemRepository) AddUserActionWithMetadata(ctx context.Context, learningID uuid.UUID, userID uuid.UUID, actionType string, metadata json.RawMessage) error {
+	if r.db == nil || r.db.Pool == nil {
+		return fmt.Errorf("database not configured")
+	}
+
+	query := `
+		INSERT INTO user_actions (learning_id, user_id, action_type, metadata)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (learning_id, user_id) 
+		DO UPDATE SET 
+			action_type = EXCLUDED.action_type,
+			metadata = EXCLUDED.metadata,
+			updated_at = NOW()
+	`
+
+	_, err := r.db.Pool.Exec(ctx, query, learningID, userID, actionType, metadata)
+	if err != nil {
+		return fmt.Errorf("failed to add user action with metadata: %w", err)
 	}
 
 	return nil
