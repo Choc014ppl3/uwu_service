@@ -31,6 +31,16 @@ type RegisterReq struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	Bio         string `json:"bio,omitempty"`
+}
+
+// TokenClaims represents the structured claims inside the JWT.
+type TokenClaims struct {
+	UserID      string
+	Email       string
+	DisplayName string
+	AvatarURL   string
 }
 
 // LoginReq represents a login request.
@@ -62,10 +72,21 @@ func (s *AuthService) Register(ctx context.Context, req RegisterReq) (*AuthRespo
 		return nil, errors.InternalWrap("failed to hash password", err)
 	}
 
+	var avatarURLPtr *string
+	if req.AvatarURL != "" {
+		avatarURLPtr = &req.AvatarURL
+	}
+	var bioPtr *string
+	if req.Bio != "" {
+		bioPtr = &req.Bio
+	}
+
 	user := &repository.User{
 		Email:        req.Email,
 		PasswordHash: string(hash),
 		DisplayName:  req.DisplayName,
+		AvatarURL:    avatarURLPtr,
+		Bio:          bioPtr,
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
@@ -105,8 +126,8 @@ func (s *AuthService) Login(ctx context.Context, req LoginReq) (*AuthResponse, e
 	return &AuthResponse{User: user, Token: token}, nil
 }
 
-// ValidateToken parses and validates a JWT token string, returning the user ID.
-func (s *AuthService) ValidateToken(tokenString string) (string, error) {
+// ValidateToken parses and validates a JWT token string, returning the structured claims.
+func (s *AuthService) ValidateToken(tokenString string) (*TokenClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -114,28 +135,41 @@ func (s *AuthService) ValidateToken(tokenString string) (string, error) {
 		return s.jwtSecret, nil
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", fmt.Errorf("invalid token claims")
+		return nil, fmt.Errorf("invalid token claims")
 	}
 
 	userID, ok := claims["sub"].(string)
 	if !ok {
-		return "", fmt.Errorf("invalid subject claim")
+		return nil, fmt.Errorf("invalid subject claim")
 	}
 
-	return userID, nil
+	email, _ := claims["email"].(string)
+	displayName, _ := claims["display_name"].(string)
+	avatarURL, _ := claims["avatar_url"].(string)
+
+	return &TokenClaims{
+		UserID:      userID,
+		Email:       email,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+	}, nil
 }
 
 func (s *AuthService) generateToken(user *repository.User) (string, error) {
 	claims := jwt.MapClaims{
-		"sub":   user.ID.String(),
-		"email": user.Email,
-		"iat":   time.Now().Unix(),
-		"exp":   time.Now().Add(72 * time.Hour).Unix(),
+		"sub":          user.ID.String(),
+		"email":        user.Email,
+		"display_name": user.DisplayName,
+		"iat":          time.Now().Unix(),
+		"exp":          time.Now().Add(72 * time.Hour).Unix(),
+	}
+	if user.AvatarURL != nil {
+		claims["avatar_url"] = *user.AvatarURL
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

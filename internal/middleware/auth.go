@@ -29,14 +29,14 @@ func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
 				return
 			}
 
-			userID, err := authService.ValidateToken(parts[1])
+			tokenClaims, err := authService.ValidateToken(parts[1])
 			if err != nil {
 				response.Unauthorized(w, "invalid or expired token")
 				return
 			}
 
 			// Set user ID in context
-			ctx := context.WithValue(r.Context(), UserIDKey, userID)
+			ctx := context.WithValue(r.Context(), UserIDKey, tokenClaims.UserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

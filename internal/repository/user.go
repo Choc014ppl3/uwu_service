@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,12 +13,15 @@ import (
 
 // User represents a user entity.
 type User struct {
-	ID           uuid.UUID `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	DisplayName  string    `json:"display_name"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uuid.UUID       `json:"id"`
+	Email        string          `json:"email"`
+	PasswordHash string          `json:"-"`
+	DisplayName  string          `json:"display_name"`
+	AvatarURL    *string         `json:"avatar_url,omitempty"`
+	Bio          *string         `json:"bio,omitempty"`
+	Settings     json.RawMessage `json:"settings,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // UserRepository defines the interface for user data access.
@@ -43,15 +47,23 @@ func (r *PostgresUserRepository) Create(ctx context.Context, user *User) error {
 	}
 
 	query := `
-		INSERT INTO users (email, password_hash, display_name)
-		VALUES ($1, $2, $3)
+		INSERT INTO users (email, password_hash, display_name, avatar_url, bio, settings)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at
 	`
+
+	settingsDB := user.Settings
+	if len(settingsDB) == 0 {
+		settingsDB = []byte("{}")
+	}
 
 	err := r.db.Pool.QueryRow(ctx, query,
 		user.Email,
 		user.PasswordHash,
 		user.DisplayName,
+		user.AvatarURL,
+		user.Bio,
+		settingsDB,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
@@ -68,7 +80,7 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 	}
 
 	query := `
-		SELECT id, email, password_hash, display_name, created_at, updated_at
+		SELECT id, email, password_hash, display_name, avatar_url, bio, settings, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -79,6 +91,9 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 		&user.Email,
 		&user.PasswordHash,
 		&user.DisplayName,
+		&user.AvatarURL,
+		&user.Bio,
+		&user.Settings,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)

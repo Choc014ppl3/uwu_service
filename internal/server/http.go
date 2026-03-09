@@ -71,6 +71,27 @@ func NewHTTPServer(
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(authService))
 
+			// ---------------------
+			// 	Current API
+			// ---------------------
+
+			// Learning Items endpoints
+			r.Get("/learning-items/feature", learningItemHandler.GetLearningItemsByFeature)
+			r.Get("/learning-summarizes", userStatsHandler.GetLearningSummary)
+
+			// Dialogue Guide endpoints
+			r.Post("/dialogue-guides/generate", apiHandler.GenerateDialogueGuide)
+			r.Get("/dialogue-guides/generate/{batchID}", apiHandler.GetGenerateProgress)
+			r.Post("/dialogue-guides/submit-speech", apiHandler.SubmitDialogueSpeech)
+
+			// Native Video endpoints
+			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
+			r.Get("/native-videos/upload/{batchID}", videoHandler.GetUploadProgress)
+
+			// ---------------------
+			//   Legacy API
+			// ---------------------
+
 			// AI endpoints
 			r.Post("/ai/chat", apiHandler.Chat)
 			r.Post("/ai/complete", apiHandler.Complete)
@@ -92,25 +113,16 @@ func NewHTTPServer(
 			// Learning Items endpoints
 			r.Post("/learning-items", learningItemHandler.CreateLearningItem)
 			r.Get("/learning-items", learningItemHandler.ListLearningItems)
-			r.Get("/learning-items/feature", learningItemHandler.GetLearningItemsByFeature)
 			r.Get("/learning-items/{id}", learningItemHandler.GetLearningItem)
 			r.Put("/learning-items/{id}", learningItemHandler.UpdateLearningItem)
 			r.Delete("/learning-items/{id}", learningItemHandler.DeleteLearningItem)
 			r.Post("/learning-items/actions", learningItemHandler.CreateUserAction)
-			r.Get("/learning-summarizes", userStatsHandler.GetLearningSummary)
 
 			// Conversation Scenarios endpoints
 			r.Post("/conversation-scenarios", apiHandler.CreateConversationScenario)
 			r.Get("/conversation-scenarios/{id}", apiHandler.GetConversationScenario)
 
-			// Dialogue Guide endpoints
-			r.Post("/dialogue-guides/generate", apiHandler.GenerateDialogueGuide)
-			r.Get("/dialogue-guides/generate/{batchID}", apiHandler.GetGenerateProgress)
-			r.Post("/dialogue-guides/submit-speech", apiHandler.SubmitDialogueSpeech)
-
 			// Video endpoints
-			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
-			r.Get("/native-videos/upload/{batchID}", videoHandler.GetUploadProgress)
 			r.Get("/videos/playlist", videoHandler.GetVideoPlaylist)
 			r.Get("/videos/{videoID}", videoHandler.Get)
 			// Quiz grading endpoint
