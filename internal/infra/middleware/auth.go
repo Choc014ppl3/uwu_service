@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/windfall/uwu_service/internal/service"
+	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/pkg/response"
 )
 
@@ -14,7 +14,7 @@ type contextKey string
 const UserIDKey contextKey = "user_id"
 
 // Auth returns a middleware that validates JWT tokens from the Authorization header.
-func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
+func Auth(jwtRepo auth.JWTRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -29,7 +29,7 @@ func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
 				return
 			}
 
-			tokenClaims, err := authService.ValidateToken(parts[1])
+			tokenClaims, err := jwtRepo.ValidateToken(parts[1])
 			if err != nil {
 				response.Unauthorized(w, "invalid or expired token")
 				return

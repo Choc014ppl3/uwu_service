@@ -9,7 +9,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE learning_source_type_enum AS ENUM ('word', 'sentence');
 CREATE TYPE user_stat_status_enum AS ENUM ('new', 'passed', 'recognized');
 CREATE TYPE user_action_type_enum AS ENUM (
-    'dialogue_saved', 'chat_attempted', 'speech_attempted', 'quiz_attempted', 'quiz_saved'
+    'dialogue_saved', 'quiz_saved', 'quiz_transcript', 
+    'submit_chat', 'submit_speech', 'submit_quiz'
 );
 
 -- ============================================================

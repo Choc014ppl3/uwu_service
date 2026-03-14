@@ -3,9 +3,6 @@ package errors
 import (
 	"fmt"
 	"net/http"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // ErrorCode represents application error codes.
@@ -24,7 +21,7 @@ const (
 	// Service-specific errors
 	ErrAIService      ErrorCode = "AI_SERVICE_ERROR"
 	ErrStorageService ErrorCode = "STORAGE_SERVICE_ERROR"
-	ErrPubSubService  ErrorCode = "PUBSUB_SERVICE_ERROR"
+	ErrCacheService   ErrorCode = "CACHE_SERVICE_ERROR"
 	ErrDatabase       ErrorCode = "DATABASE_ERROR"
 	ErrTimeout        ErrorCode = "TIMEOUT_ERROR"
 )
@@ -93,28 +90,6 @@ func (e *AppError) HTTPStatus() int {
 	default:
 		return http.StatusInternalServerError
 	}
-}
-
-// GRPCStatus returns the gRPC status for the error.
-func (e *AppError) GRPCStatus() *status.Status {
-	var code codes.Code
-	switch e.Code {
-	case ErrValidation:
-		code = codes.InvalidArgument
-	case ErrUnauthorized:
-		code = codes.Unauthenticated
-	case ErrForbidden:
-		code = codes.PermissionDenied
-	case ErrNotFound:
-		code = codes.NotFound
-	case ErrConflict:
-		code = codes.AlreadyExists
-	case ErrRateLimit:
-		code = codes.ResourceExhausted
-	default:
-		code = codes.Internal
-	}
-	return status.New(code, e.Message)
 }
 
 // Common error constructors
