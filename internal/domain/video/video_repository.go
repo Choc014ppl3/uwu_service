@@ -58,7 +58,6 @@ type VideoDetails struct {
 // VideoMetadata is the structure of the metadata field in LearningItem model
 type VideoMetadata struct {
 	UserID       string `json:"user_id"`
-	BatchID      string `json:"batch_id"`
 	VideoURL     string `json:"video_url"`
 	ThumbnailURL string `json:"thumbnail_url"`
 	Status       string `json:"status"`
@@ -66,6 +65,7 @@ type VideoMetadata struct {
 
 // VideoRepository interface
 type VideoRepository interface {
+	GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError)
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 }
@@ -76,6 +76,20 @@ type videoRepository struct {
 
 func NewVideoRepository(db *client.PostgresClient) VideoRepository {
 	return &videoRepository{db: db}
+}
+
+func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError) {
+	query := `
+		SELECT * FROM learning_items WHERE id = $1
+	`
+
+	var item LearningItem
+	err := r.db.Pool.QueryRow(ctx, query, videoID).Scan(&item)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to get video content", err)
+	}
+
+	return &item, nil
 }
 
 func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError {

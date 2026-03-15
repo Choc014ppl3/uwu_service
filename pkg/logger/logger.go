@@ -6,7 +6,7 @@ import (
 )
 
 // New สร้างตัวแปร Logger ตาม Environment
-func New(env string) *slog.Logger {
+func NewLogger(env string) *slog.Logger {
 	var handler slog.Handler
 
 	// กำหนดระดับของ Log (Info, Debug, Error)

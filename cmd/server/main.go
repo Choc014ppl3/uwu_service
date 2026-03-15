@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
+	"github.com/windfall/uwu_service/internal/domain/video"
 
 	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/internal/infra/config"
@@ -25,10 +26,11 @@ func main() {
 		panic("failed to load config: " + err.Error())
 	}
 
-	// Setup logger
-	logger := logger.New(cfg.Environment)
+	// Initialize logger & queue
+	logger := logger.NewLogger(cfg.Environment)
+	queue := client.NewQueueClient(logger, cfg.QueueBufferSize)
 
-	// Database connection
+	// Initialize Database connection
 	db, err := client.NewPostgresClient(context.Background(), cfg.DatabaseURL())
 	if err != nil {
 		logger.Error("Failed to connect to database", "error", err)
@@ -36,20 +38,50 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize Azure AI client
+	chatGPTClient := client.NewAzureChatGPTClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
+	whisperClient := client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
+
+	// Initialize Redis client
+	redisClient, err := client.NewRedisClient(cfg.RedisURL)
+	if err != nil {
+		logger.Error("Failed to initialize Redis client", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize Cloudflare R2 Client (using S3 protocol)
+	cloudflareClient, err := client.NewCloudflareClient(context.Background(),
+		cfg.CloudflareAccessKeyID,
+		cfg.CloudflareSecretKey,
+		cfg.CloudflareR2Endpoint,
+		cfg.CloudflareBucketName,
+		cfg.CloudflarePublicURL,
+	)
+	if err != nil {
+		logger.Error("Failed to initialize Cloudflare client", "error", err)
+		os.Exit(1)
+	}
+
 	// -----------------------------------------
 	// 2. Setup Application
 	// -----------------------------------------
 
 	// Register Auth Domain
-	jwtRepo := auth.NewJWTRepository(cfg.JWTSecret)
-	userRepo := auth.NewUserRepository(db, logger)
-	authService := auth.NewAuthService(userRepo, jwtRepo)
+	authRepo := auth.NewAuthRepository(db, []byte(cfg.JWTSecret))
+	authService := auth.NewAuthService(authRepo)
 	authHandler := auth.NewAuthHandler(authService, logger)
+
+	// Register Video Domain
+	aiRepo := video.NewAIRepository(whisperClient, chatGPTClient, logger)
+	batchRepo := video.NewBatchRepository(redisClient, logger)
+	fileRepo := video.NewFileRepository(cloudflareClient, logger)
+	videoRepo := video.NewVideoRepository(db)
+	videoService := video.NewVideoService(videoRepo, aiRepo, batchRepo, fileRepo)
+	videoHandler := video.NewVideoHandler(videoService, queue)
 
 	// -----------------------------------------
 	// 3. Setup & Start Queue Server (Background Jobs)
 	// -----------------------------------------
-	queue := client.NewQueueClient(logger, cfg.QueueBufferSize)
 	queueServer := server.NewQueueServer(logger, queue, videoService)
 	queueServer.SetupWorkers()
 
@@ -63,7 +95,7 @@ func main() {
 	// -----------------------------------------
 	// 4. Setup & Start HTTP Server
 	// -----------------------------------------
-	httpServer := server.NewHTTPServer(cfg, logger, jwtRepo, authHandler)
+	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler)
 
 	// สั่งรัน HTTP Server ใน Goroutine เพื่อให้ main thread ไปรอรับสัญญาณ Shutdown ได้
 	go func() {

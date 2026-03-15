@@ -31,7 +31,6 @@ type UploadVideoRequest struct {
 type UploadVideoPayload struct {
 	UserID               string
 	VideoID              string
-	BatchID              string
 	Language             string
 	VideoExt             string
 	VideoPath            string
@@ -148,7 +147,6 @@ func (req *UploadVideoRequest) ParseAndValidate(r *http.Request) error {
 // ToPayload convert UploadVideoRequest to UploadVideoPayload
 func (req *UploadVideoRequest) ToPayload() UploadVideoPayload {
 	videoID := uuid.New().String()
-	batchID := uuid.New().String()
 
 	videoExt, ok := mimeToExt[req.VideoContentType]
 	if !ok {
@@ -169,7 +167,6 @@ func (req *UploadVideoRequest) ToPayload() UploadVideoPayload {
 	return UploadVideoPayload{
 		UserID:               req.UserID,
 		VideoID:              videoID,
-		BatchID:              batchID,
 		Language:             req.Language,
 		VideoExt:             videoExt,
 		VideoPath:            videoPath,

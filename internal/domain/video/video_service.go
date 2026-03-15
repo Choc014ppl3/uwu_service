@@ -20,9 +20,14 @@ type VideoService struct {
 
 // VideoUploadResult is returned after a successful upload.
 type VideoUploadResult struct {
-	VideoID string `json:"video_id"`
-	BatchID string `json:"batch_id"`
-	Status  string `json:"status"`
+	VideoID       string        `json:"video_id"`
+	UserID        string        `json:"user_id"`
+	Status        string        `json:"status"`
+	TotalJobs     int           `json:"total_jobs"`
+	CompletedJobs int           `json:"completed_jobs"`
+	Jobs          []BatchJob    `json:"jobs"`
+	CreatedAt     string        `json:"created_at"`
+	Result        *LearningItem `json:"result"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -35,16 +40,53 @@ func NewVideoService(videoRepo VideoRepository, aiRepo AIRepository, batchRepo B
 	}
 }
 
+// Get Video Details
+func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoUploadResult, *errors.AppError) {
+	// Get video from batch
+	batch, err := s.batchRepo.GetBatch(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	videoResult := &VideoUploadResult{VideoID: videoID, UserID: userID}
+	if batch != nil {
+		videoResult.Status = batch.Status
+		videoResult.TotalJobs = batch.TotalJobs
+		videoResult.CompletedJobs = batch.CompletedJobs
+		videoResult.Jobs = batch.Jobs
+		videoResult.CreatedAt = batch.CreatedAt
+
+		var videoData *LearningItem
+		_ = json.Unmarshal(batch.Result, &videoData)
+		videoResult.Result = videoData
+
+		return videoResult, nil
+	}
+
+	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	var videoMetadata VideoMetadata
+	_ = json.Unmarshal(learningItem.Metadata, &videoMetadata)
+
+	videoResult.Status = videoMetadata.Status
+	videoResult.Result = learningItem
+
+	// Return video details
+	return videoResult, nil
+}
+
 // Create Video Content
 func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideoPayload) (*VideoUploadResult, *errors.AppError) {
 	// Create Batch for Processing
-	_ = s.batchRepo.CreateBatch(ctx, input.BatchID, input.VideoID, input.UserID)
+	_ = s.batchRepo.CreateBatch(ctx, input.VideoID)
 
 	// Create initial LearningItem in DB
 	metadataJSON, _ := json.Marshal(VideoMetadata{
-		BatchID: input.BatchID,
-		UserID:  input.UserID,
-		Status:  BATCH_PENDING,
+		UserID: input.UserID,
+		Status: BATCH_PENDING,
 	})
 
 	learningItem := &LearningItem{
@@ -63,7 +105,7 @@ func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideo
 
 	return &VideoUploadResult{
 		VideoID: input.VideoID,
-		BatchID: input.BatchID,
+		UserID:  input.UserID,
 		Status:  BATCH_PENDING,
 	}, nil
 }
@@ -84,12 +126,12 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 		// Upload video to R2
 		url, err := s.fileRepo.UploadToR2(ctx, payload.VideoFile, payload.VideoR2Path, payload.VideoPath, payload.VideoContentType)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_UPLOAD_VIDEO, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_FAILED, err.Error())
 			return
 		}
 
 		// Update video URL
-		_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_UPLOAD_VIDEO, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_COMPLETED, "")
 		// Send video URL to channel
 		videoURL = url
 	}()
@@ -101,12 +143,12 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 		// Upload thumbnail to R2
 		url, err := s.fileRepo.UploadToR2(ctx, payload.ThumbnailFile, payload.ThumbnailR2Path, payload.ThumbnailPath, payload.ThumbnailContentType)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_UPLOAD_THUMBNAIL, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_FAILED, err.Error())
 			return
 		}
 
 		// Update thumbnail URL
-		_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_UPLOAD_THUMBNAIL, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_COMPLETED, "")
 		// Send thumbnail URL to channel
 		thumbnailURL = url
 	}()
@@ -117,27 +159,27 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 
 		// Extract audio from video
 		if err := s.fileRepo.ExtractAudio(ctx, payload.VideoPath, payload.AudioPath); err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
 			return
 		}
 
 		// Generate video transcript
-		transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, payload.AudioPath)
+		transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, payload.AudioPath, payload.Language)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
 			return
 		}
-		_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_TRANSCRIPT, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_COMPLETED, "")
 
 		// Generate video details
 		details, err := s.aiRepo.GenerateVideoDetails(ctx, transcript)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, err.Error())
 			return
 		}
-		_ = s.batchRepo.UpdateJob(ctx, payload.BatchID, PROCESS_GENERATE_DETAILS, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_COMPLETED, "")
 		// Send details to channel
 		videoDetails = details
 	}()
@@ -151,7 +193,6 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 
 	// Update video content
 	metadataJSON, _ := json.Marshal(VideoMetadata{
-		BatchID:      payload.BatchID,
 		UserID:       payload.UserID,
 		Status:       BATCH_COMPLETED,
 		VideoURL:     videoURL,
@@ -172,8 +213,9 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	}
 
 	if err := s.videoRepo.UpdateVideo(ctx, learningItem); err != nil {
+		learningItem.IsActive = false // Set to false if update failed
 		videoJSON, _ := json.Marshal(learningItem)
-		_ = s.batchRepo.SetBatchResult(ctx, payload.BatchID, videoJSON)
+		_ = s.batchRepo.SetBatchResult(ctx, payload.VideoID, videoJSON)
 		return
 	}
 }

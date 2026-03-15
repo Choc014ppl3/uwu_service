@@ -25,8 +25,8 @@ type fileRepository struct {
 }
 
 // NewFileRepository creates a new fileRepository
-func NewFileRepository(log *slog.Logger) *fileRepository {
-	return &fileRepository{log: log}
+func NewFileRepository(cloudflare *client.CloudflareClient, log *slog.Logger) *fileRepository {
+	return &fileRepository{cloudflare: cloudflare, log: log}
 }
 
 // ExtractAudio extracts audio from a video file
@@ -52,10 +52,6 @@ func (r *fileRepository) ExtractAudio(ctx context.Context, videoPath, audioPath 
 
 // UploadToR2 uploads a file to R2
 func (r *fileRepository) UploadToR2(ctx context.Context, src multipart.File, key, path, contentType string) (string, *errors.AppError) {
-	if r.cloudflare == nil {
-		return "", errors.Internal("cloudflare R2 client not configured")
-	}
-
 	// Save file to temp location
 	dst, err := os.Create(path)
 	if err != nil {

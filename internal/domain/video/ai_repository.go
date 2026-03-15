@@ -89,7 +89,7 @@ Use the structure below:
 
 // AIRepository interface
 type AIRepository interface {
-	GenerateVideoTranscript(ctx context.Context, audioPath string) (*client.WhisperResponse, *errors.AppError)
+	GenerateVideoTranscript(ctx context.Context, audioPath, language string) (*client.WhisperResponse, *errors.AppError)
 	GenerateVideoDetails(ctx context.Context, transcript *client.WhisperResponse) (*VideoDetails, *errors.AppError)
 }
 
