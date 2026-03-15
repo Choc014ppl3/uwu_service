@@ -32,7 +32,6 @@ type AppError struct {
 }
 
 // Error implements the standard Go error interface.
-// (มีประโยชน์เวลา Print Log เพราะจะเห็น Error ที่ถูก Wrap ไว้ด้วย)
 func (e *AppError) Error() string {
 	if e.err != nil {
 		return fmt.Sprintf("%s: %s: %v", e.code, e.message, e.err)

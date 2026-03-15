@@ -10,6 +10,9 @@ import (
 	"github.com/windfall/uwu_service/pkg/errors"
 )
 
+// Constants
+const FeatureID = 1
+
 // LearningItem model
 type LearningItem struct {
 	ID        uuid.UUID       `json:"id"`
@@ -27,17 +30,14 @@ type LearningItem struct {
 
 // VideoDetails is the structure of the details field in LearningItem model
 type VideoDetails struct {
-	Topic       string `json:"topic"`
-	Description string `json:"description"`
-	Language    string `json:"language"`
-	Level       string `json:"level"`
-	Transcript  string `json:"transcript"`
-	Segments    []struct {
-		Text     string  `json:"text"`
-		Start    int     `json:"start"`
-		Duration float64 `json:"duration"`
-	} `json:"segments"`
-	GistQuiz []struct {
+	Topic       string              `json:"topic"`
+	Description string              `json:"description"`
+	Language    string              `json:"language"`
+	Level       string              `json:"level"`
+	Transcript  string              `json:"transcript"`
+	Tags        []string            `json:"tags"`
+	Segments    []TranscriptSegment `json:"segments"`
+	GistQuiz    []struct {
 		ID      int    `json:"id"`
 		Type    string `json:"type"`
 		Options []struct {
@@ -67,6 +67,7 @@ type VideoMetadata struct {
 // VideoRepository interface
 type VideoRepository interface {
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
+	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 }
 
 type videoRepository struct {
@@ -78,20 +79,17 @@ func NewVideoRepository(db *client.PostgresClient) VideoRepository {
 }
 
 func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError {
-	if r.db == nil || r.db.Pool == nil {
-		return errors.Internal("database not configured")
-	}
-
 	query := `
 		INSERT INTO learning_items (
-			feature_id, content, language, level, details, tags, metadata, is_active
+			id, feature_id, content, language, level, details, tags, metadata, is_active
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		) RETURNING id, created_at, updated_at
 	`
 
 	err := r.db.Pool.QueryRow(ctx, query,
-		item.FeatureID,
+		item.ID,
+		FeatureID,
 		item.Content,
 		item.Language,
 		item.Level,
@@ -103,6 +101,32 @@ func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *
 
 	if err != nil {
 		return errors.InternalWrap("failed to create video content", err)
+	}
+
+	return nil
+}
+
+func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError {
+	query := `
+		UPDATE learning_items
+		SET feature_id = $1, content = $2, language = $3, level = $4, tags = $5, details = $6, metadata = $7, is_active = $8
+		WHERE id = $9
+	`
+
+	err := r.db.Pool.QueryRow(ctx, query,
+		FeatureID,
+		item.Content,
+		item.Language,
+		item.Level,
+		item.Tags,
+		item.Details,
+		item.Metadata,
+		item.IsActive,
+		item.ID,
+	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
+
+	if err != nil {
+		return errors.InternalWrap("failed to update video details", err)
 	}
 
 	return nil

@@ -60,15 +60,15 @@ func NewAzureWhisperClient(endpoint, apiKey string) *AzureWhisperClient {
 // TranscribeFile sends a WAV audio file to Azure OpenAI Whisper for transcription.
 // Returns the full WhisperResponse with word-level timestamps.
 // lang is optional (e.g. "en", "th"); if empty, Whisper auto-detects.
-func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, language string) (*WhisperResponse, error) {
+func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, language string) (*WhisperResponse, *errors.AppError) {
 	if c.apiKey == "" || c.endpoint == "" {
-		return nil, errors.New(errors.ErrAIService, "Azure Whisper credentials not configured")
+		return nil, errors.Internal("Azure Whisper credentials not configured")
 	}
 
 	// Read the audio file
 	audioData, err := os.ReadFile(wavPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read audio file: %w", err)
+		return nil, errors.InternalWrap("failed to read audio file", err)
 	}
 
 	// Build multipart/form-data body
@@ -78,10 +78,10 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, langua
 	// Add file field
 	part, err := writer.CreateFormFile("file", "audio.wav")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create form file: %w", err)
+		return nil, errors.InternalWrap("failed to create form file", err)
 	}
 	if _, err := part.Write(audioData); err != nil {
-		return nil, fmt.Errorf("failed to write audio data: %w", err)
+		return nil, errors.InternalWrap("failed to write audio data", err)
 	}
 
 	// Add response_format field (verbose_json for word-level timestamps)
@@ -94,12 +94,12 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, langua
 	_ = writer.WriteField("timestamp_granularities[]", "segment")
 
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
+		return nil, errors.InternalWrap("failed to close multipart writer", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, &body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, errors.InternalWrap("failed to create request", err)
 	}
 
 	req.Header.Set("api-key", c.apiKey)
@@ -107,18 +107,18 @@ func (c *AzureWhisperClient) TranscribeFile(ctx context.Context, wavPath, langua
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, errors.InternalWrap("failed to send request", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("azure whisper api error %d: %s", resp.StatusCode, string(respBody))
+		return nil, errors.Internal(fmt.Sprintf("azure whisper api error %d: %s", resp.StatusCode, string(respBody)))
 	}
 
 	var result WhisperResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, errors.InternalWrap("failed to decode response", err)
 	}
 
 	return &result, nil

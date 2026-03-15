@@ -54,10 +54,6 @@ func NewAuthRepository(db *client.PostgresClient, secret []byte) *authRepository
 
 // RegisterUser inserts a new user into the database.
 func (r *authRepository) RegisterUser(ctx context.Context, user *User) *errors.AppError {
-	if r.db == nil || r.db.Pool == nil {
-		return errors.Internal("database not configured")
-	}
-
 	query := `
         INSERT INTO users (email, password_hash, display_name, avatar_url, bio, settings)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -87,10 +83,6 @@ func (r *authRepository) RegisterUser(ctx context.Context, user *User) *errors.A
 
 // VerifyUser retrieves a user by email address.
 func (r *authRepository) VerifyEmail(ctx context.Context, email string) (*User, *errors.AppError) {
-	if r.db == nil || r.db.Pool == nil {
-		return nil, errors.Internal("database not configured")
-	}
-
 	query := `
         SELECT id, email, password_hash, display_name, avatar_url, bio, settings, created_at, updated_at
         FROM users

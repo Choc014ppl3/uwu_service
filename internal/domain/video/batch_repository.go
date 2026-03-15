@@ -12,26 +12,31 @@ import (
 )
 
 // Constants
-const progressBatchTTL = 60 * time.Minute
+const processingBatchTTL = 60 * time.Minute
 const completedBatchTTL = 10 * time.Minute
 
-// Batch progress:
-// 1. upload video & thumbnail
-// 2. generate transcripts
-// 3. generate details
+// Batch processes:
 const (
-	JobUploadVideo         = "upload_video"
-	JobUploadThumbnail     = "upload_thumbnail"
-	JobGenerateTranscripts = "generate_transcripts"
-	JobGenerateDetails     = "generate_details"
+	PROCESS_UPLOAD_VIDEO        = "upload_video"
+	PROCESS_UPLOAD_THUMBNAIL    = "upload_thumbnail"
+	PROCESS_GENERATE_TRANSCRIPT = "generate_transcript"
+	PROCESS_GENERATE_DETAILS    = "generate_details"
 )
 
-func GetJobNames() []string {
+// Batch status:
+const (
+	BATCH_PENDING    = "pending"
+	BATCH_PROCESSING = "processing"
+	BATCH_COMPLETED  = "completed"
+	BATCH_FAILED     = "failed"
+)
+
+func GetProcessNames() []string {
 	return []string{
-		JobUploadVideo,
-		JobUploadThumbnail,
-		JobGenerateTranscripts,
-		JobGenerateDetails,
+		PROCESS_UPLOAD_VIDEO,
+		PROCESS_UPLOAD_THUMBNAIL,
+		PROCESS_GENERATE_TRANSCRIPT,
+		PROCESS_GENERATE_DETAILS,
 	}
 }
 
@@ -40,17 +45,15 @@ type BatchRepository interface {
 	CreateBatch(ctx context.Context, batchID, videoID, userID string) error
 	UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string) error
 	GetBatch(ctx context.Context, batchID string) (*BatchStatus, error)
-	CreateBatchWithJobs(ctx context.Context, batchID, refID string, customJobNames []string) error
-	GetBatchWithJobs(ctx context.Context, batchID string) (*BatchStatus, error)
 	SetBatchResult(ctx context.Context, batchID string, result json.RawMessage) error
 }
 
 // BatchStatus is the combined status of a batch and all its jobs.
 type BatchStatus struct {
 	BatchID       string          `json:"batch_id"`
-	VideoID       string          `json:"video_id,omitempty"`
-	ReferenceID   string          `json:"reference_id,omitempty"`
-	Status        string          `json:"status"` // processing, completed, failed
+	VideoID       string          `json:"video_id"`
+	UserID        string          `json:"user_id"`
+	Status        string          `json:"status"` // pending, processing, completed, failed
 	TotalJobs     int             `json:"total_jobs"`
 	CompletedJobs int             `json:"completed_jobs"`
 	Jobs          []JobStatus     `json:"jobs"`
@@ -74,7 +77,7 @@ type batchRepository struct {
 }
 
 // NewBatchRepository creates a new batch repository
-func NewBatchRepository(redis *client.RedisClient, log *slog.Logger) BatchRepository {
+func NewBatchRepository(redis *client.RedisClient, log *slog.Logger) *batchRepository {
 	return &batchRepository{
 		redis: redis,
 		log:   log,
@@ -88,42 +91,37 @@ func (s *batchRepository) CreateBatch(ctx context.Context, batchID, videoID, use
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	totalJobs := len(GetJobNames())
+	totalJobs := len(GetProcessNames())
 
 	// Set batch metadata hash
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 	err := s.redis.HSet(ctx, batchKey,
 		"video_id", videoID,
 		"user_id", userID,
-		"status", "processing",
+		"status", BATCH_PENDING,
 		"created_at", now,
 		"total_jobs", strconv.Itoa(totalJobs),
 		"completed_jobs", "0",
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create batch: %w", err)
+		s.log.Error("Failed to create batch", "batch_id", batchID, "error", err)
+		return err
 	}
 
-	// Set initial job statuses (all pending, except video_upload which starts immediately)
+	// Set initial job statuses (all pending)
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
-	for _, name := range GetJobNames() {
-		job := JobStatus{Name: name, Status: "pending"}
-		if name == JobUploadVideo {
-			job.Status = "processing"
-			job.StartedAt = now
-		}
+	for _, name := range GetProcessNames() {
+		job := JobStatus{Name: name, Status: BATCH_PENDING}
 		jobJSON, _ := json.Marshal(job)
 		if err := s.redis.HSet(ctx, jobsKey, name, string(jobJSON)); err != nil {
-			return fmt.Errorf("failed to set job %s: %w", name, err)
+			s.log.Error("Failed to set job", "batch_id", batchID, "job_name", name, "error", err)
+			return err
 		}
 	}
 
 	// Set TTL on both keys
-	_ = s.redis.SetExpiry(ctx, batchKey, progressBatchTTL)
-	_ = s.redis.SetExpiry(ctx, jobsKey, progressBatchTTL)
-
-	// Log batch creation
-	s.log.Info("Batch created", "batch_id", batchID, "video_id", videoID, "total_jobs", totalJobs)
+	_ = s.redis.SetExpiry(ctx, batchKey, processingBatchTTL)
+	_ = s.redis.SetExpiry(ctx, jobsKey, processingBatchTTL)
 
 	return nil
 }
@@ -142,11 +140,11 @@ func (s *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	}
 
 	switch status {
-	case "processing":
+	case BATCH_PROCESSING:
 		job.StartedAt = now
-	case "completed":
+	case BATCH_COMPLETED:
 		job.CompletedAt = now
-	case "failed":
+	case BATCH_FAILED:
 		job.CompletedAt = now
 		job.Error = jobErr
 	}
@@ -154,7 +152,8 @@ func (s *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	jobJSON, _ := json.Marshal(job)
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
 	if err := s.redis.HSet(ctx, jobsKey, jobName, string(jobJSON)); err != nil {
-		return fmt.Errorf("failed to update job %s: %w", jobName, err)
+		s.log.Error("Failed to update job", "batch_id", batchID, "job_name", jobName, "error", err)
+		return err
 	}
 
 	// Recalculate batch status
@@ -174,7 +173,7 @@ func (s *batchRepository) recalculateBatchStatus(ctx context.Context, batchID st
 	batchMeta, _ := s.redis.HGetAll(ctx, batchKey)
 	totalJobs, _ := strconv.Atoi(batchMeta["total_jobs"])
 	if totalJobs == 0 {
-		totalJobs = len(GetJobNames()) // fallback
+		totalJobs = len(GetProcessNames()) // fallback
 	}
 
 	completed := 0
@@ -184,25 +183,25 @@ func (s *batchRepository) recalculateBatchStatus(ctx context.Context, batchID st
 		if err := json.Unmarshal([]byte(raw), &job); err != nil {
 			continue
 		}
-		if job.Status == "completed" {
+		if job.Status == BATCH_COMPLETED {
 			completed++
 		}
-		if job.Status == "failed" {
+		if job.Status == BATCH_FAILED {
 			hasFailed = true
 		}
 	}
 
-	batchStatus := "processing"
+	batchStatus := BATCH_PROCESSING
 	if hasFailed {
-		batchStatus = "failed"
+		batchStatus = BATCH_FAILED
 	} else if completed == totalJobs {
-		batchStatus = "completed"
+		batchStatus = BATCH_COMPLETED
 	}
 
 	_ = s.redis.HSet(ctx, batchKey, "status", batchStatus, "completed_jobs", strconv.Itoa(completed))
 
 	// Shorten TTL for completed/failed batches to free Redis memory
-	if batchStatus == "completed" || batchStatus == "failed" {
+	if batchStatus == BATCH_COMPLETED || batchStatus == BATCH_FAILED {
 		jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
 		_ = s.redis.SetExpiry(ctx, batchKey, completedBatchTTL)
 		_ = s.redis.SetExpiry(ctx, jobsKey, completedBatchTTL)
@@ -230,15 +229,10 @@ func (s *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchS
 	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
 	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
 
-	refID := batchFields["reference_id"]
-	if refID == "" {
-		refID = batchFields["video_id"]
-	}
-
 	batch := &BatchStatus{
 		BatchID:       batchID,
 		VideoID:       batchFields["video_id"],
-		ReferenceID:   refID,
+		UserID:        batchFields["user_id"],
 		Status:        batchFields["status"],
 		TotalJobs:     totalJobs,
 		CompletedJobs: completedJobs,
@@ -253,7 +247,7 @@ func (s *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchS
 	}
 
 	// Maintain order from jobNames
-	for _, name := range GetJobNames() {
+	for _, name := range GetProcessNames() {
 		raw, ok := jobFields[name]
 		if !ok {
 			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})
@@ -265,132 +259,6 @@ func (s *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchS
 			continue
 		}
 		batch.Jobs = append(batch.Jobs, job)
-	}
-
-	return batch, nil
-}
-
-// CreateBatchWithJobs initializes a batch with a custom list of job names.
-func (s *batchRepository) CreateBatchWithJobs(ctx context.Context, batchID, refID string, customJobNames []string) error {
-	if s.redis == nil {
-		return nil
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	batchKey := fmt.Sprintf("batch:%s", batchID)
-	fields := []interface{}{
-		"reference_id", refID,
-		"status", "processing",
-		"created_at", now,
-		"total_jobs", strconv.Itoa(len(customJobNames)),
-		"completed_jobs", "0",
-	}
-
-	// For legacy support: if refID happens to be a UUID, also set video_id
-	// (this handles video uploads or scenario generation gracefully).
-	// But actually, we only need to not send 'video_id' if it's not a video.
-	// Since we don't know the exact type here except by looking at jobNames,
-	// let's do a simple heuristic: if it contains spaces or doesn't look like a UUID, we omit video_id.
-	// Or even simpler: just only set reference_id, and if they need backward compatibility for existing videos,
-	// we will map it on read. But existing iOS clients might expect video_id explicitly for video batches.
-	// So we can check if refID is a valid UUID, which topics are not.
-	if len(refID) == 36 {
-		fields = append(fields, "video_id", refID)
-	}
-
-	err := s.redis.HSet(ctx, batchKey, fields...)
-	if err != nil {
-		return fmt.Errorf("failed to create batch: %w", err)
-	}
-
-	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
-	for _, name := range customJobNames {
-		job := JobStatus{Name: name, Status: "pending"}
-		jobJSON, _ := json.Marshal(job)
-		if err := s.redis.HSet(ctx, jobsKey, name, string(jobJSON)); err != nil {
-			return fmt.Errorf("failed to set job %s: %w", name, err)
-		}
-	}
-
-	// Store job names list for recalculation
-	namesJSON, _ := json.Marshal(customJobNames)
-	_ = s.redis.HSet(ctx, batchKey, "job_names", string(namesJSON))
-
-	_ = s.redis.SetExpiry(ctx, batchKey, progressBatchTTL)
-	_ = s.redis.SetExpiry(ctx, jobsKey, progressBatchTTL)
-
-	s.log.Info("Custom batch created", "batch_id", batchID, "ref_id", refID, "total_jobs", len(customJobNames))
-
-	return nil
-}
-
-// GetBatchWithJobs returns batch status using a dynamic job name list from Redis.
-func (s *batchRepository) GetBatchWithJobs(ctx context.Context, batchID string) (*BatchStatus, error) {
-	if s.redis == nil {
-		return nil, fmt.Errorf("redis not configured")
-	}
-
-	batchKey := fmt.Sprintf("batch:%s", batchID)
-	batchFields, err := s.redis.HGetAll(ctx, batchKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch: %w", err)
-	}
-
-	if len(batchFields) == 0 {
-		return nil, nil
-	}
-
-	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
-	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
-
-	refID := batchFields["reference_id"]
-	if refID == "" {
-		refID = batchFields["video_id"]
-	}
-
-	batch := &BatchStatus{
-		BatchID:       batchID,
-		VideoID:       batchFields["video_id"],
-		ReferenceID:   refID,
-		Status:        batchFields["status"],
-		TotalJobs:     totalJobs,
-		CompletedJobs: completedJobs,
-		CreatedAt:     batchFields["created_at"],
-	}
-
-	// Read custom job names
-	var customNames []string
-	if namesRaw, ok := batchFields["job_names"]; ok {
-		_ = json.Unmarshal([]byte(namesRaw), &customNames)
-	}
-	if len(customNames) == 0 {
-		customNames = GetJobNames() // fallback to default
-	}
-
-	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
-	jobFields, err := s.redis.HGetAll(ctx, jobsKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get jobs: %w", err)
-	}
-
-	for _, name := range customNames {
-		raw, ok := jobFields[name]
-		if !ok {
-			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})
-			continue
-		}
-		var job JobStatus
-		if err := json.Unmarshal([]byte(raw), &job); err != nil {
-			batch.Jobs = append(batch.Jobs, JobStatus{Name: name, Status: "unknown"})
-			continue
-		}
-		batch.Jobs = append(batch.Jobs, job)
-	}
-
-	// Include result data if present
-	if resultRaw, ok := batchFields["result"]; ok && resultRaw != "" {
-		batch.Result = json.RawMessage(resultRaw)
 	}
 
 	return batch, nil

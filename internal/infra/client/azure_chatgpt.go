@@ -12,8 +12,8 @@ import (
 	"github.com/windfall/uwu_service/pkg/errors"
 )
 
-// AzureChatClient wraps the Azure OpenAI Chat Completions REST API.
-type AzureChatClient struct {
+// AzureChatGPTClient wraps the Azure OpenAI Chat Completions REST API.
+type AzureChatGPTClient struct {
 	endpoint string // e.g. https://your-resource.openai.azure.com
 	apiKey   string
 	client   *http.Client
@@ -41,9 +41,9 @@ type chatChoice struct {
 	Message chatMessage `json:"message"`
 }
 
-// NewAzureChatClient creates a new Azure OpenAI Chat Completions client.
-func NewAzureChatClient(endpoint, apiKey string) *AzureChatClient {
-	return &AzureChatClient{
+// NewAzureChatGPTClient creates a new Azure OpenAI Chat Completions client.
+func NewAzureChatGPTClient(endpoint, apiKey string) *AzureChatGPTClient {
+	return &AzureChatGPTClient{
 		endpoint: endpoint,
 		apiKey:   apiKey,
 		client: &http.Client{
@@ -54,9 +54,9 @@ func NewAzureChatClient(endpoint, apiKey string) *AzureChatClient {
 
 // ChatCompletion sends a system prompt + user message to Azure OpenAI Chat Completions
 // and returns the assistant's response text.
-func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+func (c *AzureChatGPTClient) ChatCompletion(ctx context.Context, systemPrompt, userMessage string) (string, *errors.AppError) {
 	if c.apiKey == "" || c.endpoint == "" {
-		return "", errors.New(errors.ErrAIService, "Azure OpenAI Chat credentials not configured")
+		return "", errors.Internal("Azure OpenAI Chat credentials not configured")
 	}
 
 	reqBody := chatRequest{
@@ -69,13 +69,13 @@ func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, user
 
 	bodyJSON, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", errors.InternalWrap("failed to marshal request", err)
 	}
 
 	// Azure OpenAI Chat Completions endpoint
 	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(bodyJSON))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", errors.InternalWrap("failed to create request", err)
 	}
 
 	req.Header.Set("api-key", c.apiKey)
@@ -83,22 +83,22 @@ func (c *AzureChatClient) ChatCompletion(ctx context.Context, systemPrompt, user
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return "", errors.InternalWrap("failed to send request", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("azure openai chat api error %d: %s", resp.StatusCode, string(respBody))
+		return "", errors.InternalWrap("azure openai chat api error", fmt.Errorf("status code: %d, response body: %s", resp.StatusCode, string(respBody)))
 	}
 
 	var result chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return "", errors.InternalWrap("failed to decode response", err)
 	}
 
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("no choices returned from azure openai")
+		return "", errors.Internal("no choices returned from azure openai")
 	}
 
 	return result.Choices[0].Message.Content, nil

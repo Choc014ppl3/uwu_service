@@ -20,8 +20,6 @@ import (
 // UploadVideoRequest is the HTTP request struct for uploading a video
 type UploadVideoRequest struct {
 	UserID               string
-	VideoID              string
-	BatchID              string
 	Language             string
 	VideoFile            multipart.File
 	VideoContentType     string
@@ -35,12 +33,17 @@ type UploadVideoPayload struct {
 	VideoID              string
 	BatchID              string
 	Language             string
+	VideoExt             string
 	VideoPath            string
 	VideoFile            multipart.File
 	VideoContentType     string
+	VideoR2Path          string
+	ThumbnailExt         string
 	ThumbnailPath        string
 	ThumbnailFile        multipart.File
 	ThumbnailContentType string
+	ThumbnailR2Path      string
+	AudioPath            string
 }
 
 var allowedVideoMIME = map[string]bool{
@@ -54,6 +57,16 @@ var allowedImageMIME = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
 	"image/webp": true,
+}
+
+var mimeToExt = map[string]string{
+	"video/mp4":       ".mp4",
+	"video/quicktime": ".mov",
+	"video/x-msvideo": ".avi",
+	"video/webm":      ".webm",
+	"image/jpeg":      ".jpg",
+	"image/png":       ".png",
+	"image/webp":      ".webp",
 }
 
 // Close สำคัญมาก! ใช้เพื่อให้ Handler สั่งปิดไฟล์ตอนทำงานเสร็จ
@@ -129,28 +142,45 @@ func (req *UploadVideoRequest) ParseAndValidate(r *http.Request) error {
 		return errors.Validation("invalid thumbnail type, allowed: jpeg, png, webp")
 	}
 
-	// 6. Generate Video ID and Batch ID
-	req.VideoID = uuid.New().String()
-	req.BatchID = uuid.New().String()
-
 	return nil
 }
 
 // ToPayload convert UploadVideoRequest to UploadVideoPayload
 func (req *UploadVideoRequest) ToPayload() UploadVideoPayload {
-	videoPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_video.%s", req.VideoID, strings.Split(req.VideoContentType, "/")[1]))
-	thumbPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb.%s", req.VideoID, strings.Split(req.ThumbnailContentType, "/")[1]))
+	videoID := uuid.New().String()
+	batchID := uuid.New().String()
+
+	videoExt, ok := mimeToExt[req.VideoContentType]
+	if !ok {
+		videoExt = ".mp4"
+	}
+
+	thumbExt, ok := mimeToExt[req.ThumbnailContentType]
+	if !ok {
+		thumbExt = ".webp"
+	}
+
+	audioPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_audio.wav", videoID))
+	videoPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_video%s", videoID, videoExt))
+	thumbPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb%s", videoID, thumbExt))
+	videoR2Path := fmt.Sprintf("videos/%s.%s", videoID, videoExt)
+	thumbR2Path := fmt.Sprintf("thumbnails/%s.%s", videoID, thumbExt)
 
 	return UploadVideoPayload{
 		UserID:               req.UserID,
-		VideoID:              req.VideoID,
-		BatchID:              req.BatchID,
+		VideoID:              videoID,
+		BatchID:              batchID,
 		Language:             req.Language,
+		VideoExt:             videoExt,
 		VideoPath:            videoPath,
 		VideoFile:            req.VideoFile,
 		VideoContentType:     req.VideoContentType,
+		VideoR2Path:          videoR2Path,
+		ThumbnailExt:         thumbExt,
 		ThumbnailPath:        thumbPath,
 		ThumbnailFile:        req.ThumbnailFile,
 		ThumbnailContentType: req.ThumbnailContentType,
+		ThumbnailR2Path:      thumbR2Path,
+		AudioPath:            audioPath,
 	}
 }

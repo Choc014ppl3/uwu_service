@@ -49,7 +49,7 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 
 	// 5. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
-		Type:    JobProcessUploadVideo,
+		Type:    JobUploadVideo,
 		Payload: req.ToPayload(),
 	})
 	if qErr != nil {
