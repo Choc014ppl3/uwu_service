@@ -199,8 +199,8 @@ func (s *VideoService) GetVideoByBatchID(ctx context.Context, batchID string) (*
 	return items[0], nil
 }
 
-// ProcessUpload handles the full video upload pipeline in PARALLEL
-func (s *VideoService) ProcessUpload(ctx context.Context, userID string, videoFile multipart.File, videoContentType string, thumbnailFile multipart.File, thumbContentType string, language string) (*VideoUploadResult, error) {
+// UploadVideo handles the full video upload pipeline in PARALLEL
+func (s *VideoService) UploadVideo(ctx context.Context, userID string, videoFile multipart.File, videoContentType string, thumbnailFile multipart.File, thumbContentType string, language string) (*VideoUploadResult, error) {
 	// 1. Setup IDs and Paths
 	videoID := uuid.New()
 	batchID := uuid.New().String()

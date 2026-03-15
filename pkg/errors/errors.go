@@ -1,9 +1,6 @@
 package errors
 
-import (
-	"fmt"
-	"net/http"
-)
+import "fmt"
 
 // ErrorCode represents application error codes.
 type ErrorCode string
@@ -28,95 +25,84 @@ const (
 
 // AppError represents an application error with code and metadata.
 type AppError struct {
-	Code    ErrorCode              `json:"code"`
-	Message string                 `json:"message"`
-	Details map[string]interface{} `json:"details,omitempty"`
-	Err     error                  `json:"-"`
+	code    ErrorCode
+	message string
+	details map[string]interface{}
+	err     error
 }
 
-// Error implements the error interface.
+// Error implements the standard Go error interface.
+// (มีประโยชน์เวลา Print Log เพราะจะเห็น Error ที่ถูก Wrap ไว้ด้วย)
 func (e *AppError) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("%s: %s: %v", e.Code, e.Message, e.Err)
+	if e.err != nil {
+		return fmt.Sprintf("%s: %s: %v", e.code, e.message, e.err)
 	}
-	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+	return fmt.Sprintf("%s: %s", e.code, e.message)
 }
 
 // Unwrap returns the wrapped error.
 func (e *AppError) Unwrap() error {
-	return e.Err
+	return e.err
 }
 
-// New creates a new AppError.
+// --- Getter Methods สำหรับให้ Interface ใน response.go เรียกใช้ ---
+
+func (e *AppError) GetCode() string {
+	return string(e.code)
+}
+
+// GetMessage คืนค่าเฉพาะข้อความที่ปลอดภัยสำหรับส่งให้ User (ซ่อน e.err)
+func (e *AppError) GetMessage() string {
+	return e.message
+}
+
+func (e *AppError) GetDetails() map[string]interface{} {
+	return e.details
+}
+
+// --- Constructors ---
+
 func New(code ErrorCode, message string) *AppError {
 	return &AppError{
-		Code:    code,
-		Message: message,
+		code:    code,
+		message: message,
 	}
 }
 
-// Wrap wraps an existing error with an AppError.
 func Wrap(code ErrorCode, message string, err error) *AppError {
 	return &AppError{
-		Code:    code,
-		Message: message,
-		Err:     err,
+		code:    code,
+		message: message,
+		err:     err,
 	}
 }
 
-// WithDetails adds details to the error.
 func (e *AppError) WithDetails(details map[string]interface{}) *AppError {
-	e.Details = details
+	e.details = details
 	return e
 }
 
-// HTTPStatus returns the HTTP status code for the error.
-func (e *AppError) HTTPStatus() int {
-	switch e.Code {
-	case ErrValidation:
-		return http.StatusBadRequest
-	case ErrUnauthorized:
-		return http.StatusUnauthorized
-	case ErrForbidden:
-		return http.StatusForbidden
-	case ErrNotFound:
-		return http.StatusNotFound
-	case ErrConflict:
-		return http.StatusConflict
-	case ErrRateLimit:
-		return http.StatusTooManyRequests
-	case ErrTimeout:
-		return http.StatusGatewayTimeout
-	default:
-		return http.StatusInternalServerError
-	}
+// --- Common Error Helpers ---
+
+func Internal(message string) *AppError                { return New(ErrInternal, message) }
+func InternalWrap(message string, err error) *AppError { return Wrap(ErrInternal, message, err) }
+
+func Validation(message string) *AppError                { return New(ErrValidation, message) }
+func ValidationWrap(message string, err error) *AppError { return Wrap(ErrValidation, message, err) }
+
+func NotFound(message string) *AppError                { return New(ErrNotFound, message) }
+func NotFoundWrap(message string, err error) *AppError { return Wrap(ErrNotFound, message, err) }
+
+func Unauthorized(message string) *AppError { return New(ErrUnauthorized, message) }
+func UnauthorizedWrap(message string, err error) *AppError {
+	return Wrap(ErrUnauthorized, message, err)
 }
 
-// Common error constructors
-func Internal(message string) *AppError {
-	return New(ErrInternal, message)
-}
+func Forbidden(message string) *AppError                { return New(ErrForbidden, message) }
+func ForbiddenWrap(message string, err error) *AppError { return Wrap(ErrForbidden, message, err) }
 
-func InternalWrap(message string, err error) *AppError {
-	return Wrap(ErrInternal, message, err)
-}
+func Conflict(message string) *AppError                { return New(ErrConflict, message) }
+func ConflictWrap(message string, err error) *AppError { return Wrap(ErrConflict, message, err) }
 
-func Validation(message string) *AppError {
-	return New(ErrValidation, message)
-}
-
-func NotFound(resource string) *AppError {
-	return New(ErrNotFound, fmt.Sprintf("%s not found", resource))
-}
-
-func Unauthorized(message string) *AppError {
-	return New(ErrUnauthorized, message)
-}
-
-func Forbidden(message string) *AppError {
-	return New(ErrForbidden, message)
-}
-
-func RateLimit(message string) *AppError {
-	return New(ErrRateLimit, message)
-}
+func RateLimit(message string) *AppError                { return New(ErrRateLimit, message) }
+func RateLimitWrap(message string, err error) *AppError { return Wrap(ErrRateLimit, message, err) }

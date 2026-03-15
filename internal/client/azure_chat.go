@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/windfall/uwu_service/internal/errors"
+	"github.com/windfall/uwu_service/pkg/errors"
 )
 
 // AzureChatClient wraps the Azure OpenAI Chat Completions REST API.

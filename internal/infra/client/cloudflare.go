@@ -1,9 +1,9 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -13,13 +13,13 @@ import (
 
 // CloudflareClient wraps the S3 client for Cloudflare R2.
 type CloudflareClient struct {
-	s3Client  *s3.Client
-	bucket    string
-	publicURL string
+	s3Client *s3.Client
+	bucket   string
+	cdnURL   string
 }
 
 // NewCloudflareClient creates a new Cloudflare R2 client.
-func NewCloudflareClient(ctx context.Context, accessKeyID, secretKey, endpoint, bucketName, publicURL string) (*CloudflareClient, error) {
+func NewCloudflareClient(ctx context.Context, accessKeyID, secretKey, endpoint, bucketName, cdnURL string) (*CloudflareClient, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, secretKey, "")),
 		config.WithRegion("auto"),
@@ -33,19 +33,19 @@ func NewCloudflareClient(ctx context.Context, accessKeyID, secretKey, endpoint, 
 	})
 
 	return &CloudflareClient{
-		s3Client:  s3Client,
-		bucket:    bucketName,
-		publicURL: publicURL,
+		s3Client: s3Client,
+		bucket:   bucketName,
+		cdnURL:   cdnURL,
 	}, nil
 }
 
 // UploadR2Object uploads an object to R2 and returns the public URL.
-func (c *CloudflareClient) UploadR2Object(ctx context.Context, key string, data []byte, contentType string) (string, error) {
+func (c *CloudflareClient) UploadR2Object(ctx context.Context, key string, data io.Reader, contentType string) (string, error) {
 	// PutObject API
 	_, err := c.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(c.bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
+		Body:        data,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
@@ -53,10 +53,5 @@ func (c *CloudflareClient) UploadR2Object(ctx context.Context, key string, data 
 	}
 
 	// Return the public URL
-	return fmt.Sprintf("%s/%s", c.publicURL, key), nil
-}
-
-// PublicURL returns the configured public URL.
-func (c *CloudflareClient) PublicURL() string {
-	return c.publicURL
+	return fmt.Sprintf("%s/%s", c.cdnURL, key), nil
 }

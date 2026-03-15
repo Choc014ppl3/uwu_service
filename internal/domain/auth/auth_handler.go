@@ -30,12 +30,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Parse & Validate
 	if err := req.ParseAndValidate(r); err != nil {
-		response.BadRequest(w, err.Error())
+		response.HandleError(w, err)
 		return
 	}
 
 	// 2. เรียกใช้งาน Business Logic พร้อมสั่ง Map DTO จบในบรรทัดเดียว!
-	result, err := h.service.Register(r.Context(), req.ToDTO())
+	result, err := h.service.Register(r.Context(), req.ToInput())
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "failed to register user", slog.Any("error", err))
 		response.HandleError(w, err)
@@ -53,12 +53,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 
 	if err := req.ParseAndValidate(r); err != nil {
-		response.BadRequest(w, err.Error())
+		response.HandleError(w, err)
 		return
 	}
 
 	// แมปข้อมูลและส่งเข้า Service ไปเลย
-	result, err := h.service.Login(r.Context(), req.ToDTO())
+	result, err := h.service.Login(r.Context(), req.ToInput())
 	if err != nil {
 		h.log.ErrorContext(r.Context(), "failed to login user", slog.Any("error", err))
 		response.HandleError(w, err)

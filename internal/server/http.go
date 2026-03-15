@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/windfall/uwu_service/internal/config"
+	handler "github.com/windfall/uwu_service/internal/handler"
 	httphandler "github.com/windfall/uwu_service/internal/handler/http"
 	"github.com/windfall/uwu_service/internal/middleware"
 	"github.com/windfall/uwu_service/internal/service"
@@ -37,6 +38,8 @@ func NewHTTPServer(
 	retellHandler *httphandler.RetellHandler,
 	workoutHandler *httphandler.WorkoutHandler,
 	userStatsHandler *httphandler.UserStatsHandler,
+
+	userContentHandler *handler.UserContentHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -75,9 +78,21 @@ func NewHTTPServer(
 			// 	Current API
 			// ---------------------
 
-			// Learning Items endpoints
-			r.Get("/learning-items/feature", learningItemHandler.GetLearningItemsByFeature)
-			r.Get("/learning-summarizes", userStatsHandler.GetLearningSummary)
+			// Learning content endpoints
+			// GET /learning-items/{feature}
+			// POST /learning-items/upload-video
+			// GET /learning-items/upload-video/{batchID}
+			// POST /learning-items/generate-dialog
+			// GET /learning-items/generate-dialog/{batchID}
+
+			// User action endpoints
+			// POST /user-actions/type/{actionType}
+			// GET /user-actions/summaries
+
+			// User Content endpoints
+			r.Get("/user-contents/items", userContentHandler.GetContentsByFeature)
+			r.Get("/user-contents/summaries", userStatsHandler.GetLearningSummary)
+			// Post/user-contents/actions: dialogue_saved, quiz_saved, quiz_transcript, submit_chat, submit_speech
 
 			// Dialogue Guide endpoints
 			r.Post("/dialogue-guides/generate", apiHandler.GenerateDialogueGuide)
@@ -88,6 +103,7 @@ func NewHTTPServer(
 			// Native Video endpoints
 			r.Post("/native-videos/upload", videoHandler.UploadNativeVideo)
 			r.Get("/native-videos/upload/{batchID}", videoHandler.GetUploadProgress)
+			// POST/native-videos/submit-quiz
 
 			// ---------------------
 			//   Legacy API

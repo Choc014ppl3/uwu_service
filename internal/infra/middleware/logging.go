@@ -31,8 +31,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.wroteHeader = true
 }
 
-// RequestLogger เป็น Middleware บันทึกข้อมูลการเข้าใช้งาน
-func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
+// Logger เป็น Middleware บันทึกข้อมูลการเข้าใช้งาน
+func Logger(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()

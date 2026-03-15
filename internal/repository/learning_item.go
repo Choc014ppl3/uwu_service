@@ -29,8 +29,8 @@ type LearningItem struct {
 type FeatureType int
 
 const (
-	NativeVideo   FeatureType = 1
-	DialogueGuide FeatureType = 2
+	NativeVideo FeatureType = 1
+	DialogGuide FeatureType = 2
 )
 
 type LearningItemRepository interface {

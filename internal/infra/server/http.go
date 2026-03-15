@@ -12,7 +12,7 @@ import (
 	"github.com/windfall/uwu_service/internal/infra/config"
 	"github.com/windfall/uwu_service/internal/infra/middleware"
 
-	authDomain "github.com/windfall/uwu_service/internal/domain/auth"
+	"github.com/windfall/uwu_service/internal/domain/auth"
 )
 
 // HTTPServer represents the HTTP server
@@ -25,8 +25,8 @@ type HTTPServer struct {
 func NewHTTPServer(
 	cfg *config.Config,
 	log *slog.Logger,
-	jwtRepo authDomain.JWTRepository,
-	authHandler *authDomain.AuthHandler,
+	authRepo auth.AuthRepository,
+	authHandler *auth.AuthHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -64,7 +64,32 @@ func NewHTTPServer(
 
 		// Protected endpoints (require JWT)
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(jwtRepo))
+			r.Use(middleware.Auth(authRepo))
+
+			// Dialog
+			r.Get("dialogs", dialogHandler.ListDialogs)
+			r.Post("dialogs/generate", dialogHandler.GenerateDialog)
+			r.Get("dialogs/generate/{batchID}", dialogHandler.GetGenerateProgress)
+			r.Post("dialogs/start-speech", dialogHandler.StartSpeech)
+			r.Post("dialogs/submit-speech", dialogHandler.SubmitSpeech)
+			r.Post("dialogs/start-chat", dialogHandler.StartChat)
+			r.Post("dialogs/submit-chat", dialogHandler.SubmitChat)
+			r.Post("dialogs/toggle-saved", dialogHandler.ToggleSaved)
+
+			// Video
+			r.Get("videos", videoHandler.ListVideos)
+			r.Post("videos/upload", videoHandler.UploadVideo)
+			r.Get("videos/upload/{batchID}", videoHandler.GetUploadProgress)
+			r.Post("videos/start-quiz", videoHandler.StartQuiz)
+			r.Post("videos/submit-quiz", videoHandler.SubmitQuiz)
+			r.Post("videos/toggle-transcript", videoHandler.ToggleTranscript)
+			r.Post("videos/toggle-saved", videoHandler.ToggleSaved)
+
+			// Profile
+			r.Get("profile", profileHandler.GetProfile)
+			r.Put("profile", profileHandler.UpdateProfile)
+			r.Get("profile/stats", profileHandler.GetProfileStats)
+
 		})
 	})
 

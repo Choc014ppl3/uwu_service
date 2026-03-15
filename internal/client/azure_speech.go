@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/windfall/uwu_service/internal/errors"
+	"github.com/windfall/uwu_service/pkg/errors"
 )
 
 // AzureSpeechClient wraps the Azure AI Speech REST API.

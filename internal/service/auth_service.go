@@ -8,8 +8,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/windfall/uwu_service/internal/errors"
 	"github.com/windfall/uwu_service/internal/repository"
+	"github.com/windfall/uwu_service/pkg/errors"
 )
 
 // AuthService handles authentication logic.

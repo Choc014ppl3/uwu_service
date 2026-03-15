@@ -16,6 +16,10 @@ type Config struct {
 
 	Environment string `envconfig:"SERVER_ENV" default:"development"`
 
+	// Queue
+	QueueWorkerCount int `envconfig:"QUEUE_WORKER_COUNT" default:"4"`
+	QueueBufferSize  int `envconfig:"QUEUE_BUFFER_SIZE" default:"100"`
+
 	// Timeouts
 	ReadTimeout     time.Duration `envconfig:"SERVER_READ_TIMEOUT" default:"15s"`
 	WriteTimeout    time.Duration `envconfig:"SERVER_WRITE_TIMEOUT" default:"15s"`
