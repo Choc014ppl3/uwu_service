@@ -57,10 +57,11 @@ type VideoDetails struct {
 
 // VideoMetadata is the structure of the metadata field in LearningItem model
 type VideoMetadata struct {
-	UserID       string `json:"user_id"`
-	VideoURL     string `json:"video_url"`
-	ThumbnailURL string `json:"thumbnail_url"`
-	Status       string `json:"status"`
+	UserID       string       `json:"user_id"`
+	VideoURL     string       `json:"video_url"`
+	ThumbnailURL string       `json:"thumbnail_url"`
+	Status       string       `json:"status"`
+	Batch        *BatchResult `json:"batch"`
 }
 
 // VideoRepository interface

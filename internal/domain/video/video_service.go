@@ -18,16 +18,13 @@ type VideoService struct {
 	fileRepo  FileRepository
 }
 
-// VideoUploadResult is returned after a successful upload.
-type VideoUploadResult struct {
-	VideoID       string        `json:"video_id"`
-	UserID        string        `json:"user_id"`
-	Status        string        `json:"status"`
-	TotalJobs     int           `json:"total_jobs"`
-	CompletedJobs int           `json:"completed_jobs"`
-	Jobs          []BatchJob    `json:"jobs"`
-	CreatedAt     string        `json:"created_at"`
-	Result        *LearningItem `json:"result"`
+// VideoDetailsResponse is returned after a successful upload.
+type VideoDetailsResponse struct {
+	VideoID  string        `json:"video_id"`
+	UserID   string        `json:"user_id"`
+	Status   string        `json:"status"`
+	Progress *BatchResult  `json:"progress"`
+	Data     *LearningItem `json:"data"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -41,45 +38,57 @@ func NewVideoService(videoRepo VideoRepository, aiRepo AIRepository, batchRepo B
 }
 
 // Get Video Details
-func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoUploadResult, *errors.AppError) {
+func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoDetailsResponse, *errors.AppError) {
+	// Get video from database
+	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	if learningItem != nil {
+		var videoMetadata *VideoMetadata
+		_ = json.Unmarshal(learningItem.Metadata, &videoMetadata)
+
+		return &VideoDetailsResponse{
+			VideoID:  videoID,
+			UserID:   userID,
+			Status:   BATCH_COMPLETED,
+			Data:     learningItem,
+			Progress: videoMetadata.Batch,
+		}, nil
+	}
+
 	// Get video from batch
 	batch, err := s.batchRepo.GetBatch(ctx, videoID)
 	if err != nil {
 		return nil, err
 	}
 
-	videoResult := &VideoUploadResult{VideoID: videoID, UserID: userID}
+	videoResponse := &VideoDetailsResponse{VideoID: videoID, UserID: userID}
 	if batch != nil {
-		videoResult.Status = batch.Status
-		videoResult.TotalJobs = batch.TotalJobs
-		videoResult.CompletedJobs = batch.CompletedJobs
-		videoResult.Jobs = batch.Jobs
-		videoResult.CreatedAt = batch.CreatedAt
-
 		var videoData *LearningItem
 		_ = json.Unmarshal(batch.Result, &videoData)
-		videoResult.Result = videoData
 
-		return videoResult, nil
+		videoResponse.Data = videoData
+		videoResponse.Status = batch.Status
+		videoResponse.Progress = &BatchResult{
+			BatchID:       batch.BatchID,
+			Status:        batch.Status,
+			TotalJobs:     batch.TotalJobs,
+			CompletedJobs: batch.CompletedJobs,
+			Jobs:          batch.Jobs,
+			CreatedAt:     batch.CreatedAt,
+		}
+
+		return videoResponse, nil
 	}
-
-	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
-	if err != nil {
-		return nil, err
-	}
-
-	var videoMetadata VideoMetadata
-	_ = json.Unmarshal(learningItem.Metadata, &videoMetadata)
-
-	videoResult.Status = videoMetadata.Status
-	videoResult.Result = learningItem
 
 	// Return video details
-	return videoResult, nil
+	return nil, errors.NotFound("video not found")
 }
 
 // Create Video Content
-func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideoPayload) (*VideoUploadResult, *errors.AppError) {
+func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideoPayload) (*VideoDetailsResponse, *errors.AppError) {
 	// Create Batch for Processing
 	_ = s.batchRepo.CreateBatch(ctx, input.VideoID)
 
@@ -103,7 +112,7 @@ func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideo
 		return nil, errors.InternalWrap("failed to create video content", err)
 	}
 
-	return &VideoUploadResult{
+	return &VideoDetailsResponse{
 		VideoID: input.VideoID,
 		UserID:  input.UserID,
 		Status:  BATCH_PENDING,
@@ -192,11 +201,13 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	defer os.Remove(payload.ThumbnailPath)
 
 	// Update video content
+	batch, _ := s.batchRepo.GetBatch(ctx, payload.VideoID)
 	metadataJSON, _ := json.Marshal(VideoMetadata{
 		UserID:       payload.UserID,
 		Status:       BATCH_COMPLETED,
 		VideoURL:     videoURL,
 		ThumbnailURL: thumbnailURL,
+		Batch:        batch,
 	})
 	detailsJSON, _ := json.Marshal(videoDetails)
 	tagsJSON, _ := json.Marshal(videoDetails.Tags)
