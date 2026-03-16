@@ -106,14 +106,15 @@ func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideo
 	})
 
 	learningItem := &LearningItem{
-		ID:       uuid.Must(uuid.Parse(input.VideoID)),
-		Content:  "",             // Will be populated with transcript later
-		Language: input.Language, // Default, will be updated detection
-		Level:    nil,
-		Details:  json.RawMessage("{}"),
-		Tags:     json.RawMessage("[]"),
-		Metadata: metadataJSON,
-		IsActive: false, // Not active until processed
+		ID:        uuid.Must(uuid.Parse(input.VideoID)),
+		Content:   "",             // Will be populated with transcript later
+		Language:  input.Language, // Default, will be updated detection
+		Level:     nil,
+		Details:   json.RawMessage("{}"),
+		Tags:      json.RawMessage("[]"),
+		Metadata:  metadataJSON,
+		CreatedBy: input.UserID,
+		IsActive:  false, // Not active until processed
 	}
 	if err := s.videoRepo.CreateVideo(ctx, learningItem); err != nil {
 		return nil, errors.InternalWrap("failed to create video content", err)
@@ -247,14 +248,15 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	tagsJSON, _ := json.Marshal(videoDetails.Tags)
 
 	learningItem := &LearningItem{
-		ID:       uuid.Must(uuid.Parse(payload.VideoID)),
-		Content:  videoDetails.Topic,
-		Language: videoDetails.Language,
-		Level:    &videoDetails.Level,
-		Details:  detailsJSON,
-		Tags:     tagsJSON,
-		Metadata: metadataJSON,
-		IsActive: true,
+		ID:        uuid.Must(uuid.Parse(payload.VideoID)),
+		Content:   videoDetails.Topic,
+		Language:  videoDetails.Language,
+		Level:     &videoDetails.Level,
+		Details:   detailsJSON,
+		Tags:      tagsJSON,
+		Metadata:  metadataJSON,
+		CreatedBy: payload.UserID,
+		IsActive:  true,
 	}
 
 	if err := s.videoRepo.UpdateVideo(ctx, learningItem); err != nil {

@@ -13,6 +13,17 @@ import (
 // Constants
 const FeatureID = 1
 
+// User Action model
+type UserAction struct {
+	ID         string          `json:"id"`
+	UserID     string          `json:"user_id"`
+	ActionType string          `json:"action_type"`
+	Metadata   json.RawMessage `json:"metadata"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	DeletedAt  *time.Time      `json:"deleted_at"`
+}
+
 // LearningItem model
 type LearningItem struct {
 	ID        uuid.UUID       `json:"id"`
@@ -24,8 +35,11 @@ type LearningItem struct {
 	Metadata  json.RawMessage `json:"metadata"`
 	Tags      json.RawMessage `json:"tags"`
 	IsActive  bool            `json:"is_active"`
+	CreatedBy string          `json:"created_by"`
 	CreatedAt *time.Time      `json:"created_at"`
 	UpdatedAt *time.Time      `json:"updated_at"`
+	// Learning Item Actions
+	Actions []UserAction `json:"actions"`
 }
 
 // VideoDetails is the structure of the details field in LearningItem model
@@ -95,22 +109,35 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*Learni
 }
 
 func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError) {
-	// 1. Get total count
-	countQuery := `SELECT COUNT(*) FROM learning_items`
+	// 1. Get total count (เหมือนเดิม)
+	countQuery := `SELECT COUNT(*) FROM learning_items WHERE feature_id = $1`
 	var total int
-	err := r.db.Pool.QueryRow(ctx, countQuery).Scan(&total)
+	err := r.db.Pool.QueryRow(ctx, countQuery, FeatureID).Scan(&total)
 	if err != nil {
 		return nil, 0, errors.InternalWrap("failed to count video contents", err)
 	}
 
-	// 2. Get paginated results
+	// 2. Get paginated results with LEFT JOIN & jsonb_agg
 	query := `
-		SELECT * FROM learning_items
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		SELECT 
+			l.id, l.feature_id, l.content, l.language, l.level, 
+			l.details, l.metadata, l.tags, l.is_active, l.created_by, 
+			l.created_at, l.updated_at,
+			COALESCE(
+				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL), 
+				'[]'::jsonb
+			) as actions
+		FROM learning_items l
+		LEFT JOIN user_actions ua 
+			ON l.id = ua.learning_id 
+			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz')
+		WHERE l.feature_id = $1
+		GROUP BY l.id
+		ORDER BY l.created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.Pool.Query(ctx, query, limit, offset)
+	rows, err := r.db.Pool.Query(ctx, query, FeatureID, limit, offset)
 	if err != nil {
 		return nil, 0, errors.InternalWrap("failed to list video contents", err)
 	}
@@ -119,9 +146,34 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 	var videos []*LearningItem
 	for rows.Next() {
 		var video LearningItem
-		if err := rows.Scan(&video); err != nil {
+		var actionsJSON []byte // ตัวแปรสำหรับรับก้อน JSON จาก DB
+
+		err := rows.Scan(
+			&video.ID,
+			&video.FeatureID,
+			&video.Content,
+			&video.Language,
+			&video.Level,
+			&video.Details,
+			&video.Metadata,
+			&video.Tags,
+			&video.IsActive,
+			&video.CreatedBy,
+			&video.CreatedAt,
+			&video.UpdatedAt,
+			&actionsJSON, // รับค่า jsonb เข้ามาเป็น bytes
+		)
+		if err != nil {
 			return nil, 0, errors.InternalWrap("failed to scan video content", err)
 		}
+
+		// แปลง JSON string/bytes กลับเป็น Struct ของ Go
+		if len(actionsJSON) > 0 {
+			if err := json.Unmarshal(actionsJSON, &video.Actions); err != nil {
+				return nil, 0, errors.InternalWrap("failed to unmarshal actions JSON", err)
+			}
+		}
+
 		videos = append(videos, &video)
 	}
 
@@ -131,9 +183,9 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError {
 	query := `
 		INSERT INTO learning_items (
-			id, feature_id, content, language, level, details, tags, metadata, is_active
+			id, feature_id, content, language, level, details, tags, metadata, is_active, created_by
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 		) RETURNING id, created_at, updated_at
 	`
 
@@ -147,6 +199,7 @@ func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *
 		item.Tags,
 		item.Metadata,
 		item.IsActive,
+		item.CreatedBy,
 	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 
 	if err != nil {
@@ -159,8 +212,8 @@ func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *
 func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError {
 	query := `
 		UPDATE learning_items
-		SET feature_id = $1, content = $2, language = $3, level = $4, tags = $5, details = $6, metadata = $7, is_active = $8
-		WHERE id = $9
+		SET feature_id = $1, content = $2, language = $3, level = $4, tags = $5, details = $6, metadata = $7, is_active = $8, created_by = $9
+		WHERE id = $10
 	`
 
 	err := r.db.Pool.QueryRow(ctx, query,
@@ -172,6 +225,7 @@ func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *
 		item.Details,
 		item.Metadata,
 		item.IsActive,
+		item.CreatedBy,
 		item.ID,
 	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 
