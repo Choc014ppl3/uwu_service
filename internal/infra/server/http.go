@@ -79,7 +79,7 @@ func NewHTTPServer(
 			// r.Post("dialogs/toggle-saved", dialogHandler.ToggleSaved)
 
 			// Video
-			// r.Get("videos", videoHandler.ListVideos)
+			r.Get("videos/contents", videoHandler.ListVideoContents)
 			r.Post("videos/upload", videoHandler.UploadVideo)
 			r.Get("videos/{videoID}/details", videoHandler.GetVideoDetails)
 			// r.Post("videos/start-quiz", videoHandler.StartQuiz)

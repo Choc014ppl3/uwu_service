@@ -67,6 +67,7 @@ type VideoMetadata struct {
 // VideoRepository interface
 type VideoRepository interface {
 	GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError)
+	ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 }
@@ -91,6 +92,40 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*Learni
 	}
 
 	return &item, nil
+}
+
+func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError) {
+	// 1. Get total count
+	countQuery := `SELECT COUNT(*) FROM learning_items`
+	var total int
+	err := r.db.Pool.QueryRow(ctx, countQuery).Scan(&total)
+	if err != nil {
+		return nil, 0, errors.InternalWrap("failed to count video contents", err)
+	}
+
+	// 2. Get paginated results
+	query := `
+		SELECT * FROM learning_items
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.db.Pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, errors.InternalWrap("failed to list video contents", err)
+	}
+	defer rows.Close()
+
+	var videos []*LearningItem
+	for rows.Next() {
+		var video LearningItem
+		if err := rows.Scan(&video); err != nil {
+			return nil, 0, errors.InternalWrap("failed to scan video content", err)
+		}
+		videos = append(videos, &video)
+	}
+
+	return videos, total, nil
 }
 
 func (r *videoRepository) CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError {

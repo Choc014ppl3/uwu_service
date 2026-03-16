@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/pkg/errors"
+	"github.com/windfall/uwu_service/pkg/response"
 )
 
 // VideoService handles video operations
@@ -25,6 +26,12 @@ type VideoDetailsResponse struct {
 	Status   string        `json:"status"`
 	Progress *BatchResult  `json:"progress"`
 	Data     *LearningItem `json:"data"`
+}
+
+// ListVideoContentsResponse is returned when listing video contents.
+type ListVideoContentsResponse struct {
+	Data []*LearningItem `json:"data"`
+	Meta *response.Meta  `json:"meta"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -116,6 +123,33 @@ func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideo
 		VideoID: input.VideoID,
 		UserID:  input.UserID,
 		Status:  BATCH_PENDING,
+	}, nil
+}
+
+// List Video Contents
+func (s *VideoService) ListVideoContents(ctx context.Context, input ListVideoContentsInput) (*ListVideoContentsResponse, *errors.AppError) {
+	// 1. Get video contents from database
+	videos, total, err := s.videoRepo.ListVideos(ctx, input.Limit, input.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Calculate total pages
+	totalPages := 0
+	if input.PageSize > 0 {
+		totalPages = (total + input.PageSize - 1) / input.PageSize
+	}
+
+	meta := &response.Meta{
+		Page:       input.Page,
+		PerPage:    input.PageSize,
+		Total:      total,
+		TotalPages: totalPages,
+	}
+
+	return &ListVideoContentsResponse{
+		Data: videos,
+		Meta: meta,
 	}, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -179,5 +180,55 @@ func (req *UploadVideoRequest) ToPayload() UploadVideoPayload {
 		ThumbnailContentType: req.ThumbnailContentType,
 		ThumbnailR2Path:      thumbR2Path,
 		AudioPath:            audioPath,
+	}
+}
+
+// -------------------------------------------------------------------------
+// List Video Contents Request
+// -------------------------------------------------------------------------
+
+// ListVideoContentsRequest is the HTTP request struct for listing video contents
+type ListVideoContentsRequest struct {
+	Page     int
+	PageSize int
+}
+
+// ListVideoContentsInput is the input struct for service
+type ListVideoContentsInput struct {
+	Page     int
+	PageSize int
+	Limit    int
+	Offset   int
+}
+
+// Parse parse pagination params
+func (req *ListVideoContentsRequest) Parse(r *http.Request) {
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("page_size")
+
+	page, _ := strconv.Atoi(pageStr)
+	if page <= 0 {
+		page = 1
+	}
+
+	pageSize, _ := strconv.Atoi(pageSizeStr)
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
+	req.Page = page
+	req.PageSize = pageSize
+}
+
+// ToInput convert ListVideoContentsRequest to ListVideoContentsInput
+func (req *ListVideoContentsRequest) ToInput() ListVideoContentsInput {
+	limit := req.PageSize
+	offset := (req.Page - 1) * req.PageSize
+
+	return ListVideoContentsInput{
+		Page:     req.Page,
+		PageSize: req.PageSize,
+		Limit:    limit,
+		Offset:   offset,
 	}
 }

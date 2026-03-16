@@ -92,3 +92,23 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	// 6. response accepted
 	response.Accepted(w, result)
 }
+
+// -------------------------------------------------------------------------
+// ListVideoContents handles GET /api/v1/videos
+// -------------------------------------------------------------------------
+
+func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request) {
+	// 1. parse pagination params
+	var req ListVideoContentsRequest
+	req.Parse(r)
+
+	// 2. get video contents from database
+	result, err := h.service.ListVideoContents(r.Context(), req.ToInput())
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	// 3. response success
+	response.OK(w, result)
+}
