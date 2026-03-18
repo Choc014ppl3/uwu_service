@@ -14,6 +14,7 @@ import (
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/internal/domain/dialog"
+	"github.com/windfall/uwu_service/internal/domain/profile"
 	"github.com/windfall/uwu_service/internal/domain/video"
 )
 
@@ -31,6 +32,7 @@ func NewHTTPServer(
 	authHandler *auth.AuthHandler,
 	videoHandler *video.VideoHandler,
 	dialogHandler *dialog.DialogHandler,
+	profileHandler *profile.ProfileHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -89,8 +91,8 @@ func NewHTTPServer(
 			// r.Post("videos/toggle-transcript", videoHandler.ToggleTranscript)
 			// r.Post("videos/toggle-saved", videoHandler.ToggleSaved)
 
-			// // Profile
-			// r.Get("profile", profileHandler.GetProfile)
+			// Profile
+			r.Get("/profile", profileHandler.GetProfile)
 			// r.Put("profile", profileHandler.UpdateProfile)
 			// r.Get("profile/stats", profileHandler.GetProfileStats)
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/internal/domain/dialog"
+	"github.com/windfall/uwu_service/internal/domain/profile"
 	"github.com/windfall/uwu_service/internal/domain/video"
 
 	"github.com/windfall/uwu_service/internal/infra/client"
@@ -93,6 +94,11 @@ func main() {
 	dialogService := dialog.NewDialogService(dialogRepo, dialogAIRepo, dialogImageRepo, dialogAudioRepo, dialogFileRepo, dialogBatchRepo)
 	dialogHandler := dialog.NewDialogHandler(dialogService, queue)
 
+	// Register Profile Domain
+	profileRepo := profile.NewProfileRepository(db)
+	profileService := profile.NewProfileService(profileRepo)
+	profileHandler := profile.NewProfileHandler(profileService)
+
 	// -----------------------------------------
 	// 3. Setup & Start Queue Server (Background Jobs)
 	// -----------------------------------------
@@ -109,7 +115,7 @@ func main() {
 	// -----------------------------------------
 	// 4. Setup & Start HTTP Server
 	// -----------------------------------------
-	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler, dialogHandler)
+	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler, dialogHandler, profileHandler)
 
 	// สั่งรัน HTTP Server ใน Goroutine เพื่อให้ main thread ไปรอรับสัญญาณ Shutdown ได้
 	go func() {

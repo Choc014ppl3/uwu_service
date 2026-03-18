@@ -7,6 +7,7 @@ import (
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/pkg/errors"
+	"github.com/windfall/uwu_service/pkg/response"
 )
 
 type contextKey string
@@ -19,19 +20,19 @@ func Auth(authRepo auth.AuthRepository) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				errors.Unauthorized("missing authorization header")
+				response.HandleError(w, errors.Unauthorized("missing authorization header"))
 				return
 			}
 
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				errors.Unauthorized("invalid authorization format")
+				response.HandleError(w, errors.Unauthorized("invalid authorization format"))
 				return
 			}
 
 			tokenClaims, err := authRepo.ValidateToken(parts[1])
 			if err != nil {
-				errors.Unauthorized("invalid or expired token")
+				response.HandleError(w, errors.Unauthorized("invalid or expired token"))
 				return
 			}
 
