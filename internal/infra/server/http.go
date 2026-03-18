@@ -80,7 +80,7 @@ func NewHTTPServer(
 			// r.Post("dialogs/submit-speech", dialogHandler.SubmitSpeech)
 			// r.Post("dialogs/start-chat", dialogHandler.StartChat)
 			// r.Post("dialogs/submit-chat", dialogHandler.SubmitChat)
-			// r.Post("dialogs/toggle-saved", dialogHandler.ToggleSaved)
+			r.Post("/dialogs/{dialogID}/toggle-saved", dialogHandler.ToggleSaved)
 
 			// Video
 			r.Get("/videos/contents", videoHandler.ListVideoContents)
@@ -89,7 +89,7 @@ func NewHTTPServer(
 			// r.Post("videos/start-quiz", videoHandler.StartQuiz)
 			// r.Post("videos/submit-quiz", videoHandler.SubmitQuiz)
 			// r.Post("videos/toggle-transcript", videoHandler.ToggleTranscript)
-			// r.Post("videos/toggle-saved", videoHandler.ToggleSaved)
+			r.Post("/videos/{videoID}/toggle-saved", videoHandler.ToggleSaved)
 
 			// Profile
 			r.Get("/profile", profileHandler.GetProfile)

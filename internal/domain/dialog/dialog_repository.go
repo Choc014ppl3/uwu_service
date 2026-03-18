@@ -69,6 +69,7 @@ type DialogRepository interface {
 	ListDialogs(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
+	ToggleSaved(ctx context.Context, dialogID, userID string) (bool, *errors.AppError)
 }
 
 type dialogRepository struct {
@@ -93,6 +94,7 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID string) (*Lea
 		LEFT JOIN user_actions ua
 			ON l.id = ua.learning_id
 			AND ua.action_type IN ('dialogue_saved', 'submit_chat', 'submit_speech')
+			AND ua.deleted_at IS NULL
 		WHERE l.id = $1 AND l.feature_id = $2
 		GROUP BY l.id
 	`
@@ -154,6 +156,7 @@ func (r *dialogRepository) ListDialogs(ctx context.Context, limit, offset int) (
 		LEFT JOIN user_actions ua 
 			ON l.id = ua.learning_id 
 			AND ua.action_type IN ('dialogue_saved', 'submit_chat', 'submit_speech')
+			AND ua.deleted_at IS NULL
 		WHERE l.feature_id = $1
 		GROUP BY l.id
 		ORDER BY l.created_at DESC
@@ -259,4 +262,27 @@ func (r *dialogRepository) UpdateDialog(ctx context.Context, item *LearningItem)
 	}
 
 	return nil
+}
+
+func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID string) (bool, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'dialogue_saved', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'dialogue_saved',
+			deleted_at = CASE
+				WHEN user_actions.action_type = 'dialogue_saved' AND user_actions.deleted_at IS NULL THEN NOW()
+				ELSE NULL
+			END,
+			updated_at = NOW()
+		RETURNING deleted_at IS NULL
+	`
+
+	var isSaved bool
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&isSaved); err != nil {
+		return false, errors.InternalWrap("failed to toggle dialog saved action", err)
+	}
+
+	return isSaved, nil
 }

@@ -37,6 +37,13 @@ type ListDialogContentsResponse struct {
 	Meta *response.Meta  `json:"meta"`
 }
 
+// ToggleSavedResponse is returned after toggling saved state.
+type ToggleSavedResponse struct {
+	DialogID string `json:"dialog_id"`
+	UserID   string `json:"user_id"`
+	Saved    bool   `json:"saved"`
+}
+
 // NewDialogService creates a new DialogService.
 func NewDialogService(
 	dialogRepo DialogRepository,
@@ -369,6 +376,20 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 	resultJSON, _ := json.Marshal(learningItem)
 	_ = s.batchRepo.SetBatchResult(ctx, payload.DialogID, resultJSON)
+}
+
+// ToggleSaved toggles the saved action for a dialog.
+func (s *DialogService) ToggleSaved(ctx context.Context, dialogID, userID string) (*ToggleSavedResponse, *errors.AppError) {
+	saved, err := s.dialogRepo.ToggleSaved(ctx, dialogID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToggleSavedResponse{
+		DialogID: dialogID,
+		UserID:   userID,
+		Saved:    saved,
+	}, nil
 }
 
 func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, message string) {

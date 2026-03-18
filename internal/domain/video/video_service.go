@@ -34,6 +34,13 @@ type ListVideoContentsResponse struct {
 	Meta *response.Meta  `json:"meta"`
 }
 
+// ToggleSavedResponse is returned after toggling saved state.
+type ToggleSavedResponse struct {
+	VideoID string `json:"video_id"`
+	UserID  string `json:"user_id"`
+	Saved   bool   `json:"saved"`
+}
+
 // NewVideoService creates a new VideoService.
 func NewVideoService(videoRepo VideoRepository, aiRepo AIRepository, batchRepo BatchRepository, fileRepo FileRepository) *VideoService {
 	return &VideoService{
@@ -265,4 +272,18 @@ func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID stri
 
 	// Return video details
 	return nil, errors.NotFound("video not found")
+}
+
+// ToggleSaved toggles the saved action for a video.
+func (s *VideoService) ToggleSaved(ctx context.Context, videoID, userID string) (*ToggleSavedResponse, *errors.AppError) {
+	saved, err := s.videoRepo.ToggleSaved(ctx, videoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToggleSavedResponse{
+		VideoID: videoID,
+		UserID:  userID,
+		Saved:   saved,
+	}, nil
 }

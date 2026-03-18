@@ -112,3 +112,26 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 	// 3. response success
 	response.OK(w, video)
 }
+
+// ToggleSaved handles POST /api/v1/videos/{videoID}/toggle-saved
+func (h *VideoHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	videoID := chi.URLParam(r, "videoID")
+	if videoID == "" {
+		response.HandleError(w, errors.Validation("Video ID is required"))
+		return
+	}
+
+	result, err := h.service.ToggleSaved(r.Context(), videoID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}

@@ -84,6 +84,7 @@ type VideoRepository interface {
 	ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
+	ToggleSaved(ctx context.Context, videoID, userID string) (bool, *errors.AppError)
 }
 
 type videoRepository struct {
@@ -131,6 +132,7 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 		LEFT JOIN user_actions ua 
 			ON l.id = ua.learning_id 
 			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz')
+			AND ua.deleted_at IS NULL
 		WHERE l.feature_id = $1
 		GROUP BY l.id
 		ORDER BY l.created_at DESC
@@ -234,4 +236,27 @@ func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *
 	}
 
 	return nil
+}
+
+func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID string) (bool, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'quiz_saved', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'quiz_saved',
+			deleted_at = CASE
+				WHEN user_actions.action_type = 'quiz_saved' AND user_actions.deleted_at IS NULL THEN NOW()
+				ELSE NULL
+			END,
+			updated_at = NOW()
+		RETURNING deleted_at IS NULL
+	`
+
+	var isSaved bool
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&isSaved); err != nil {
+		return false, errors.InternalWrap("failed to toggle video saved action", err)
+	}
+
+	return isSaved, nil
 }

@@ -107,3 +107,26 @@ func (h *DialogHandler) GetDialogDetails(w http.ResponseWriter, r *http.Request)
 	// 3. response success
 	response.OK(w, dialog)
 }
+
+// ToggleSaved handles POST /api/v1/dialogs/{dialogID}/toggle-saved
+func (h *DialogHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	dialogID := chi.URLParam(r, "dialogID")
+	if dialogID == "" {
+		response.HandleError(w, errors.Validation("Dialog ID is required"))
+		return
+	}
+
+	result, err := h.service.ToggleSaved(r.Context(), dialogID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
