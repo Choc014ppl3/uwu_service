@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/video"
 	"github.com/windfall/uwu_service/internal/infra/client"
 )
@@ -14,8 +15,8 @@ type QueueServer struct {
 	log   *slog.Logger
 
 	// Services ที่ Worker ต้องใช้ (ทำ DI เข้ามา)
-	videoService *video.VideoService
-	// dialogService *dialog.DialogService <-- ถ้ามี Domain อื่นก็เพิ่มตรงนี้
+	videoService  *video.VideoService
+	dialogService *dialog.DialogService
 }
 
 // NewQueueServer สร้าง Instance ของตัวจัดการ Queue
@@ -23,11 +24,13 @@ func NewQueueServer(
 	log *slog.Logger,
 	queue *client.QueueClient,
 	videoService *video.VideoService,
+	dialogService *dialog.DialogService,
 ) *QueueServer {
 	return &QueueServer{
-		log:          log,
-		queue:        queue,
-		videoService: videoService,
+		log:           log,
+		queue:         queue,
+		videoService:  videoService,
+		dialogService: dialogService,
 	}
 }
 
@@ -37,9 +40,7 @@ func (s *QueueServer) SetupWorkers() {
 
 	// มอบหมายให้แต่ละ Domain ลงทะเบียน Worker ของตัวเองเข้าคิวกลาง
 	video.RegisterVideoWorkers(s.queue, s.videoService)
-
-	// ถ้ามีโดเมนอื่นก็เรียกตรงนี้
-	// dialog.RegisterDialogWorkers(s.queue, s.dialogService)
+	dialog.RegisterDialogWorkers(s.queue, s.dialogService)
 }
 
 // Start สั่งรันคิว

@@ -9,14 +9,14 @@ import (
 
 // Job names
 const (
-	JobUploadVideo = "upload_video"
+	JOB_UPLOAD_VIDEO = "UPLOAD_VIDEO"
 )
 
 // RegisterVideoWorkers register video workers to queue
 func RegisterVideoWorkers(queue *client.QueueClient, service *VideoService) {
 
 	// Job Upload Video
-	queue.RegisterWorker(JobUploadVideo, func(ctx context.Context, job client.Job) error {
+	queue.RegisterWorker(JOB_UPLOAD_VIDEO, func(ctx context.Context, job client.Job) error {
 		payload, ok := job.Payload.(UploadVideoPayload)
 		if !ok {
 			return fmt.Errorf("invalid payload type")

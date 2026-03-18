@@ -44,54 +44,31 @@ func NewVideoService(videoRepo VideoRepository, aiRepo AIRepository, batchRepo B
 	}
 }
 
-// Get Video Details
-func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoDetailsResponse, *errors.AppError) {
-	// Get video from database
-	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
+// List Video Contents
+func (s *VideoService) ListVideoContents(ctx context.Context, input ListVideoContentsInput) (*ListVideoContentsResponse, *errors.AppError) {
+	// 1. Get video contents from database
+	videos, total, err := s.videoRepo.ListVideos(ctx, input.Limit, input.Offset)
 	if err != nil {
 		return nil, err
 	}
 
-	if learningItem != nil {
-		var videoMetadata *VideoMetadata
-		_ = json.Unmarshal(learningItem.Metadata, &videoMetadata)
-
-		return &VideoDetailsResponse{
-			VideoID:  videoID,
-			UserID:   userID,
-			Status:   BATCH_COMPLETED,
-			Data:     learningItem,
-			Progress: videoMetadata.Batch,
-		}, nil
+	// 2. Calculate total pages
+	totalPages := 0
+	if input.PageSize > 0 {
+		totalPages = (total + input.PageSize - 1) / input.PageSize
 	}
 
-	// Get video from batch
-	batch, err := s.batchRepo.GetBatch(ctx, videoID)
-	if err != nil {
-		return nil, err
+	meta := &response.Meta{
+		Page:       input.Page,
+		PerPage:    input.PageSize,
+		Total:      total,
+		TotalPages: totalPages,
 	}
 
-	videoResponse := &VideoDetailsResponse{VideoID: videoID, UserID: userID}
-	if batch != nil {
-		var videoData *LearningItem
-		_ = json.Unmarshal(batch.Result, &videoData)
-
-		videoResponse.Data = videoData
-		videoResponse.Status = batch.Status
-		videoResponse.Progress = &BatchResult{
-			BatchID:       batch.BatchID,
-			Status:        batch.Status,
-			TotalJobs:     batch.TotalJobs,
-			CompletedJobs: batch.CompletedJobs,
-			Jobs:          batch.Jobs,
-			CreatedAt:     batch.CreatedAt,
-		}
-
-		return videoResponse, nil
-	}
-
-	// Return video details
-	return nil, errors.NotFound("video not found")
+	return &ListVideoContentsResponse{
+		Data: videos,
+		Meta: meta,
+	}, nil
 }
 
 // Create Video Content
@@ -127,34 +104,7 @@ func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideo
 	}, nil
 }
 
-// List Video Contents
-func (s *VideoService) ListVideoContents(ctx context.Context, input ListVideoContentsInput) (*ListVideoContentsResponse, *errors.AppError) {
-	// 1. Get video contents from database
-	videos, total, err := s.videoRepo.ListVideos(ctx, input.Limit, input.Offset)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Calculate total pages
-	totalPages := 0
-	if input.PageSize > 0 {
-		totalPages = (total + input.PageSize - 1) / input.PageSize
-	}
-
-	meta := &response.Meta{
-		Page:       input.Page,
-		PerPage:    input.PageSize,
-		Total:      total,
-		TotalPages: totalPages,
-	}
-
-	return &ListVideoContentsResponse{
-		Data: videos,
-		Meta: meta,
-	}, nil
-}
-
-// ProcessUploadVideo -> process upload video job in background
+// Process Upload Video -> background job for CreateVideoContent
 func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVideoPayload) {
 	// Create variables
 	var videoURL, thumbnailURL string
@@ -265,4 +215,54 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 		_ = s.batchRepo.SetBatchResult(ctx, payload.VideoID, videoJSON)
 		return
 	}
+}
+
+// Get Video Details
+func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoDetailsResponse, *errors.AppError) {
+	// Get video from database
+	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	if learningItem != nil {
+		var videoMetadata *VideoMetadata
+		_ = json.Unmarshal(learningItem.Metadata, &videoMetadata)
+
+		return &VideoDetailsResponse{
+			VideoID:  videoID,
+			UserID:   userID,
+			Status:   BATCH_COMPLETED,
+			Data:     learningItem,
+			Progress: videoMetadata.Batch,
+		}, nil
+	}
+
+	// Get video from batch
+	batch, err := s.batchRepo.GetBatch(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	videoResponse := &VideoDetailsResponse{VideoID: videoID, UserID: userID}
+	if batch != nil {
+		var videoData *LearningItem
+		_ = json.Unmarshal(batch.Result, &videoData)
+
+		videoResponse.Data = videoData
+		videoResponse.Status = batch.Status
+		videoResponse.Progress = &BatchResult{
+			BatchID:       batch.BatchID,
+			Status:        batch.Status,
+			TotalJobs:     batch.TotalJobs,
+			CompletedJobs: batch.CompletedJobs,
+			Jobs:          batch.Jobs,
+			CreatedAt:     batch.CreatedAt,
+		}
+
+		return videoResponse, nil
+	}
+
+	// Return video details
+	return nil, errors.NotFound("video not found")
 }

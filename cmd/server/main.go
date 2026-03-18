@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
+	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/video"
 
 	"github.com/windfall/uwu_service/internal/infra/client"
@@ -72,17 +73,24 @@ func main() {
 	authHandler := auth.NewAuthHandler(authService, logger)
 
 	// Register Video Domain
-	aiRepo := video.NewAIRepository(whisperClient, chatGPTClient, logger)
-	batchRepo := video.NewBatchRepository(redisClient, logger)
+	videoAIRepo := video.NewAIRepository(whisperClient, chatGPTClient, logger)
+	videoBatchRepo := video.NewBatchRepository(redisClient, logger)
 	fileRepo := video.NewFileRepository(cloudflareClient, logger)
 	videoRepo := video.NewVideoRepository(db)
-	videoService := video.NewVideoService(videoRepo, aiRepo, batchRepo, fileRepo)
+	videoService := video.NewVideoService(videoRepo, videoAIRepo, videoBatchRepo, fileRepo)
 	videoHandler := video.NewVideoHandler(videoService, queue)
+
+	// Register Dialog Domain
+	dialogAIRepo := dialog.NewAIRepository(chatGPTClient)
+	dialogBatchRepo := dialog.NewBatchRepository(redisClient, logger)
+	dialogRepo := dialog.NewDialogRepository(db)
+	dialogService := dialog.NewDialogService(dialogRepo, dialogAIRepo, dialogBatchRepo)
+	dialogHandler := dialog.NewDialogHandler(dialogService, queue)
 
 	// -----------------------------------------
 	// 3. Setup & Start Queue Server (Background Jobs)
 	// -----------------------------------------
-	queueServer := server.NewQueueServer(logger, queue, videoService)
+	queueServer := server.NewQueueServer(logger, queue, videoService, dialogService)
 	queueServer.SetupWorkers()
 
 	// สร้าง Context สำหรับควบคุม Lifecycle ของ Worker
@@ -95,7 +103,7 @@ func main() {
 	// -----------------------------------------
 	// 4. Setup & Start HTTP Server
 	// -----------------------------------------
-	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler)
+	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler, dialogHandler)
 
 	// สั่งรัน HTTP Server ใน Goroutine เพื่อให้ main thread ไปรอรับสัญญาณ Shutdown ได้
 	go func() {

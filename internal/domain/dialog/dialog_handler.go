@@ -1,4 +1,4 @@
-package video
+package dialog
 
 import (
 	"net/http"
@@ -10,31 +10,31 @@ import (
 	"github.com/windfall/uwu_service/pkg/response"
 )
 
-// VideoHandler handles video HTTP endpoints.
-type VideoHandler struct {
-	service *VideoService
+// DialogHandler handles dialog HTTP endpoints.
+type DialogHandler struct {
+	service *DialogService
 	queue   *client.QueueClient
 }
 
-// NewVideoHandler creates a new VideoHandler.
-func NewVideoHandler(service *VideoService, queue *client.QueueClient) *VideoHandler {
-	return &VideoHandler{
+// NewDialogHandler creates a new DialogHandler.
+func NewDialogHandler(service *DialogService, queue *client.QueueClient) *DialogHandler {
+	return &DialogHandler{
 		service: service,
 		queue:   queue,
 	}
 }
 
 // -------------------------------------------------------------------------
-// ListVideoContents handles GET /api/v1/videos
+// ListDialogContents handles GET /api/v1/dialogs/contents
 // -------------------------------------------------------------------------
 
-func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request) {
+func (h *DialogHandler) ListDialogContents(w http.ResponseWriter, r *http.Request) {
 	// 1. parse pagination params
-	var req ListVideoContentsRequest
+	var req ListDialogContentsRequest
 	req.Parse(r)
 
-	// 2. get video contents from database
-	result, err := h.service.ListVideoContents(r.Context(), req.ToInput())
+	// 2. get dialog contents from database
+	result, err := h.service.ListDialogContents(r.Context(), req.ToInput())
 	if err != nil {
 		response.HandleError(w, err)
 		return
@@ -45,50 +45,45 @@ func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request)
 }
 
 // -------------------------------------------------------------------------
-// UploadVideo handles POST /api/v1/videos/upload
+// GenerateDialog handles POST /api/v1/dialogs/generate
 // -------------------------------------------------------------------------
 
-func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
-	// 1. limit max upload size
-	const maxUploadSize = 30 << 20 // 30MB
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-
-	// 2. declare request struct and defer close
-	var req UploadVideoRequest
-	defer req.Close()
-
-	// 3. parse and validate request
+func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
+	// 1. parse and validate request
+	var req GenerateDialogRequest
 	if err := req.ParseAndValidate(r); err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
-	// 4. send job to queue
+	payload := req.ToPayload()
+
+	// 2. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
-		Type:    JOB_UPLOAD_VIDEO,
-		Payload: req.ToPayload(),
+		Type:    JOB_GENERATE_DIALOG,
+		Payload: payload,
 	})
 	if qErr != nil {
 		response.HandleError(w, qErr)
 		return
 	}
 
-	// 5. create video record
-	result, err := h.service.CreateVideoContent(r.Context(), req.ToPayload())
+	// 3. create dialog record
+	result, err := h.service.CreateDialogContent(r.Context(), payload)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
-	// 6. response accepted
+	// 4. response accepted
 	response.Accepted(w, result)
 }
 
 // -------------------------------------------------------------------------
-// GetVideo handles GET /api/v1/videos/{videoID}/details
+// GetDialogDetails handles GET /api/v1/dialogs/{dialogID}/details
 // -------------------------------------------------------------------------
 
-func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
+func (h *DialogHandler) GetDialogDetails(w http.ResponseWriter, r *http.Request) {
 	// 1. Get user ID from auth context
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -96,19 +91,19 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videoID := chi.URLParam(r, "videoID")
-	if videoID == "" {
-		response.HandleError(w, errors.Validation("Video ID is required"))
+	dialogID := chi.URLParam(r, "dialogID")
+	if dialogID == "" {
+		response.HandleError(w, errors.Validation("Dialog ID is required"))
 		return
 	}
 
-	// 2. get video from batch or database
-	video, err := h.service.GetVideoDetails(r.Context(), videoID, userID)
+	// 2. get dialog details from service
+	dialog, err := h.service.GetDialogDetails(r.Context(), dialogID, userID)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
 	// 3. response success
-	response.OK(w, video)
+	response.OK(w, dialog)
 }

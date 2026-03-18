@@ -13,6 +13,7 @@ import (
 	"github.com/windfall/uwu_service/internal/infra/middleware"
 
 	"github.com/windfall/uwu_service/internal/domain/auth"
+	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/video"
 )
 
@@ -29,6 +30,7 @@ func NewHTTPServer(
 	authRepo auth.AuthRepository,
 	authHandler *auth.AuthHandler,
 	videoHandler *video.VideoHandler,
+	dialogHandler *dialog.DialogHandler,
 ) *HTTPServer {
 	r := chi.NewRouter()
 
@@ -69,9 +71,9 @@ func NewHTTPServer(
 			r.Use(middleware.Auth(authRepo))
 
 			// Dialog
-			// r.Get("dialogs", dialogHandler.ListDialogs)
-			// r.Post("dialogs/generate", dialogHandler.GenerateDialog)
-			// r.Get("dialogs/generate/{batchID}", dialogHandler.GetGenerateProgress)
+			r.Get("/dialogs/contents", dialogHandler.ListDialogContents)
+			r.Post("/dialogs/generate", dialogHandler.GenerateDialog)
+			r.Get("/dialogs/{dialogID}/details", dialogHandler.GetDialogDetails)
 			// r.Post("dialogs/start-speech", dialogHandler.StartSpeech)
 			// r.Post("dialogs/submit-speech", dialogHandler.SubmitSpeech)
 			// r.Post("dialogs/start-chat", dialogHandler.StartChat)
@@ -79,9 +81,9 @@ func NewHTTPServer(
 			// r.Post("dialogs/toggle-saved", dialogHandler.ToggleSaved)
 
 			// Video
-			r.Get("videos/contents", videoHandler.ListVideoContents)
-			r.Post("videos/upload", videoHandler.UploadVideo)
-			r.Get("videos/{videoID}/details", videoHandler.GetVideoDetails)
+			r.Get("/videos/contents", videoHandler.ListVideoContents)
+			r.Post("/videos/upload", videoHandler.UploadVideo)
+			r.Get("/videos/{videoID}/details", videoHandler.GetVideoDetails)
 			// r.Post("videos/start-quiz", videoHandler.StartQuiz)
 			// r.Post("videos/submit-quiz", videoHandler.SubmitQuiz)
 			// r.Post("videos/toggle-transcript", videoHandler.ToggleTranscript)
