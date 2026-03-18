@@ -18,7 +18,13 @@ const completedBatchTTL = 10 * time.Minute
 
 // Batch processes:
 const (
-	PROCESS_GENERATE_DIALOG = "generate_dialog"
+	PROCESS_GENERATE_DIALOG        = "generate_dialogue"
+	PROCESS_GENERATE_IMAGE         = "generate_image"
+	PROCESS_UPLOAD_IMAGE           = "upload_image"
+	PROCESS_GENERATE_AUDIO         = "generate_audio"
+	PROCESS_UPLOAD_AUDIO           = "upload_audio"
+	PROCESS_GENERATE_AUDIO_SCRIPTS = "generate_audio_scripts"
+	PROCESS_UPLOAD_AUDIO_SCRIPTS   = "upload_audio_scripts"
 )
 
 // Batch status:
@@ -33,6 +39,12 @@ const (
 func GetProcessNames() []string {
 	return []string{
 		PROCESS_GENERATE_DIALOG,
+		PROCESS_GENERATE_IMAGE,
+		PROCESS_UPLOAD_IMAGE,
+		PROCESS_GENERATE_AUDIO,
+		PROCESS_UPLOAD_AUDIO,
+		PROCESS_GENERATE_AUDIO_SCRIPTS,
+		PROCESS_UPLOAD_AUDIO_SCRIPTS,
 	}
 }
 
@@ -107,7 +119,15 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchR
 		return nil, errors.NotFoundWrap("failed to get jobs", err)
 	}
 
-	for _, name := range GetProcessNames() {
+	processNames := GetProcessNames()
+	if namesRaw, ok := batchFields["job_names"]; ok && namesRaw != "" {
+		var customNames []string
+		if err := json.Unmarshal([]byte(namesRaw), &customNames); err == nil && len(customNames) > 0 {
+			processNames = customNames
+		}
+	}
+
+	for _, name := range processNames {
 		raw, ok := jobFields[name]
 		if !ok {
 			batch.Jobs = append(batch.Jobs, BatchJob{Name: name, Status: BATCH_UNKNOWN})
@@ -129,7 +149,8 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchR
 // CreateBatch initializes a batch and its jobs in Redis.
 func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	totalJobs := len(GetProcessNames())
+	processNames := GetProcessNames()
+	totalJobs := len(processNames)
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 
 	if err := r.redis.HSet(ctx, batchKey,
@@ -142,8 +163,11 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) error
 		return err
 	}
 
+	namesJSON, _ := json.Marshal(processNames)
+	_ = r.redis.HSet(ctx, batchKey, "job_names", string(namesJSON))
+
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
-	for _, name := range GetProcessNames() {
+	for _, name := range processNames {
 		jobJSON, _ := json.Marshal(BatchJob{Name: name, Status: BATCH_PENDING})
 		if err := r.redis.HSet(ctx, jobsKey, name, string(jobJSON)); err != nil {
 			r.log.Error("Failed to create dialog batch job", "batch_id", batchID, "job_name", name, "error", err)
@@ -187,6 +211,17 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 		return err
 	}
 
+	processNames := GetProcessNames()
+	batchKey := fmt.Sprintf("batch:%s", batchID)
+	if batchMeta, err := r.redis.HGetAll(ctx, batchKey); err == nil {
+		if namesRaw, ok := batchMeta["job_names"]; ok && namesRaw != "" {
+			var customNames []string
+			if err := json.Unmarshal([]byte(namesRaw), &customNames); err == nil && len(customNames) > 0 {
+				processNames = customNames
+			}
+		}
+	}
+
 	completed := 0
 	hasFailed := false
 	for _, raw := range fields {
@@ -206,11 +241,10 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	switch {
 	case hasFailed:
 		batchStatus = BATCH_FAILED
-	case completed == len(GetProcessNames()):
+	case completed == len(processNames):
 		batchStatus = BATCH_COMPLETED
 	}
 
-	batchKey := fmt.Sprintf("batch:%s", batchID)
 	if err := r.redis.HSet(ctx, batchKey,
 		"status", batchStatus,
 		"completed_jobs", strconv.Itoa(completed),

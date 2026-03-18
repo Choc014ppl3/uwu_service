@@ -51,6 +51,8 @@ type DialogDetails struct {
 	Level       string          `json:"level"`
 	Tags        []string        `json:"tags"`
 	ImagePrompt string          `json:"image_prompt,omitempty"`
+	ImageURL    string          `json:"image_url,omitempty"`
+	AudioURL    string          `json:"audio_url,omitempty"`
 	SpeechMode  json.RawMessage `json:"speech_mode,omitempty"`
 	ChatMode    json.RawMessage `json:"chat_mode,omitempty"`
 }

@@ -3,6 +3,9 @@ package dialog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/pkg/errors"
@@ -13,6 +16,9 @@ import (
 type DialogService struct {
 	dialogRepo DialogRepository
 	aiRepo     AIRepository
+	imageRepo  ImageRepository
+	audioRepo  AudioRepository
+	fileRepo   FileRepository
 	batchRepo  BatchRepository
 }
 
@@ -32,10 +38,20 @@ type ListDialogContentsResponse struct {
 }
 
 // NewDialogService creates a new DialogService.
-func NewDialogService(dialogRepo DialogRepository, aiRepo AIRepository, batchRepo BatchRepository) *DialogService {
+func NewDialogService(
+	dialogRepo DialogRepository,
+	aiRepo AIRepository,
+	imageRepo ImageRepository,
+	audioRepo AudioRepository,
+	fileRepo FileRepository,
+	batchRepo BatchRepository,
+) *DialogService {
 	return &DialogService{
 		dialogRepo: dialogRepo,
 		aiRepo:     aiRepo,
+		imageRepo:  imageRepo,
+		audioRepo:  audioRepo,
+		fileRepo:   fileRepo,
 		batchRepo:  batchRepo,
 	}
 }
@@ -163,14 +179,175 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 	details, err := s.aiRepo.GenerateDialog(ctx, payload)
 	if err != nil {
 		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_FAILED, err.GetMessage())
+		s.failRemainingMediaJobs(ctx, payload.DialogID, "skipped: dialogue generation failed")
 		return
 	}
 
+	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_COMPLETED, "")
+
+	speechModeMap, situationText := extractSpeechMode(details.SpeechMode)
+	voice := voiceForDialogLanguage(details.Language)
+
+	var imageURL string
+	var audioURL string
+	var mediaWg sync.WaitGroup
+	var mediaMu sync.Mutex
+	var scriptsHasError bool
+	var scriptsLastErr error
+	scriptsStarted := false
+
+	if details.ImagePrompt != "" && s.imageRepo != nil && s.fileRepo != nil {
+		mediaWg.Add(1)
+		go func() {
+			defer mediaWg.Done()
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_PROCESSING, "")
+
+			imageBytes, err := s.imageRepo.GenerateImage(ctx, details.ImagePrompt)
+			if err != nil {
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_FAILED, err.GetMessage())
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_FAILED, "skipped: image generation failed")
+				return
+			}
+
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_COMPLETED, "")
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_PROCESSING, "")
+
+			url, err := s.fileRepo.UploadBytes(ctx, imageBytes, fmt.Sprintf("dialogs/images/%s.png", payload.DialogID), "image/png")
+			if err != nil {
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_FAILED, err.GetMessage())
+				return
+			}
+
+			mediaMu.Lock()
+			imageURL = url
+			mediaMu.Unlock()
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_COMPLETED, "")
+		}()
+	} else {
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_COMPLETED, "")
+	}
+
+	if situationText != "" && s.audioRepo != nil && s.fileRepo != nil {
+		mediaWg.Add(1)
+		go func() {
+			defer mediaWg.Done()
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_PROCESSING, "")
+
+			audioBytes, err := s.audioRepo.Synthesize(ctx, situationText, voice)
+			if err != nil {
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_FAILED, err.GetMessage())
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_FAILED, "skipped: audio generation failed")
+				return
+			}
+
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_COMPLETED, "")
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_PROCESSING, "")
+
+			url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/audio/%s.mp3", payload.DialogID), "audio/mpeg")
+			if err != nil {
+				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_FAILED, err.GetMessage())
+				return
+			}
+
+			mediaMu.Lock()
+			audioURL = url
+			mediaMu.Unlock()
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_COMPLETED, "")
+		}()
+	} else {
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_COMPLETED, "")
+	}
+
+	if scripts := extractSpeechScripts(speechModeMap); len(scripts) > 0 && s.audioRepo != nil && s.fileRepo != nil {
+		scriptsStarted = true
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_PROCESSING, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_PROCESSING, "")
+
+		for i := range scripts {
+			scriptLine, ok := scripts[i].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			speaker, _ := scriptLine["speaker"].(string)
+			text, _ := scriptLine["text"].(string)
+			if !strings.EqualFold(speaker, "AI") || text == "" {
+				continue
+			}
+
+			mediaWg.Add(1)
+			go func(idx int, scriptText string) {
+				defer mediaWg.Done()
+
+				audioBytes, err := s.audioRepo.Synthesize(ctx, scriptText, voice)
+				if err != nil {
+					mediaMu.Lock()
+					scriptsHasError = true
+					scriptsLastErr = err
+					mediaMu.Unlock()
+					return
+				}
+
+				url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/scripts/%s-%d.mp3", payload.DialogID, idx), "audio/mpeg")
+				if err != nil {
+					mediaMu.Lock()
+					scriptsHasError = true
+					scriptsLastErr = err
+					mediaMu.Unlock()
+					return
+				}
+
+				mediaMu.Lock()
+				if line, ok := scripts[idx].(map[string]interface{}); ok {
+					line["audio_url"] = url
+				}
+				mediaMu.Unlock()
+			}(i, text)
+		}
+	} else {
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
+	}
+
+	mediaWg.Wait()
+
+	if scriptsStarted {
+		if scriptsHasError {
+			errMessage := "failed to generate script audio"
+			if scriptsLastErr != nil {
+				errMessage = scriptsLastErr.Error()
+			}
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_FAILED, errMessage)
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_FAILED, errMessage)
+		} else {
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
+			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
+		}
+	}
+
+	if len(speechModeMap) > 0 {
+		if scripts := extractSpeechScripts(speechModeMap); len(scripts) > 0 {
+			speechModeMap["script"] = scripts
+		}
+		updatedSpeechMode, _ := json.Marshal(speechModeMap)
+		details.SpeechMode = updatedSpeechMode
+	}
+
+	details.ImageURL = imageURL
+	details.AudioURL = audioURL
 	detailsJSON, _ := json.Marshal(details)
 	tagsJSON, _ := json.Marshal(details.Tags)
+
+	status := BATCH_COMPLETED
+	if batch, batchErr := s.batchRepo.GetBatch(ctx, payload.DialogID); batchErr == nil && batch != nil && batch.Status != "" {
+		status = batch.Status
+	}
+
 	metadataJSON, _ := json.Marshal(DialogMetadata{
 		UserID: payload.UserID,
-		Status: BATCH_COMPLETED,
+		Status: status,
 	})
 
 	learningItem := &LearningItem{
@@ -192,5 +369,59 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 	resultJSON, _ := json.Marshal(learningItem)
 	_ = s.batchRepo.SetBatchResult(ctx, payload.DialogID, resultJSON)
-	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_COMPLETED, "")
+}
+
+func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, message string) {
+	for _, processName := range GetProcessNames()[1:] {
+		_ = s.batchRepo.UpdateJob(ctx, dialogID, processName, BATCH_FAILED, message)
+	}
+}
+
+func extractSpeechMode(raw json.RawMessage) (map[string]interface{}, string) {
+	if len(raw) == 0 {
+		return nil, ""
+	}
+
+	var speechMode map[string]interface{}
+	if err := json.Unmarshal(raw, &speechMode); err != nil {
+		return nil, ""
+	}
+
+	situationText, _ := speechMode["situation"].(string)
+	return speechMode, situationText
+}
+
+func extractSpeechScripts(speechMode map[string]interface{}) []interface{} {
+	if len(speechMode) == 0 {
+		return nil
+	}
+
+	scriptObj, ok := speechMode["script"]
+	if !ok {
+		return nil
+	}
+
+	scripts, _ := scriptObj.([]interface{})
+	return scripts
+}
+
+func voiceForDialogLanguage(language string) string {
+	switch strings.ToLower(language) {
+	case "chinese":
+		return "zh-CN-XiaoxiaoNeural"
+	case "japanese":
+		return "ja-JP-NanamiNeural"
+	case "french":
+		return "fr-FR-DeniseNeural"
+	case "spanish":
+		return "es-ES-ElviraNeural"
+	case "portuguese":
+		return "pt-BR-FranciscaNeural"
+	case "arabic":
+		return "ar-SA-ZariyahNeural"
+	case "russian":
+		return "ru-RU-SvetlanaNeural"
+	default:
+		return "en-US-AvaMultilingualNeural"
+	}
 }

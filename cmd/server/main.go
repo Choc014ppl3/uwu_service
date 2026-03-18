@@ -27,11 +27,11 @@ func main() {
 		panic("failed to load config: " + err.Error())
 	}
 
-	// Initialize logger & queue
+	// Initialize Logger & Queue
 	logger := logger.NewLogger(cfg.Environment)
 	queue := client.NewQueueClient(logger, cfg.QueueBufferSize)
 
-	// Initialize Database connection
+	// Initialize Database Connection
 	db, err := client.NewPostgresClient(context.Background(), cfg.DatabaseURL())
 	if err != nil {
 		logger.Error("Failed to connect to database", "error", err)
@@ -39,11 +39,13 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize Azure AI client
+	// Initialize Azure AI Client
 	chatGPTClient := client.NewAzureChatGPTClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
 	whisperClient := client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
+	speechClient := client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
+	imageClient := client.NewAzureImageClient(cfg.AzureImageMiniEndpoint, cfg.AzureImageMiniKey)
 
-	// Initialize Redis client
+	// Initialize Redis Client
 	redisClient, err := client.NewRedisClient(cfg.RedisURL)
 	if err != nil {
 		logger.Error("Failed to initialize Redis client", "error", err)
@@ -82,9 +84,13 @@ func main() {
 
 	// Register Dialog Domain
 	dialogAIRepo := dialog.NewAIRepository(chatGPTClient)
+	dialogImageRepo := dialog.NewImageRepository(imageClient)
+	dialogAudioRepo := dialog.NewAudioRepository(speechClient)
+	dialogFileRepo := dialog.NewFileRepository(cloudflareClient)
+
 	dialogBatchRepo := dialog.NewBatchRepository(redisClient, logger)
 	dialogRepo := dialog.NewDialogRepository(db)
-	dialogService := dialog.NewDialogService(dialogRepo, dialogAIRepo, dialogBatchRepo)
+	dialogService := dialog.NewDialogService(dialogRepo, dialogAIRepo, dialogImageRepo, dialogAudioRepo, dialogFileRepo, dialogBatchRepo)
 	dialogHandler := dialog.NewDialogHandler(dialogService, queue)
 
 	// -----------------------------------------
