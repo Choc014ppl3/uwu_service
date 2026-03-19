@@ -70,6 +70,8 @@ type DialogRepository interface {
 	CreateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	ToggleSaved(ctx context.Context, dialogID, userID string) (bool, *errors.AppError)
+	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
+	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 }
 
 type dialogRepository struct {
@@ -285,4 +287,44 @@ func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID str
 	}
 
 	return isSaved, nil
+}
+
+func (r *dialogRepository) StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'submit_speech', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'submit_speech',
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var actionID string
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&actionID); err != nil {
+		return "", errors.InternalWrap("failed to start speech action", err)
+	}
+
+	return actionID, nil
+}
+
+func (r *dialogRepository) StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'submit_chat', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'submit_chat',
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var actionID string
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&actionID); err != nil {
+		return "", errors.InternalWrap("failed to start chat action", err)
+	}
+
+	return actionID, nil
 }

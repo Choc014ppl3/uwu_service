@@ -44,6 +44,13 @@ type ToggleSavedResponse struct {
 	Saved    bool   `json:"saved"`
 }
 
+// StartActionResponse is returned after starting a speech or chat action.
+type StartActionResponse struct {
+	ActionID string `json:"action_id"`
+	DialogID string `json:"dialog_id"`
+	UserID   string `json:"user_id"`
+}
+
 // NewDialogService creates a new DialogService.
 func NewDialogService(
 	dialogRepo DialogRepository,
@@ -389,6 +396,34 @@ func (s *DialogService) ToggleSaved(ctx context.Context, dialogID, userID string
 		DialogID: dialogID,
 		UserID:   userID,
 		Saved:    saved,
+	}, nil
+}
+
+// StartSpeech starts a speech action for a dialog.
+func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string) (*StartActionResponse, *errors.AppError) {
+	actionID, err := s.dialogRepo.StartSpeech(ctx, dialogID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartActionResponse{
+		ActionID: actionID,
+		DialogID: dialogID,
+		UserID:   userID,
+	}, nil
+}
+
+// StartChat starts a chat action for a dialog.
+func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*StartActionResponse, *errors.AppError) {
+	actionID, err := s.dialogRepo.StartChat(ctx, dialogID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartActionResponse{
+		ActionID: actionID,
+		DialogID: dialogID,
+		UserID:   userID,
 	}, nil
 }
 

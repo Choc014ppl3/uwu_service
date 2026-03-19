@@ -85,6 +85,7 @@ type VideoRepository interface {
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	ToggleSaved(ctx context.Context, videoID, userID string) (bool, *errors.AppError)
+	StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError)
 }
 
 type videoRepository struct {
@@ -260,3 +261,24 @@ func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID strin
 
 	return isSaved, nil
 }
+
+func (r *videoRepository) StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'submit_quiz', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'submit_quiz',
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var actionID string
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&actionID); err != nil {
+		return "", errors.InternalWrap("failed to start quiz action", err)
+	}
+
+	return actionID, nil
+}
+

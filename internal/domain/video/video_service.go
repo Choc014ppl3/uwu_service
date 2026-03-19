@@ -41,6 +41,13 @@ type ToggleSavedResponse struct {
 	Saved   bool   `json:"saved"`
 }
 
+// StartActionResponse is returned after starting a quiz action.
+type StartActionResponse struct {
+	ActionID string `json:"action_id"`
+	VideoID  string `json:"video_id"`
+	UserID   string `json:"user_id"`
+}
+
 // NewVideoService creates a new VideoService.
 func NewVideoService(videoRepo VideoRepository, aiRepo AIRepository, batchRepo BatchRepository, fileRepo FileRepository) *VideoService {
 	return &VideoService{
@@ -287,3 +294,18 @@ func (s *VideoService) ToggleSaved(ctx context.Context, videoID, userID string) 
 		Saved:   saved,
 	}, nil
 }
+
+// StartQuiz starts a quiz action for a video.
+func (s *VideoService) StartQuiz(ctx context.Context, videoID, userID string) (*StartActionResponse, *errors.AppError) {
+	actionID, err := s.videoRepo.StartQuiz(ctx, videoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartActionResponse{
+		ActionID: actionID,
+		VideoID:  videoID,
+		UserID:   userID,
+	}, nil
+}
+

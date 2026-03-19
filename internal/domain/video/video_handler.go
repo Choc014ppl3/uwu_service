@@ -135,3 +135,26 @@ func (h *VideoHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
 
 	response.OK(w, result)
 }
+
+// StartQuiz handles POST /api/v1/videos/{videoID}/start-quiz
+func (h *VideoHandler) StartQuiz(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	videoID := chi.URLParam(r, "videoID")
+	if videoID == "" {
+		response.HandleError(w, errors.Validation("Video ID is required"))
+		return
+	}
+
+	result, err := h.service.StartQuiz(r.Context(), videoID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}

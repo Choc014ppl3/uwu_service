@@ -130,3 +130,49 @@ func (h *DialogHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
 
 	response.OK(w, result)
 }
+
+// StartSpeech handles POST /api/v1/dialogs/{dialogID}/start-speech
+func (h *DialogHandler) StartSpeech(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	dialogID := chi.URLParam(r, "dialogID")
+	if dialogID == "" {
+		response.HandleError(w, errors.Validation("Dialog ID is required"))
+		return
+	}
+
+	result, err := h.service.StartSpeech(r.Context(), dialogID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
+
+// StartChat handles POST /api/v1/dialogs/{dialogID}/start-chat
+func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	dialogID := chi.URLParam(r, "dialogID")
+	if dialogID == "" {
+		response.HandleError(w, errors.Validation("Dialog ID is required"))
+		return
+	}
+
+	result, err := h.service.StartChat(r.Context(), dialogID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
