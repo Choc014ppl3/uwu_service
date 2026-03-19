@@ -69,7 +69,7 @@ type DialogRepository interface {
 	ListDialogs(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
-	ToggleSaved(ctx context.Context, dialogID, userID string) (bool, *errors.AppError)
+	ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError)
 	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 }
@@ -266,7 +266,7 @@ func (r *dialogRepository) UpdateDialog(ctx context.Context, item *LearningItem)
 	return nil
 }
 
-func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID string) (bool, *errors.AppError) {
+func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'dialogue_saved', '{}'::jsonb, NULL)
@@ -278,15 +278,16 @@ func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID str
 				ELSE NULL
 			END,
 			updated_at = NOW()
-		RETURNING deleted_at IS NULL
+		RETURNING id, deleted_at IS NULL
 	`
 
+	var actionID string
 	var isSaved bool
-	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&isSaved); err != nil {
-		return false, errors.InternalWrap("failed to toggle dialog saved action", err)
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&actionID, &isSaved); err != nil {
+		return "", false, errors.InternalWrap("failed to toggle dialog saved action", err)
 	}
 
-	return isSaved, nil
+	return actionID, isSaved, nil
 }
 
 func (r *dialogRepository) StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError) {

@@ -39,6 +39,7 @@ type ListDialogContentsResponse struct {
 
 // ToggleSavedResponse is returned after toggling saved state.
 type ToggleSavedResponse struct {
+	ActionID string `json:"action_id"`
 	DialogID string `json:"dialog_id"`
 	UserID   string `json:"user_id"`
 	Saved    bool   `json:"saved"`
@@ -387,12 +388,13 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 // ToggleSaved toggles the saved action for a dialog.
 func (s *DialogService) ToggleSaved(ctx context.Context, dialogID, userID string) (*ToggleSavedResponse, *errors.AppError) {
-	saved, err := s.dialogRepo.ToggleSaved(ctx, dialogID, userID)
+	actionID, saved, err := s.dialogRepo.ToggleSaved(ctx, dialogID, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ToggleSavedResponse{
+		ActionID: actionID,
 		DialogID: dialogID,
 		UserID:   userID,
 		Saved:    saved,

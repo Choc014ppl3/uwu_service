@@ -36,9 +36,10 @@ type ListVideoContentsResponse struct {
 
 // ToggleSavedResponse is returned after toggling saved state.
 type ToggleSavedResponse struct {
-	VideoID string `json:"video_id"`
-	UserID  string `json:"user_id"`
-	Saved   bool   `json:"saved"`
+	ActionID string `json:"action_id"`
+	VideoID  string `json:"video_id"`
+	UserID   string `json:"user_id"`
+	Saved    bool   `json:"saved"`
 }
 
 // StartActionResponse is returned after starting a quiz action.
@@ -46,6 +47,14 @@ type StartActionResponse struct {
 	ActionID string `json:"action_id"`
 	VideoID  string `json:"video_id"`
 	UserID   string `json:"user_id"`
+}
+
+// ToggleTranscriptResponse is returned after toggling transcript state.
+type ToggleTranscriptResponse struct {
+	ActionID   string `json:"action_id"`
+	VideoID    string `json:"video_id"`
+	UserID     string `json:"user_id"`
+	Transcript bool   `json:"transcript"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -283,15 +292,16 @@ func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID stri
 
 // ToggleSaved toggles the saved action for a video.
 func (s *VideoService) ToggleSaved(ctx context.Context, videoID, userID string) (*ToggleSavedResponse, *errors.AppError) {
-	saved, err := s.videoRepo.ToggleSaved(ctx, videoID, userID)
+	actionID, saved, err := s.videoRepo.ToggleSaved(ctx, videoID, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ToggleSavedResponse{
-		VideoID: videoID,
-		UserID:  userID,
-		Saved:   saved,
+		ActionID: actionID,
+		VideoID:  videoID,
+		UserID:   userID,
+		Saved:    saved,
 	}, nil
 }
 
@@ -306,6 +316,21 @@ func (s *VideoService) StartQuiz(ctx context.Context, videoID, userID string) (*
 		ActionID: actionID,
 		VideoID:  videoID,
 		UserID:   userID,
+	}, nil
+}
+
+// ToggleTranscript toggles the transcript action for a video.
+func (s *VideoService) ToggleTranscript(ctx context.Context, videoID, userID string) (*ToggleTranscriptResponse, *errors.AppError) {
+	actionID, enabled, err := s.videoRepo.ToggleTranscript(ctx, videoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToggleTranscriptResponse{
+		ActionID:   actionID,
+		VideoID:    videoID,
+		UserID:     userID,
+		Transcript: enabled,
 	}, nil
 }
 

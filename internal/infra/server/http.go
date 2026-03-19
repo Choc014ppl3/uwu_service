@@ -88,7 +88,7 @@ func NewHTTPServer(
 			r.Get("/videos/{videoID}/details", videoHandler.GetVideoDetails)
 			r.Post("/videos/{videoID}/start-quiz", videoHandler.StartQuiz)
 			// r.Post("videos/submit-quiz", videoHandler.SubmitQuiz)
-			// r.Post("videos/toggle-transcript", videoHandler.ToggleTranscript)
+			r.Post("/videos/{videoID}/toggle-transcript", videoHandler.ToggleTranscript)
 			r.Post("/videos/{videoID}/toggle-saved", videoHandler.ToggleSaved)
 
 			// Profile

@@ -158,3 +158,26 @@ func (h *VideoHandler) StartQuiz(w http.ResponseWriter, r *http.Request) {
 
 	response.OK(w, result)
 }
+
+// ToggleTranscript handles POST /api/v1/videos/{videoID}/toggle-transcript
+func (h *VideoHandler) ToggleTranscript(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	videoID := chi.URLParam(r, "videoID")
+	if videoID == "" {
+		response.HandleError(w, errors.Validation("Video ID is required"))
+		return
+	}
+
+	result, err := h.service.ToggleTranscript(r.Context(), videoID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}

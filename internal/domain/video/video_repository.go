@@ -84,8 +84,9 @@ type VideoRepository interface {
 	ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
-	ToggleSaved(ctx context.Context, videoID, userID string) (bool, *errors.AppError)
+	ToggleSaved(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError)
 	StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError)
+	ToggleTranscript(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError)
 }
 
 type videoRepository struct {
@@ -239,7 +240,7 @@ func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *
 	return nil
 }
 
-func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID string) (bool, *errors.AppError) {
+func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'quiz_saved', '{}'::jsonb, NULL)
@@ -251,15 +252,16 @@ func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID strin
 				ELSE NULL
 			END,
 			updated_at = NOW()
-		RETURNING deleted_at IS NULL
+		RETURNING id, deleted_at IS NULL
 	`
 
+	var actionID string
 	var isSaved bool
-	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&isSaved); err != nil {
-		return false, errors.InternalWrap("failed to toggle video saved action", err)
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&actionID, &isSaved); err != nil {
+		return "", false, errors.InternalWrap("failed to toggle video saved action", err)
 	}
 
-	return isSaved, nil
+	return actionID, isSaved, nil
 }
 
 func (r *videoRepository) StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError) {
@@ -280,5 +282,29 @@ func (r *videoRepository) StartQuiz(ctx context.Context, videoID, userID string)
 	}
 
 	return actionID, nil
+}
+
+func (r *videoRepository) ToggleTranscript(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'quiz_transcript', '{}'::jsonb, NULL)
+		ON CONFLICT (learning_id, user_id)
+		DO UPDATE SET
+			action_type = 'quiz_transcript',
+			deleted_at = CASE
+				WHEN user_actions.action_type = 'quiz_transcript' AND user_actions.deleted_at IS NULL THEN NOW()
+				ELSE NULL
+			END,
+			updated_at = NOW()
+		RETURNING id, deleted_at IS NULL
+	`
+
+	var actionID string
+	var isEnabled bool
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&actionID, &isEnabled); err != nil {
+		return "", false, errors.InternalWrap("failed to toggle video transcript action", err)
+	}
+
+	return actionID, isEnabled, nil
 }
 
