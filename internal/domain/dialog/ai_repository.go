@@ -20,6 +20,7 @@ Requirements:
 - Generate 3 to 5 relevant tags if none are provided.
 - Keep the speech script concise and level-appropriate.
 - Keep objectives actionable and easy to follow.
+- Ensure the "chat_mode" context and objectives directly follow up on the conversation generated in the "speech_mode" script.
 
 Output schema:
 {
@@ -52,12 +53,32 @@ type AIRepository interface {
 }
 
 type dialogueGuideResponse struct {
-	Description string          `json:"description"`
-	Level       string          `json:"level"`
-	Tags        []string        `json:"tags"`
-	ImagePrompt string          `json:"image_prompt"`
-	SpeechMode  json.RawMessage `json:"speech_mode"`
-	ChatMode    json.RawMessage `json:"chat_mode"`
+	Description string     `json:"description"`
+	Level       string     `json:"level"`
+	Tags        []string   `json:"tags"`
+	ImagePrompt string     `json:"image_prompt"`
+	SpeechMode  SpeechMode `json:"speech_mode"`
+	ChatMode    ChatMode   `json:"chat_mode"`
+}
+
+// Speech Mode
+type SpeechMode struct {
+	Situation string `json:"situation"`
+	Script    []struct {
+		AudioURL *string `json:"audio_url"`
+		Speaker  string  `json:"speaker"`
+		Text     string  `json:"text"`
+	} `json:"script"`
+}
+
+// Chat Mode
+type ChatMode struct {
+	Situation  string `json:"situation"`
+	Objectives struct {
+		Requirements []string `json:"requirements"`
+		Persuasion   []string `json:"persuasion"`
+		Constraints  []string `json:"constraints"`
+	} `json:"objectives"`
 }
 
 type aiRepository struct {

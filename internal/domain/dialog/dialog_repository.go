@@ -31,10 +31,10 @@ type LearningItem struct {
 	FeatureID int             `json:"feature_id"`
 	Content   string          `json:"content"`
 	Language  string          `json:"language"`
-	Level     *string         `json:"level"`
+	Level     string          `json:"level"`
+	Tags      json.RawMessage `json:"tags"`
 	Details   json.RawMessage `json:"details"`
 	Metadata  json.RawMessage `json:"metadata"`
-	Tags      json.RawMessage `json:"tags"`
 	IsActive  bool            `json:"is_active"`
 	CreatedBy string          `json:"created_by"`
 	CreatedAt *time.Time      `json:"created_at"`
@@ -45,16 +45,16 @@ type LearningItem struct {
 
 // DialogDetails is the structure of the details field in LearningItem model
 type DialogDetails struct {
-	Topic       string          `json:"topic"`
-	Description string          `json:"description"`
-	Language    string          `json:"language"`
-	Level       string          `json:"level"`
-	Tags        []string        `json:"tags"`
-	ImagePrompt string          `json:"image_prompt,omitempty"`
-	ImageURL    string          `json:"image_url,omitempty"`
-	AudioURL    string          `json:"audio_url,omitempty"`
-	SpeechMode  json.RawMessage `json:"speech_mode,omitempty"`
-	ChatMode    json.RawMessage `json:"chat_mode,omitempty"`
+	Topic       string     `json:"topic"`
+	Description string     `json:"description"`
+	Language    string     `json:"language"`
+	Level       string     `json:"level"`
+	Tags        []string   `json:"tags"`
+	ImagePrompt string     `json:"image_prompt,omitempty"`
+	ImageURL    string     `json:"image_url,omitempty"`
+	AudioURL    string     `json:"audio_url,omitempty"`
+	SpeechMode  SpeechMode `json:"speech_mode"`
+	ChatMode    ChatMode   `json:"chat_mode"`
 }
 
 // DialogMetadata is the structure of the metadata field in LearningItem model

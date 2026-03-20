@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/oauth2/google"
 	"github.com/windfall/uwu_service/pkg/errors"
+	"golang.org/x/oauth2/google"
 )
 
 // GeminiImageClient wraps Vertex AI Imagen 3 Flash model.
@@ -53,6 +53,7 @@ func NewGeminiImageClient(saBase64, location string) (*GeminiImageClient, error)
 
 // GenerateImage creates a PNG image and returns the raw bytes.
 func (c *GeminiImageClient) GenerateImage(ctx context.Context, prompt string) ([]byte, *errors.AppError) {
+	// 1. Get Token
 	creds, err := google.CredentialsFromJSON(ctx, c.saJSON, "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return nil, errors.InternalWrap("failed to get google credentials", err)
@@ -63,9 +64,10 @@ func (c *GeminiImageClient) GenerateImage(ctx context.Context, prompt string) ([
 		return nil, errors.InternalWrap("failed to get access token", err)
 	}
 
-	// Using Gemini Imagen 3 Generate model
-	url := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/imagen-3.0-generate-001:predict", c.location, c.projectID, c.location)
+	// 2. Model: imagen-3.0-fast-generate-001
+	url := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/imagen-3.0-fast-generate-001:predict", c.location, c.projectID, c.location)
 
+	// 3. Request Body
 	reqBody := map[string]interface{}{
 		"instances": []map[string]interface{}{
 			{
@@ -74,8 +76,8 @@ func (c *GeminiImageClient) GenerateImage(ctx context.Context, prompt string) ([
 		},
 		"parameters": map[string]interface{}{
 			"sampleCount": 1,
-			"aspectRatio": "3:4",
-			"outputOptions": map[string]string{
+			"aspectRatio": "9:16",
+			"outputOptions": map[string]interface{}{
 				"mimeType": "image/png",
 			},
 		},
@@ -97,14 +99,17 @@ func (c *GeminiImageClient) GenerateImage(ctx context.Context, prompt string) ([
 	}
 	defer resp.Body.Close()
 
+	// 4. Error Handling
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, errors.InternalWrap("gemini image api error", fmt.Errorf("status code: %d, response body: %s", resp.StatusCode, string(respBody)))
 	}
 
+	// 5. Decode Response
 	var result struct {
 		Predictions []struct {
 			BytesBase64Encoded string `json:"bytesBase64Encoded"`
+			MimeType           string `json:"mimeType"`
 		} `json:"predictions"`
 	}
 

@@ -162,9 +162,9 @@ func (s *DialogService) CreateDialogContent(ctx context.Context, input GenerateD
 		ID:        uuid.Must(uuid.Parse(input.DialogID)),
 		Content:   input.Topic,
 		Language:  input.Language,
-		Level:     nil,
-		Details:   json.RawMessage("{}"),
+		Level:     input.Level,
 		Tags:      json.RawMessage("[]"),
+		Details:   json.RawMessage("{}"),
 		Metadata:  metadataJSON,
 		CreatedBy: input.UserID,
 		IsActive:  false,
@@ -181,15 +181,9 @@ func (s *DialogService) CreateDialogContent(ctx context.Context, input GenerateD
 	}, nil
 }
 
-// ProcessGenerateDialog handles the background generation flow for dialogs.
+// Worker: ProcessGenerateDialog handles the background generation flow for dialogs.
 func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload GenerateDialogPayload) {
-	if s.aiRepo == nil || s.batchRepo == nil {
-		return
-	}
-
-	if err := s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_PROCESSING, ""); err != nil {
-		return
-	}
+	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_PROCESSING, "")
 
 	details, err := s.aiRepo.GenerateDialog(ctx, payload)
 	if err != nil {
@@ -200,7 +194,11 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_COMPLETED, "")
 
-	speechModeMap, situationText := extractSpeechMode(details.SpeechMode)
+	// Extract data from details
+	speechModeMap := details.SpeechMode
+	situationText := speechModeMap.Situation
+	speechScripts := speechModeMap.Script
+
 	voice := voiceForDialogLanguage(details.Language)
 
 	var imageURL string
@@ -275,19 +273,14 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_COMPLETED, "")
 	}
 
-	if scripts := extractSpeechScripts(speechModeMap); len(scripts) > 0 && s.audioRepo != nil && s.fileRepo != nil {
+	if len(speechScripts) > 0 && s.audioRepo != nil && s.fileRepo != nil {
 		scriptsStarted = true
 		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_PROCESSING, "")
 		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_PROCESSING, "")
 
-		for i := range scripts {
-			scriptLine, ok := scripts[i].(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			speaker, _ := scriptLine["speaker"].(string)
-			text, _ := scriptLine["text"].(string)
+		for i := range speechScripts {
+			speaker := speechScripts[i].Speaker
+			text := speechScripts[i].Text
 			if !strings.EqualFold(speaker, "AI") || text == "" {
 				continue
 			}
@@ -314,11 +307,7 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 					return
 				}
 
-				mediaMu.Lock()
-				if line, ok := scripts[idx].(map[string]interface{}); ok {
-					line["audio_url"] = url
-				}
-				mediaMu.Unlock()
+				speechScripts[idx].AudioURL = &url
 			}(i, text)
 		}
 	} else {
@@ -342,14 +331,6 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 		}
 	}
 
-	if len(speechModeMap) > 0 {
-		if scripts := extractSpeechScripts(speechModeMap); len(scripts) > 0 {
-			speechModeMap["script"] = scripts
-		}
-		updatedSpeechMode, _ := json.Marshal(speechModeMap)
-		details.SpeechMode = updatedSpeechMode
-	}
-
 	details.ImageURL = imageURL
 	details.AudioURL = audioURL
 	detailsJSON, _ := json.Marshal(details)
@@ -369,9 +350,9 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 		ID:        uuid.Must(uuid.Parse(payload.DialogID)),
 		Content:   details.Topic,
 		Language:  details.Language,
-		Level:     &details.Level,
-		Details:   detailsJSON,
+		Level:     details.Level,
 		Tags:      tagsJSON,
+		Details:   detailsJSON,
 		Metadata:  metadataJSON,
 		CreatedBy: payload.UserID,
 		IsActive:  true,
