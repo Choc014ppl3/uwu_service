@@ -44,7 +44,13 @@ func main() {
 	chatGPTClient := client.NewAzureChatGPTClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
 	whisperClient := client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
 	speechClient := client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
-	imageClient := client.NewAzureImageClient(cfg.AzureImageMiniEndpoint, cfg.AzureImageMiniKey)
+
+	// Initialize Gemini Image Client
+	imageClient, err := client.NewGeminiImageClient(cfg.GeminiSABase64, cfg.GCPLocation)
+	if err != nil {
+		logger.Error("Failed to initialize Gemini image client", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize Redis Client
 	redisClient, err := client.NewRedisClient(cfg.RedisURL)

@@ -13,11 +13,11 @@ type ImageRepository interface {
 }
 
 type imageRepository struct {
-	imageClient *client.AzureImageClient
+	imageClient *client.GeminiImageClient
 }
 
 // NewImageRepository creates a new dialog image repository.
-func NewImageRepository(imageClient *client.AzureImageClient) ImageRepository {
+func NewImageRepository(imageClient *client.GeminiImageClient) ImageRepository {
 	return &imageRepository{imageClient: imageClient}
 }
 

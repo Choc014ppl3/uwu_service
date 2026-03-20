@@ -46,10 +46,6 @@ type Config struct {
 	AzureGPT5NanoEndpoint string `envconfig:"AZURE_GPT5_NANO_ENDPOINT"`
 	AzureGPT5NanoKey      string `envconfig:"AZURE_GPT5_NANO_KEY"`
 
-	// Azure Image Mini
-	AzureImageMiniEndpoint string `envconfig:"AZURE_IMAGE_MINI_ENDPOINT"`
-	AzureImageMiniKey      string `envconfig:"AZURE_IMAGE_MINI_KEY"`
-
 	// Redis
 	RedisURL string `envconfig:"REDIS_URL"`
 
