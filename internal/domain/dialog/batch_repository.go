@@ -10,6 +10,7 @@ import (
 
 	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/pkg/errors"
+	"github.com/windfall/uwu_service/pkg/response"
 )
 
 // Constants
@@ -25,6 +26,7 @@ const (
 	PROCESS_UPLOAD_AUDIO           = "upload_audio"
 	PROCESS_GENERATE_AUDIO_SCRIPTS = "generate_audio_scripts"
 	PROCESS_UPLOAD_AUDIO_SCRIPTS   = "upload_audio_scripts"
+	PROCESS_SAVE_DIALOG            = "save_dialog"
 )
 
 // Batch status:
@@ -45,35 +47,16 @@ func GetProcessNames() []string {
 		PROCESS_UPLOAD_AUDIO,
 		PROCESS_GENERATE_AUDIO_SCRIPTS,
 		PROCESS_UPLOAD_AUDIO_SCRIPTS,
+		PROCESS_SAVE_DIALOG,
 	}
 }
 
 // BatchRepository interface
 type BatchRepository interface {
-	GetBatch(ctx context.Context, batchID string) (*BatchResult, *errors.AppError)
-	CreateBatch(ctx context.Context, batchID string) error
+	GetBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
+	CreateBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
 	UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string) error
 	SetBatchResult(ctx context.Context, batchID string, result json.RawMessage) error
-}
-
-// BatchResult is the combined status of a batch and all its jobs.
-type BatchResult struct {
-	BatchID       string          `json:"batch_id"`
-	Status        string          `json:"status"`
-	TotalJobs     int             `json:"total_jobs"`
-	CompletedJobs int             `json:"completed_jobs"`
-	Jobs          []BatchJob      `json:"jobs"`
-	CreatedAt     string          `json:"created_at"`
-	Result        json.RawMessage `json:"result,omitempty"`
-}
-
-// BatchJob holds the status of a single job within a batch.
-type BatchJob struct {
-	Name        string `json:"name"`
-	Status      string `json:"status"`
-	StartedAt   string `json:"started_at,omitempty"`
-	CompletedAt string `json:"completed_at,omitempty"`
-	Error       string `json:"error,omitempty"`
 }
 
 type batchRepository struct {
@@ -90,7 +73,7 @@ func NewBatchRepository(redis *client.RedisClient, log *slog.Logger) BatchReposi
 }
 
 // GetBatch returns the full batch status including all jobs.
-func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchResult, *errors.AppError) {
+func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 	batchFields, err := r.redis.HGetAll(ctx, batchKey)
 	if err != nil {
@@ -103,14 +86,16 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchR
 
 	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
 	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
+	dateCreated := batchFields["date_created"]
+	dateUpdated := batchFields["date_updated"]
 
-	batch := &BatchResult{
+	batch := &response.MetaProcessing{
 		BatchID:       batchID,
 		Status:        batchFields["status"],
 		TotalJobs:     totalJobs,
 		CompletedJobs: completedJobs,
-		CreatedAt:     batchFields["created_at"],
-		Result:        json.RawMessage(batchFields["result"]),
+		DateCreated:   &dateCreated,
+		DateUpdated:   &dateUpdated,
 	}
 
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
@@ -130,24 +115,24 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*BatchR
 	for _, name := range processNames {
 		raw, ok := jobFields[name]
 		if !ok {
-			batch.Jobs = append(batch.Jobs, BatchJob{Name: name, Status: BATCH_UNKNOWN})
+			batch.BatchJobs = append(batch.BatchJobs, response.BatchJob{Name: name, Status: BATCH_UNKNOWN})
 			continue
 		}
 
-		var job BatchJob
+		var job response.BatchJob
 		if err := json.Unmarshal([]byte(raw), &job); err != nil {
-			batch.Jobs = append(batch.Jobs, BatchJob{Name: name, Status: BATCH_UNKNOWN})
+			batch.BatchJobs = append(batch.BatchJobs, response.BatchJob{Name: name, Status: BATCH_UNKNOWN})
 			continue
 		}
 
-		batch.Jobs = append(batch.Jobs, job)
+		batch.BatchJobs = append(batch.BatchJobs, job)
 	}
 
 	return batch, nil
 }
 
 // CreateBatch initializes a batch and its jobs in Redis.
-func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) error {
+func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	processNames := GetProcessNames()
 	totalJobs := len(processNames)
@@ -155,12 +140,13 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) error
 
 	if err := r.redis.HSet(ctx, batchKey,
 		"status", BATCH_PENDING,
-		"created_at", now,
 		"total_jobs", strconv.Itoa(totalJobs),
 		"completed_jobs", "0",
+		"date_created", now,
+		"date_updated", now,
 	); err != nil {
 		r.log.Error("Failed to create dialog batch", "batch_id", batchID, "error", err)
-		return err
+		return nil, errors.Internal("failed to create dialog batch")
 	}
 
 	namesJSON, _ := json.Marshal(processNames)
@@ -168,23 +154,52 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) error
 
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
 	for _, name := range processNames {
-		jobJSON, _ := json.Marshal(BatchJob{Name: name, Status: BATCH_PENDING})
+		jobJSON, _ := json.Marshal(response.BatchJob{Name: name, Status: BATCH_PENDING})
 		if err := r.redis.HSet(ctx, jobsKey, name, string(jobJSON)); err != nil {
 			r.log.Error("Failed to create dialog batch job", "batch_id", batchID, "job_name", name, "error", err)
-			return err
+			return nil, errors.Internal("failed to create dialog batch job")
 		}
 	}
 
 	_ = r.redis.SetExpiry(ctx, batchKey, processingBatchTTL)
 	_ = r.redis.SetExpiry(ctx, jobsKey, processingBatchTTL)
 
-	return nil
+	return &response.MetaProcessing{
+		BatchID:       batchID,
+		Status:        BATCH_PENDING,
+		TotalJobs:     totalJobs,
+		CompletedJobs: 0,
+		BatchJobs: []response.BatchJob{
+			{
+				Name:   PROCESS_GENERATE_DIALOG,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_GENERATE_IMAGE,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_UPLOAD_IMAGE,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_GENERATE_AUDIO,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_UPLOAD_AUDIO,
+				Status: BATCH_PENDING,
+			},
+		},
+		DateCreated: &now,
+		DateUpdated: &now,
+	}, nil
 }
 
 // UpdateJob updates a single job within the batch and recalculates batch state.
 func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	job := BatchJob{
+	job := response.BatchJob{
 		Name:   jobName,
 		Status: status,
 	}
@@ -225,7 +240,7 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	completed := 0
 	hasFailed := false
 	for _, raw := range fields {
-		var current BatchJob
+		var current response.BatchJob
 		if err := json.Unmarshal([]byte(raw), &current); err != nil {
 			continue
 		}
@@ -248,6 +263,7 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	if err := r.redis.HSet(ctx, batchKey,
 		"status", batchStatus,
 		"completed_jobs", strconv.Itoa(completed),
+		"date_updated", now,
 	); err != nil {
 		return err
 	}

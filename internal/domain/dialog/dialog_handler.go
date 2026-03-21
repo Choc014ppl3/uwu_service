@@ -41,7 +41,7 @@ func (h *DialogHandler) ListDialogContents(w http.ResponseWriter, r *http.Reques
 	}
 
 	// 3. response success
-	response.OK(w, result)
+	response.OKWithMeta(w, result.Data, result.Meta)
 }
 
 // -------------------------------------------------------------------------
@@ -174,5 +174,25 @@ func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	response.OK(w, result)
+}
+
+// GenerateImage handles POST /api/v1/dialogs/generate-image
+func (h *DialogHandler) GenerateImage(w http.ResponseWriter, r *http.Request) {
+	// 1. parse and validate request
+	var req GenerateImageRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	// 2. generate image and upload to R2
+	result, err := h.service.GenerateImage(r.Context(), req.Prompt)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	// 3. response success
 	response.OK(w, result)
 }

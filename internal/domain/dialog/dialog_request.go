@@ -145,3 +145,27 @@ func (req *ListDialogContentsRequest) ToInput() ListDialogContentsInput {
 		Offset:   offset,
 	}
 }
+
+// -------------------------------------------------------------------------
+// Generate Image Request
+// -------------------------------------------------------------------------
+
+// GenerateImageRequest is the HTTP request struct for generating an image
+type GenerateImageRequest struct {
+	Prompt string `json:"prompt"`
+}
+
+// ParseAndValidate parses and validates the generate image request.
+func (req *GenerateImageRequest) ParseAndValidate(r *http.Request) error {
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		return errors.Validation("invalid request body")
+	}
+
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		return errors.Validation("prompt is required")
+	}
+
+	return nil
+}

@@ -81,6 +81,7 @@ func NewHTTPServer(
 			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
 			// r.Post("dialogs/submit-chat", dialogHandler.SubmitChat)
 			r.Post("/dialogs/{dialogID}/toggle-saved", dialogHandler.ToggleSaved)
+			r.Post("/dialogs/generate-image", dialogHandler.GenerateImage)
 
 			// Video
 			r.Get("/videos/contents", videoHandler.ListVideoContents)

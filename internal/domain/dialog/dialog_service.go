@@ -24,17 +24,14 @@ type DialogService struct {
 
 // DialogDetailsResponse is returned for dialog details
 type DialogDetailsResponse struct {
-	DialogID string        `json:"dialog_id"`
-	UserID   string        `json:"user_id"`
-	Status   string        `json:"status"`
-	Progress *BatchResult  `json:"progress"`
-	Data     *LearningItem `json:"data"`
+	Data *LearningItem            `json:"data"`
+	Meta *response.MetaProcessing `json:"meta"`
 }
 
 // ListDialogContentsResponse is returned when listing dialog contents.
 type ListDialogContentsResponse struct {
-	Data []*LearningItem `json:"data"`
-	Meta *response.Meta  `json:"meta"`
+	Data []*LearningItem          `json:"data"`
+	Meta *response.MetaPagination `json:"meta"`
 }
 
 // ToggleSavedResponse is returned after toggling saved state.
@@ -50,6 +47,11 @@ type StartActionResponse struct {
 	ActionID string `json:"action_id"`
 	DialogID string `json:"dialog_id"`
 	UserID   string `json:"user_id"`
+}
+
+// GenerateImageResponse is returned after generating an image.
+type GenerateImageResponse struct {
+	ImageURL string `json:"image_url"`
 }
 
 // NewDialogService creates a new DialogService.
@@ -85,7 +87,7 @@ func (s *DialogService) ListDialogContents(ctx context.Context, input ListDialog
 		totalPages = (total + input.PageSize - 1) / input.PageSize
 	}
 
-	meta := &response.Meta{
+	meta := &response.MetaPagination{
 		Page:       input.Page,
 		PerPage:    input.PageSize,
 		Total:      total,
@@ -106,58 +108,38 @@ func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID, userID s
 		return nil, err
 	}
 
-	var batch *BatchResult
-	if s.batchRepo != nil {
-		batch, _ = s.batchRepo.GetBatch(ctx, dialogID)
-	}
-
-	if learningItem != nil {
-		status := BATCH_COMPLETED
-
-		var metadata DialogMetadata
-		if len(learningItem.Metadata) > 0 {
-			_ = json.Unmarshal(learningItem.Metadata, &metadata)
-			if metadata.Status != "" {
-				status = metadata.Status
-			}
+	var metadata response.MetaProcessing
+	if len(learningItem.Metadata) > 0 {
+		_ = json.Unmarshal(learningItem.Metadata, &metadata)
+		if metadata.Status != BATCH_COMPLETED {
+			// Response complete batch processing item from database
+			return &DialogDetailsResponse{
+				Data: learningItem,
+				Meta: &metadata,
+			}, nil
 		}
-
-		return &DialogDetailsResponse{
-			DialogID: dialogID,
-			UserID:   userID,
-			Status:   status,
-			Progress: batch,
-			Data:     learningItem,
-		}, nil
 	}
 
-	if batch != nil {
-		var dialogData *LearningItem
-		_ = json.Unmarshal(batch.Result, &dialogData)
-
-		return &DialogDetailsResponse{
-			DialogID: dialogID,
-			UserID:   userID,
-			Status:   batch.Status,
-			Progress: batch,
-			Data:     dialogData,
-		}, nil
+	// Get batch from Redis
+	metaProcessing, err := s.batchRepo.GetBatch(ctx, dialogID)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, errors.NotFound("dialog not found")
+	return &DialogDetailsResponse{
+		Data: learningItem,
+		Meta: metaProcessing,
+	}, nil
 }
 
 // Create Dialog Content
 func (s *DialogService) CreateDialogContent(ctx context.Context, input GenerateDialogPayload) (*DialogDetailsResponse, *errors.AppError) {
-	if s.batchRepo != nil {
-		_ = s.batchRepo.CreateBatch(ctx, input.DialogID)
+	batchProcessing, err := s.batchRepo.CreateBatch(ctx, input.DialogID)
+	if err != nil {
+		return nil, err
 	}
 
-	metadataJSON, _ := json.Marshal(DialogMetadata{
-		UserID: input.UserID,
-		Status: BATCH_PENDING,
-	})
-
+	metadataJSON, _ := json.Marshal(batchProcessing)
 	learningItem := &LearningItem{
 		ID:        uuid.Must(uuid.Parse(input.DialogID)),
 		Content:   input.Topic,
@@ -175,9 +157,8 @@ func (s *DialogService) CreateDialogContent(ctx context.Context, input GenerateD
 	}
 
 	return &DialogDetailsResponse{
-		DialogID: input.DialogID,
-		UserID:   input.UserID,
-		Status:   BATCH_PENDING,
+		Data: learningItem,
+		Meta: batchProcessing,
 	}, nil
 }
 
@@ -225,20 +206,18 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_COMPLETED, "")
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_PROCESSING, "")
 
-			url, err := s.fileRepo.UploadBytes(ctx, imageBytes, fmt.Sprintf("dialogs/images/%s.png", payload.DialogID), "image/png")
+			url, err := s.fileRepo.UploadBytes(ctx, imageBytes, fmt.Sprintf("dialogs/%s/bg_image.png", payload.DialogID), "image/png")
 			if err != nil {
 				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_FAILED, err.GetMessage())
 				return
 			}
 
-			mediaMu.Lock()
 			imageURL = url
-			mediaMu.Unlock()
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_COMPLETED, "")
 		}()
 	} else {
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_COMPLETED, "")
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_IMAGE, BATCH_FAILED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_IMAGE, BATCH_FAILED, "")
 	}
 
 	if situationText != "" && s.audioRepo != nil && s.fileRepo != nil {
@@ -257,20 +236,18 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_COMPLETED, "")
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_PROCESSING, "")
 
-			url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/audio/%s.mp3", payload.DialogID), "audio/mpeg")
+			url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/%s/situation_audio.mp3", payload.DialogID), "audio/mpeg")
 			if err != nil {
 				_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_FAILED, err.GetMessage())
 				return
 			}
 
-			mediaMu.Lock()
 			audioURL = url
-			mediaMu.Unlock()
 			_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_COMPLETED, "")
 		}()
 	} else {
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_COMPLETED, "")
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO, BATCH_FAILED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO, BATCH_FAILED, "")
 	}
 
 	if len(speechScripts) > 0 && s.audioRepo != nil && s.fileRepo != nil {
@@ -298,7 +275,7 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 					return
 				}
 
-				url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/scripts/%s-%d.mp3", payload.DialogID, idx), "audio/mpeg")
+				url, err := s.fileRepo.UploadBytes(ctx, audioBytes, fmt.Sprintf("dialogs/%s/script_%d.mp3", payload.DialogID, idx), "audio/mpeg")
 				if err != nil {
 					mediaMu.Lock()
 					scriptsHasError = true
@@ -311,8 +288,8 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 			}(i, text)
 		}
 	} else {
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_AUDIO_SCRIPTS, BATCH_FAILED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_UPLOAD_AUDIO_SCRIPTS, BATCH_FAILED, "")
 	}
 
 	mediaWg.Wait()
@@ -336,16 +313,8 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 	detailsJSON, _ := json.Marshal(details)
 	tagsJSON, _ := json.Marshal(details.Tags)
 
-	status := BATCH_COMPLETED
-	if batch, batchErr := s.batchRepo.GetBatch(ctx, payload.DialogID); batchErr == nil && batch != nil && batch.Status != "" {
-		status = batch.Status
-	}
-
-	metadataJSON, _ := json.Marshal(DialogMetadata{
-		UserID: payload.UserID,
-		Status: status,
-	})
-
+	batch, _ := s.batchRepo.GetBatch(ctx, payload.DialogID)
+	metadataJSON, _ := json.Marshal(batch)
 	learningItem := &LearningItem{
 		ID:        uuid.Must(uuid.Parse(payload.DialogID)),
 		Content:   details.Topic,
@@ -359,12 +328,11 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 	}
 
 	if err := s.dialogRepo.UpdateDialog(ctx, learningItem); err != nil {
-		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_GENERATE_DIALOG, BATCH_FAILED, err.GetMessage())
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_FAILED, err.GetMessage())
 		return
 	}
 
-	resultJSON, _ := json.Marshal(learningItem)
-	_ = s.batchRepo.SetBatchResult(ctx, payload.DialogID, resultJSON)
+	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_COMPLETED, "")
 }
 
 // ToggleSaved toggles the saved action for a dialog.
@@ -407,6 +375,27 @@ func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) 
 		ActionID: actionID,
 		DialogID: dialogID,
 		UserID:   userID,
+	}, nil
+}
+
+// GenerateImage generates an image from a prompt, uploads it to R2, and returns the URL.
+func (s *DialogService) GenerateImage(ctx context.Context, prompt string) (*GenerateImageResponse, *errors.AppError) {
+	// 1. Generate image bytes
+	imageBytes, err := s.imageRepo.GenerateImage(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Upload to R2
+	imageID := uuid.New().String()
+	key := fmt.Sprintf("dialogs/images/%s.png", imageID)
+	imageURL, err := s.fileRepo.UploadBytes(ctx, imageBytes, key, "image/png")
+	if err != nil {
+		return nil, err
+	}
+
+	return &GenerateImageResponse{
+		ImageURL: imageURL,
 	}, nil
 }
 

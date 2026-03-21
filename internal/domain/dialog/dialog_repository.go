@@ -57,12 +57,6 @@ type DialogDetails struct {
 	ChatMode    ChatMode   `json:"chat_mode"`
 }
 
-// DialogMetadata is the structure of the metadata field in LearningItem model
-type DialogMetadata struct {
-	UserID string `json:"user_id"`
-	Status string `json:"status"`
-}
-
 // DialogRepository interface
 type DialogRepository interface {
 	GetDialog(ctx context.Context, dialogID string) (*LearningItem, *errors.AppError)
@@ -121,7 +115,7 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID string) (*Lea
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, nil
+			return nil, errors.NotFound("dialog content not found")
 		}
 		return nil, errors.InternalWrap("failed to get dialog content", err)
 	}

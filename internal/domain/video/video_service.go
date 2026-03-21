@@ -30,8 +30,8 @@ type VideoDetailsResponse struct {
 
 // ListVideoContentsResponse is returned when listing video contents.
 type ListVideoContentsResponse struct {
-	Data []*LearningItem `json:"data"`
-	Meta *response.Meta  `json:"meta"`
+	Data []*LearningItem          `json:"data"`
+	Meta *response.MetaPagination `json:"meta"`
 }
 
 // ToggleSavedResponse is returned after toggling saved state.
@@ -81,7 +81,7 @@ func (s *VideoService) ListVideoContents(ctx context.Context, input ListVideoCon
 		totalPages = (total + input.PageSize - 1) / input.PageSize
 	}
 
-	meta := &response.Meta{
+	meta := &response.MetaPagination{
 		Page:       input.Page,
 		PerPage:    input.PageSize,
 		Total:      total,
@@ -333,4 +333,3 @@ func (s *VideoService) ToggleTranscript(ctx context.Context, videoID, userID str
 		Transcript: enabled,
 	}, nil
 }
-

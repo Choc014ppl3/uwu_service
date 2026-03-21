@@ -12,8 +12,8 @@ import (
 type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
+	Meta    interface{} `json:"meta,omitempty"`
 	Error   *ErrorBody  `json:"error,omitempty"`
-	Meta    *Meta       `json:"meta,omitempty"`
 }
 
 type ErrorBody struct {
@@ -22,11 +22,34 @@ type ErrorBody struct {
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
-type Meta struct {
+type MetaResponse struct {
+	Data any `json:"data"`
+	Meta any `json:"meta"`
+}
+
+type MetaPagination struct {
 	Page       int `json:"page,omitempty"`
 	PerPage    int `json:"per_page,omitempty"`
 	Total      int `json:"total,omitempty"`
 	TotalPages int `json:"total_pages,omitempty"`
+}
+
+type MetaProcessing struct {
+	BatchID       string     `json:"batch_id"`
+	Status        string     `json:"status"`
+	TotalJobs     int        `json:"total_jobs"`
+	CompletedJobs int        `json:"completed_jobs"`
+	BatchJobs     []BatchJob `json:"jobs"`
+	DateCreated   *string    `json:"date_created"`
+	DateUpdated   *string    `json:"date_updated"`
+}
+
+type BatchJob struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"started_at,omitempty"`
+	CompletedAt string `json:"completed_at,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // AppError Interface ที่หน้าตาตรงกับ getter ใน errors.go เป๊ะๆ
@@ -55,14 +78,26 @@ func JSON(w http.ResponseWriter, status int, data interface{}) {
 	writeJSON(w, status, Response{Success: true, Data: data})
 }
 
-func JSONWithMeta(w http.ResponseWriter, status int, data interface{}, meta *Meta) {
+func JSONWithMeta(w http.ResponseWriter, status int, data interface{}, meta interface{}) {
 	writeJSON(w, status, Response{Success: true, Data: data, Meta: meta})
 }
 
-func OK(w http.ResponseWriter, data interface{})       { JSON(w, http.StatusOK, data) }
-func Created(w http.ResponseWriter, data interface{})  { JSON(w, http.StatusCreated, data) }
-func Accepted(w http.ResponseWriter, data interface{}) { JSON(w, http.StatusAccepted, data) }
-func NoContent(w http.ResponseWriter)                  { w.WriteHeader(http.StatusNoContent) }
+func OK(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusOK, res) }
+func OKWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusOK, data, meta)
+}
+
+func Created(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusCreated, res) }
+func CreatedWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusCreated, data, meta)
+}
+
+func Accepted(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusAccepted, res) }
+func AcceptedWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusAccepted, data, meta)
+}
+
+func NoContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
 
 // -------------------------------------------------------------------------
 // 4. Error Responses & Central Error Handler

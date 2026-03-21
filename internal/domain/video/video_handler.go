@@ -41,7 +41,7 @@ func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 3. response success
-	response.OK(w, result)
+	response.OKWithMeta(w, result.Data, result.Meta)
 }
 
 // -------------------------------------------------------------------------
