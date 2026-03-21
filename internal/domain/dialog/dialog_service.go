@@ -311,6 +311,9 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 	details.ImageURL = imageURL
 	details.AudioURL = audioURL
+	
+	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_PROCESSING, "")
+	
 	detailsJSON, _ := json.Marshal(details)
 	tagsJSON, _ := json.Marshal(details.Tags)
 

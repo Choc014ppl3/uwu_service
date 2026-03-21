@@ -133,6 +133,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	// Job A1: Upload Video to R2
 	go func() {
 		defer wg.Done()
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_PROCESSING, "")
 
 		url, err := s.fileRepo.UploadToR2(ctx, payload.VideoFile, payload.VideoR2Path, payload.VideoPath, payload.VideoContentType)
 		if err != nil {
@@ -147,6 +148,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	// Job A2: Upload Thumbnail to R2
 	go func() {
 		defer wg.Done()
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_PROCESSING, "")
 
 		url, err := s.fileRepo.UploadToR2(ctx, payload.ThumbnailFile, payload.ThumbnailR2Path, payload.ThumbnailPath, payload.ThumbnailContentType)
 		if err != nil {
@@ -161,6 +163,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	// Job B: Transcribe & Details
 	go func() {
 		defer wg.Done()
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_PROCESSING, "")
 
 		if err := s.fileRepo.ExtractAudio(ctx, payload.VideoPath, payload.AudioPath); err != nil {
 			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
@@ -175,6 +178,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 			return
 		}
 		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_PROCESSING, "")
 
 		details, err := s.aiRepo.GenerateVideoDetails(ctx, transcript)
 		if err != nil {
@@ -192,6 +196,8 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	defer os.Remove(payload.ThumbnailPath)
 
 	// Update video content
+	_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_PROCESSING, "")
+
 	videoDetails.VideoURL = videoURL
 	videoDetails.ThumbnailURL = thumbnailURL
 
