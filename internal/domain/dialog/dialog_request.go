@@ -2,10 +2,12 @@ package dialog
 
 import (
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/internal/infra/middleware"
 	"github.com/windfall/uwu_service/pkg/errors"
@@ -168,4 +170,106 @@ func (req *GenerateImageRequest) ParseAndValidate(r *http.Request) error {
 	}
 
 	return nil
+}
+
+// -------------------------------------------------------------------------
+// Submit Speech Request
+// -------------------------------------------------------------------------
+
+// SubmitSpeechRequest is the HTTP request struct for submitting speech audio
+type SubmitSpeechRequest struct {
+	UserID           string
+	DialogID         string
+	ActionID         string
+	AudioFile        multipart.File
+	AudioContentType string
+	OriginalText     string
+	ScriptIndex      int
+	Language         string
+}
+
+// SubmitSpeechInput is the input struct for service
+type SubmitSpeechInput struct {
+	UserID           string
+	DialogID         string
+	ActionID         string
+	AudioFile        multipart.File
+	AudioContentType string
+	OriginalText     string
+	ScriptIndex      int
+	Language         string
+}
+
+// Close ensures the multipart file gets closed
+func (req *SubmitSpeechRequest) Close() {
+	if req.AudioFile != nil {
+		req.AudioFile.Close()
+	}
+}
+
+func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.DialogID = chi.URLParam(r, "dialogID")
+	req.ActionID = chi.URLParam(r, "actionID")
+	if req.DialogID == "" || req.ActionID == "" {
+		return errors.Validation("Dialog ID and Action ID are required")
+	}
+
+	// 3. Parse Multipart Form (10MB limit is enough for audio)
+	const maxUploadSize = 10 << 20
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		return errors.Validation("file too large or invalid multipart data")
+	}
+
+	// 3. Extract Form Fields
+	req.OriginalText = r.FormValue("original_text")
+	if req.OriginalText == "" {
+		return errors.Validation("original_text is required")
+	}
+
+	scriptIdxStr := r.FormValue("script_index")
+	if idx, err := strconv.Atoi(scriptIdxStr); err == nil {
+		req.ScriptIndex = idx
+	} else {
+		return errors.Validation("invalid or missing script_index")
+	}
+
+	req.Language = r.FormValue("language")
+	if req.Language == "" {
+		req.Language = "en-US" // default
+	}
+
+	// 4. Extract Audio File
+	aFile, aHeader, err := r.FormFile("audio")
+	if err != nil {
+		return errors.Validation("audio file is required (form field: 'audio')")
+	}
+	req.AudioFile = aFile
+
+	req.AudioContentType = aHeader.Header.Get("Content-Type")
+	if req.AudioContentType == "" {
+		req.AudioContentType = "audio/wav"
+	}
+
+	return nil
+}
+
+// ToInput convert SubmitSpeechRequest to SubmitSpeechInput
+func (req *SubmitSpeechRequest) ToInput() SubmitSpeechInput {
+	return SubmitSpeechInput{
+		UserID:           req.UserID,
+		DialogID:         req.DialogID,
+		ActionID:         req.ActionID,
+		AudioFile:        req.AudioFile,
+		AudioContentType: req.AudioContentType,
+		OriginalText:     req.OriginalText,
+		ScriptIndex:      req.ScriptIndex,
+		Language:         req.Language,
+	}
 }

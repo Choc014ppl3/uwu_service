@@ -10,6 +10,7 @@ import (
 // AudioRepository generates dialog audio.
 type AudioRepository interface {
 	Synthesize(ctx context.Context, text, voice string) ([]byte, *errors.AppError)
+	EvaluateSpeech(ctx context.Context, audioBytes []byte, referenceText string, language string) (map[string]interface{}, *errors.AppError)
 }
 
 type audioRepository struct {
@@ -26,4 +27,11 @@ func (r *audioRepository) Synthesize(ctx context.Context, text, voice string) ([
 		return nil, errors.Internal("dialog speech client not configured")
 	}
 	return r.speechClient.Synthesize(ctx, text, voice)
+}
+
+func (r *audioRepository) EvaluateSpeech(ctx context.Context, audioBytes []byte, referenceText string, language string) (map[string]interface{}, *errors.AppError) {
+	if r.speechClient == nil {
+		return nil, errors.Internal("dialog speech client not configured")
+	}
+	return r.speechClient.EvaluatePronunciation(ctx, audioBytes, referenceText, language)
 }

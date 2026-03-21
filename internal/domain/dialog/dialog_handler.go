@@ -155,6 +155,25 @@ func (h *DialogHandler) StartSpeech(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
+// SubmitSpeech handles POST /api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech
+func (h *DialogHandler) SubmitSpeech(w http.ResponseWriter, r *http.Request) {
+	var req SubmitSpeechRequest
+	defer req.Close()
+
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	result, err := h.service.SubmitSpeech(r.Context(), req.ToInput())
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
+
 // StartChat handles POST /api/v1/dialogs/{dialogID}/start-chat
 func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())

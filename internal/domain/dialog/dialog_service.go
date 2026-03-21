@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -378,6 +379,43 @@ func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string
 		DialogID: dialogID,
 		UserID:   userID,
 	}, nil
+}
+
+// SubmitSpeech handles the logic of scoring speech and saving the result.
+func (s *DialogService) SubmitSpeech(ctx context.Context, req SubmitSpeechInput) (interface{}, *errors.AppError) {
+	// 1. Read audio bytes
+	audioBytes, err := io.ReadAll(req.AudioFile)
+	if err != nil {
+		return nil, errors.ValidationWrap("failed to read audio file", err)
+	}
+
+	// 2. Evaluate Pronunciation via Azure Speech
+	scoreData, evalErr := s.audioRepo.EvaluateSpeech(ctx, audioBytes, req.OriginalText, req.Language)
+	if evalErr != nil {
+		return nil, evalErr
+	}
+
+	// 3. Upload User Audio to R2
+	audioPath := fmt.Sprintf("dialogs/%s/actions/%s_speech.wav", req.DialogID, req.ActionID)
+	audioURL, uploadErr := s.fileRepo.UploadBytes(ctx, audioBytes, audioPath, req.AudioContentType)
+	if uploadErr != nil {
+		return nil, uploadErr
+	}
+
+	// 4. Construct Metadata
+	metadata := map[string]interface{}{
+		"audio_url":    audioURL,
+		"script_index": req.ScriptIndex,
+		"score":        scoreData,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	// 5. Update user_actions table
+	if saveErr := s.dialogRepo.SubmitSpeechAction(ctx, req.ActionID, req.UserID, metadataJSON); saveErr != nil {
+		return nil, saveErr
+	}
+
+	return scoreData, nil
 }
 
 // StartChat starts a chat action for a dialog.

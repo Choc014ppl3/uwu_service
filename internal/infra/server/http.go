@@ -77,7 +77,7 @@ func NewHTTPServer(
 			r.Post("/dialogs/generate", dialogHandler.GenerateDialog)
 			r.Get("/dialogs/{dialogID}/details", dialogHandler.GetDialogDetails)
 			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
-			// r.Post("dialogs/submit-speech", dialogHandler.SubmitSpeech)
+			r.Post("/dialogs/{dialogID}/actions/{actionID}/submit-speech", dialogHandler.SubmitSpeech)
 			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
 			// r.Post("dialogs/submit-chat", dialogHandler.SubmitChat)
 			r.Post("/dialogs/{dialogID}/toggle-saved", dialogHandler.ToggleSaved)

@@ -66,6 +66,7 @@ type DialogRepository interface {
 	ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError)
 	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
+	SubmitSpeechAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError
 }
 
 type dialogRepository struct {
@@ -322,4 +323,22 @@ func (r *dialogRepository) StartChat(ctx context.Context, dialogID, userID strin
 	}
 
 	return actionID, nil
+}
+
+func (r *dialogRepository) SubmitSpeechAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError {
+	query := `
+		UPDATE user_actions
+		SET metadata = $1, updated_at = NOW()
+		WHERE id = $2 AND user_id = $3 AND action_type = 'submit_speech'
+	`
+
+	cmdTag, err := r.db.Pool.Exec(ctx, query, metadataJSON, actionID, userID)
+	if err != nil {
+		return errors.InternalWrap("failed to submit speech action", err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return errors.NotFound("speech action not found or unauthorized")
+	}
+
+	return nil
 }

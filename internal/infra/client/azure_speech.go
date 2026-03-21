@@ -3,6 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,4 +81,65 @@ func (c *AzureSpeechClient) Synthesize(ctx context.Context, text, voice string) 
 	}
 
 	return audioBytes, nil
+}
+
+// EvaluatePronunciation assesses pronunciation of audio bytes against a reference text.
+func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioBytes []byte, referenceText string, language string) (map[string]interface{}, *errors.AppError) {
+	if c.apiKey == "" || c.region == "" {
+		return nil, errors.Internal("Azure speech credentials not configured")
+	}
+
+	if language == "" {
+		language = "en-US"
+	}
+
+	u := url.URL{
+		Scheme:   "https",
+		Host:     fmt.Sprintf("%s.stt.speech.microsoft.com", c.region),
+		Path:     "/speech/recognition/conversation/cognitiveservices/v1",
+		RawQuery: fmt.Sprintf("language=%s", url.QueryEscape(language)),
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(audioBytes))
+	if err != nil {
+		return nil, errors.InternalWrap("failed to create azure speech recognition request", err)
+	}
+
+	// Create Pronunciation Assessment config
+	assessmentConfig := map[string]interface{}{
+		"ReferenceText": referenceText,
+		"GradingSystem": "HundredMark",
+		"Granularity":   "Phoneme",
+		"Dimension":     "Comprehensive",
+	}
+
+	configJSON, err := json.Marshal(assessmentConfig)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to encode pronunciation config", err)
+	}
+
+	encodedConfig := base64.StdEncoding.EncodeToString(configJSON)
+
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
+	req.Header.Set("Content-Type", "audio/wav; codecs=audio/pcm; samplerate=16000") // Assuming standard 16kHz WAV
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Pronunciation-Assessment", encodedConfig)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to send azure speech recognition request", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, errors.Internal(fmt.Sprintf("azure speech recognition api error %d: %s", resp.StatusCode, string(body)))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, errors.InternalWrap("failed to decode azure speech recognition response", err)
+	}
+
+	return result, nil
 }
