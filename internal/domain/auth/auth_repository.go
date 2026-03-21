@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/pkg/errors"
 )
@@ -28,7 +29,7 @@ type User struct {
 // AuthRepository interface
 type AuthRepository interface {
 	RegisterUser(ctx context.Context, user *User) *errors.AppError
-	VerifyEmail(ctx context.Context, email string) (*User, *errors.AppError)
+	GetByEmail(ctx context.Context, email string) (*User, *errors.AppError)
 	GenerateToken(user *User) (string, *errors.AppError)
 	ValidateToken(tokenString string) (*TokenClaims, *errors.AppError)
 }
@@ -81,8 +82,8 @@ func (r *authRepository) RegisterUser(ctx context.Context, user *User) *errors.A
 	return nil
 }
 
-// VerifyUser retrieves a user by email address.
-func (r *authRepository) VerifyEmail(ctx context.Context, email string) (*User, *errors.AppError) {
+// GetByEmail retrieves a user by email address.
+func (r *authRepository) GetByEmail(ctx context.Context, email string) (*User, *errors.AppError) {
 	query := `
         SELECT id, email, password_hash, display_name, avatar_url, bio, settings, created_at, updated_at
         FROM users
@@ -103,6 +104,9 @@ func (r *authRepository) VerifyEmail(ctx context.Context, email string) (*User, 
 	)
 
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
 		return nil, errors.InternalWrap("failed to get user by email", err)
 	}
 

@@ -28,7 +28,7 @@ func NewAuthService(authRepo AuthRepository) *AuthService {
 // Register creates a new user account and returns a JWT token.
 func (s *AuthService) Register(ctx context.Context, req RegisterInput) (*AuthResponse, *errors.AppError) {
 	// Check if user already exists
-	existing, err := s.authRepo.VerifyEmail(ctx, req.Email)
+	existing, err := s.authRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (s *AuthService) Register(ctx context.Context, req RegisterInput) (*AuthRes
 
 // Login authenticates a user and returns a JWT token.
 func (s *AuthService) Login(ctx context.Context, req LoginInput) (*AuthResponse, *errors.AppError) {
-	user, err := s.authRepo.VerifyEmail(ctx, req.Email)
+	user, err := s.authRepo.GetByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, err
 	}
