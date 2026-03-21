@@ -92,13 +92,6 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 // -------------------------------------------------------------------------
 
 func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
-	// 1. Get user ID from auth context
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		response.HandleError(w, errors.Unauthorized("user not authenticated"))
-		return
-	}
-
 	videoID := chi.URLParam(r, "videoID")
 	if videoID == "" {
 		response.HandleError(w, errors.Validation("Video ID is required"))
@@ -106,7 +99,7 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. get video from batch or database
-	video, err := h.service.GetVideoDetails(r.Context(), videoID, userID)
+	video, err := h.service.GetVideoDetails(r.Context(), videoID)
 	if err != nil {
 		response.HandleError(w, err)
 		return

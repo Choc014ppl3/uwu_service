@@ -103,7 +103,7 @@ func (s *DialogService) ListDialogContents(ctx context.Context, input ListDialog
 }
 
 // Get Dialog Details
-func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID, userID string) (*DialogDetailsResponse, *errors.AppError) {
+func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID string) (*DialogDetailsResponse, *errors.AppError) {
 	// Get dialog from database
 	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
 	if err != nil {
@@ -126,6 +126,10 @@ func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID, userID s
 	metaProcessing, err := s.batchRepo.GetBatch(ctx, dialogID)
 	if err != nil {
 		return nil, err
+	}
+
+	if metaProcessing == nil {
+		metaProcessing = &metadata
 	}
 
 	return &DialogDetailsResponse{

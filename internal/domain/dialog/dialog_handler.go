@@ -85,13 +85,6 @@ func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
 // -------------------------------------------------------------------------
 
 func (h *DialogHandler) GetDialogDetails(w http.ResponseWriter, r *http.Request) {
-	// 1. Get user ID from auth context
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		response.HandleError(w, errors.Unauthorized("user not authenticated"))
-		return
-	}
-
 	dialogID := chi.URLParam(r, "dialogID")
 	if dialogID == "" {
 		response.HandleError(w, errors.Validation("Dialog ID is required"))
@@ -99,14 +92,14 @@ func (h *DialogHandler) GetDialogDetails(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 2. get dialog details from service
-	dialog, err := h.service.GetDialogDetails(r.Context(), dialogID, userID)
+	dialog, err := h.service.GetDialogDetails(r.Context(), dialogID)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
 	// 3. response success
-	response.OK(w, dialog)
+	response.OKWithMeta(w, dialog.Data, dialog.Meta)
 }
 
 // ToggleSaved handles POST /api/v1/dialogs/{dialogID}/toggle-saved

@@ -240,7 +240,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 }
 
 // Get Video Details
-func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoDetailsResponse, *errors.AppError) {
+func (s *VideoService) GetVideoDetails(ctx context.Context, videoID string) (*VideoDetailsResponse, *errors.AppError) {
 	// Get video from database
 	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
 	if err != nil {
@@ -263,6 +263,10 @@ func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID stri
 	metaProcessing, err := s.batchRepo.GetBatch(ctx, videoID)
 	if err != nil {
 		return nil, err
+	}
+
+	if metaProcessing == nil {
+		metaProcessing = &metadata
 	}
 
 	return &VideoDetailsResponse{
