@@ -1,23 +1,27 @@
 # uwu_service
 
-A production-ready Go service with support for REST API, WebSocket, gRPC, AI services, and cloud integrations.
+A production-ready Go backend service for an AI-powered Language Learning Platform. It provides video immersion features, AI roleplay dialogues, pronunciation assessments, and real-time chat practice.
 
-## Features
+## Core Features
 
-- **REST API** - Chi router with middleware
-- **WebSocket** - Real-time bidirectional communication
-- **gRPC** - High-performance RPC with streaming support
-- **AI Services** - OpenAI and Google Gemini integration
-- **Cloud Services** - GCS/S3 storage and Pub/Sub messaging
-- **Production Ready** - Structured logging, error handling, graceful shutdown
+- **REST API** - Clean architecture using Chi router with JWT authentication and middleware.
+- **AI Services** - Deep integrations with:
+  - Azure OpenAI (GPT-5 Nano/ChatGPT) for dialogue generation and chat scenarios.
+  - Azure Cognitive Services (Whisper and Speech-to-Text) for pronunciation assessment.
+  - Google Gemini for dialogue scene image generation.
+- **Asynchronous Processing** - Background job queues using custom Goroutine workers for media processing, transcript generation, and quiz creation.
+- **State Management** - Real-time batch job tracking using Redis.
+- **Cloud Storage** - Cloudflare R2 (S3-compatible) integration for storing generated audio, images, and user uploads.
+- **Production Ready** - Structured JSON logging (`log/slog`), graceful shutdown, clean domain-driven architecture, and PostgreSQL for persistent data.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Go 1.22+
-- Docker (optional)
-- Protocol Buffers compiler (for regenerating protos)
+- PostgreSQL
+- Redis
+- API Keys for Azure (OpenAI & Speech) and Google Cloud (Gemini)
 
 ### Running Locally
 
@@ -26,7 +30,7 @@ A production-ready Go service with support for REST API, WebSocket, gRPC, AI ser
 cp .env.example .env
 ```
 
-2. Edit `.env` with your configuration
+2. Edit `.env` with your database connections and API keys.
 
 3. Run the server:
 ```bash
@@ -41,277 +45,124 @@ make docker-run
 
 ## Project Structure
 
-```
+```text
 uwu_service/
 ├── cmd/server/          # Application entrypoint
-├── api/proto/           # Protocol buffer definitions
 ├── internal/
-│   ├── config/          # Configuration management
-│   ├── logger/          # Structured logging
-│   ├── errors/          # Error handling
-│   ├── server/          # HTTP/gRPC/WebSocket servers
-│   ├── handler/         # Request handlers
-│   ├── middleware/      # HTTP middleware
-│   ├── service/         # Business logic
-│   ├── repository/      # Data access
-│   ├── client/          # External API clients
-│   └── pb/              # Generated protobuf code
-├── pkg/response/        # API response utilities
-└── deployments/docker/  # Docker configurations
+│   ├── config/          # Environment configuration management
+│   ├── domain/          # Core business domains (auth, dialog, profile, video)
+│   ├── infra/           # External clients (Azure, Gemini), HTTP server, Middleware
+│   └── pb/              # (Reserved for future protobuf code)
+├── pkg/
+│   ├── errors/          # Custom application error handling
+│   ├── logger/          # Structured logging setup
+│   └── response/        # Standardized JSON response utilities
+└── deployments/docker/  # Docker and compose configurations
 ```
 
 ## API Endpoints
 
-### REST API
+### 1. Health checks (Public)
 
-| Method | Endpoint          | Description         |
-|--------|-------------------|---------------------|
-| GET    | /health           | Health check        |
-| GET    | /ready            | Readiness check     |
-| GET    | /live             | Liveness check      |
-| GET    | /api/v1/example   | Get example         |
-| POST   | /api/v1/example   | Create example      |
-| POST   | /api/v1/ai/chat   | AI chat             |
-| POST   | /api/v1/ai/complete | AI completion     |
-| POST   | /api/v1/videos/upload | Upload video      |
-| GET    | /api/v1/videos/{id} | Get video (Protected) |
-| GET    | /api/v1/batches/{id} | Get batch status (Protected) |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/health` | Service health status |
 
-### Video Upload Example
+### 2. Authentication (Public)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST   | `/api/v1/auth/register` | Register a new user |
+| POST   | `/api/v1/auth/login` | Login and get JWT token |
+
+### 3. Dialogs (Protected)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/api/v1/dialogs/contents` | List paginated dialog contents |
+| POST   | `/api/v1/dialogs/generate` | Generate dialog content (Async) |
+| GET    | `/api/v1/dialogs/{dialogID}/details`| Get dialog details/results |
+| POST   | `/api/v1/dialogs/{dialogID}/start-speech` | Start dialogue speech practice session|
+| POST   | `/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech` | Submit spoken audio for scoring |
+| POST   | `/api/v1/dialogs/{dialogID}/start-chat` | Start dialogue chat session |
+| POST   | `/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat` | Send message to AI chat partner |
+| POST   | `/api/v1/dialogs/{dialogID}/toggle-saved` | Save or unsave dialog |
+| POST   | `/api/v1/dialogs/generate-image` | Generate image from prompt |
+
+### 4. Videos (Protected)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/api/v1/videos/contents` | List paginated video contents |
+| POST   | `/api/v1/videos/upload` | Upload video and thumbnail (Async) |
+| GET    | `/api/v1/videos/{videoID}/details` | Get video details/processing status |
+| POST   | `/api/v1/videos/{videoID}/start-quiz` | Start video quiz session |
+| POST   | `/api/v1/videos/{videoID}/toggle-transcript` | Toggle transcript visibility |
+| POST   | `/api/v1/videos/{videoID}/toggle-saved` | Save or unsave video |
+
+### 5. Profile (Protected)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/api/v1/profile` | Get user profile stats |
+
+---
+
+## cURL Examples
+
+### Dialog Generation
+
 ```bash
-curl -X POST http://localhost:8080/api/v1/videos/upload \
-  -H "Authorization: Bearer <your_jwt_token>" \
-  -F "video=@/path/to/video.mp4"
-
-# Response:
-# {
-#   "video": { "id": "...", "status": "processing" },
-#   "batch_id": "abc-123-xyz"
-# }
-```
-
-### Video Get Example
-```bash
-curl -H "Authorization: Bearer <your_jwt_token>" \
-  http://localhost:8080/api/v1/videos/{video_id}
-```
-
-### Batch Status Example
-```bash
-curl -H "Authorization: Bearer <your_jwt_token>" \
-  http://localhost:8080/api/v1/batches/{batch_id}
-
-# Response:
-# {
-#   "batch_id": "abc-123-xyz",
-#   "status": "completed",
-#   "total_jobs": 3,
-#   "completed_jobs": 3,
-#   "jobs": [
-#     { "name": "upload", "status": "completed" },
-#     { "name": "transcript", "status": "completed" },
-#     { "name": "quiz", "status": "completed" }
-#   ]
-# }
-```
-
-### Batch Immersion Example
-```bash
-curl -H "Authorization: Bearer <your_jwt_token>" \
-  http://localhost:8080/api/v1/batches/{batch_id}/immersions
-
-# Response:
-# {
-#   "video": { "id": "...", "feature_id": 1, ... },
-#   "gist_quiz": { "id": "...", "feature_id": 3, ... },
-#   "retell_story": { "id": "...", "feature_id": 8, ... },
-#   "batch_id": "abc-123-xyz",
-#   "status": "completed"
-# }
-```
-
-### Video Playlist Example
-```bash
-curl -H "Authorization: Bearer <your_jwt_token>" \
-  "http://localhost:8080/api/v1/videos/playlist?page=1&limit=20&status=new"
-
-# Response:
-# {
-#   "data": [
-#     { 
-#       "id": "...", 
-#       "feature_id": 1,
-#       "metadata": { "status": "new" }
-#     },
-#     { 
-#       "id": "...", 
-#       "feature_id": 1,
-#       "metadata": { "status": "done" }
-#     }
-#   ],
-#   "total": 2,
-#   "page": 1,
-#   "limit": 20
-# }
-```
-
-### Video Action Example
-```bash
-curl -X POST http://localhost:8080/api/v1/videos/actions \
-  -H "Authorization: Bearer <your_jwt_token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "video_id": "123e4567-e89b-12d3-a456-426614174000",
-    "type": "passed"
-  }'
-
-# Response:
-# {
-#   "status": "success"
-# }
-```
-
-### Learning Items by Feature Example
-```bash
-curl -X GET "http://localhost:8080/api/v1/learning-items/feature?feature_id=1&page=1&limit=20" \
-  -H "Authorization: Bearer <your_jwt_token>"
-  
-# Response:
-# {
-#   "data": [
-#     { "id": "...", "feature_id": 1, ... }
-#   ],
-#   "total": 1,
-#   "page": 1,
-#   "limit": 20
-# }
-```
-
-### Learning Summarizes Example
-```bash
-curl -X GET "http://localhost:8080/api/v1/learning-summarizes?language=english&status=listen&status=speak" \
-  -H "Authorization: Bearer <your_jwt_token>"
-  
-# Response:
-# {
-#   "success": true,
-#   "data": {
-#     "new_words": 10,
-#     "new_sentences": 5,
-#     "pass_words": 20,
-#     "pass_sentences": 8,
-#     "recognize_words": 5,
-#     "recognize_sentences": 2
-#   }
-# }
-```
-
-### Dialogue Guide Example
-```bash
-# 1. Start generation (Async)
-curl -X POST http://localhost:8080/api/v1/dialogue-guides/generate \
-  -H "Authorization: Bearer <your_jwt_token>" \
+# 1. Start generation
+curl -X POST http://localhost:8080/api/v1/dialogs/generate \
+  -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "topic": "Ordering Coffee",
-    "description": "At a busy local coffee shop in the morning.",
-    "language": "Spanish",
-    "level": "Intermediate",
-    "tags": ["food", "daily-life"]
+    "description": "At a busy coffee shop",
+    "language": "spanish",
+    "level": "intermediate"
   }'
 
-# Response:
-# {
-#   "batch_id": "abc-123-xyz",
-#   "message": "Dialogue guide generation started"
-# }
-
-# 2. Check status and get results
-curl -GET http://localhost:8080/api/v1/dialogue-guides/generate/abc-123-xyz \
-  -H "Authorization: Bearer <your_jwt_token>"
-
-# Response:
-# {
-#   "batch_id": "abc-123-xyz",
-#   "reference_id": "Ordering Coffee",
-#   "status": "completed",
-#   "total_jobs": 7,
-#   "completed_jobs": 7,
-#   "jobs": [
-#     { "name": "generate_dialogue_guide", "status": "completed" },
-#     { "name": "generate_image", "status": "completed" },
-#     { "name": "upload_image", "status": "completed" },
-#     { "name": "generate_audio", "status": "completed" },
-#     { "name": "upload_audio", "status": "completed" },
-#     { "name": "generate_audio_scripts", "status": "completed" },
-#     { "name": "upload_audio_scripts", "status": "completed" }
-#   ],
-#   "result": {
-#     "image_prompt": "...",
-#     "image_url": "https://pub-...r2.dev/dialogue_guides/...",
-#     "audio_url": "https://pub-...r2.dev/dialogue_guides/...",
-#     "tags": ["food", "cafe", "ordering", "morning", "daily-life"],
-#     "speech_mode": {
-#       "situation": "You are at a local cafe ordering a drink.",
-#       "script": [ ... ]
-#     },
-#     "chat_mode": {
-#       "situation": "Order a coffee and ask for a recommendation.",
-#       "objectives": {
-#         "requirements": [ ... ],
-#         "persuasion": [ ... ],
-#         "constraints": [ ... ]
-#       }
-#     }
-#   }
-# }
+# 2. Get status/details
+curl -H "Authorization: Bearer <jwt>" \
+  http://localhost:8080/api/v1/dialogs/{dialogID}/details
 ```
 
-### Submit Dialogue Speech Example
+### Video Upload
+
 ```bash
-curl -X POST http://localhost:8080/api/v1/dialogue-guides/submit-speech \
-  -H "Authorization: Bearer <your_jwt_token>" \
+curl -X POST http://localhost:8080/api/v1/videos/upload \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Language: english" \
+  -F "video=@/path/to/video.mp4" \
+  -F "thumbnail=@/path/to/thumb.jpg"
+```
+
+### Submit Speech (Multipart)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech \
+  -H "Authorization: Bearer <jwt>" \
   -F "audio=@/path/to/audio.wav" \
-  -F "reference_text=I would like a coffee, please." \
-  -F "language=en-US" \
-  -F "learning_item_id=abc-123" \
-  -F "speech_index=0"
-
-# Response:
-# {
-#   "AccuracyScore": 95.5,
-#   "FluencyScore": 90.0,
-#   "PronScore": 92.5,
-#   "Words": [...],
-#   "user_audio_url": "https://pub-...r2.dev/user-input/abc-123-0.m4a"
-# }
+  -F "original_text=Hola, quisiera un café." \
+  -F "script_index=0" \
+  -F "language=es-ES"
 ```
 
-### WebSocket
+### Submit Chat (JSON)
 
-Connect to `/ws` for real-time communication.
-
-Message format:
-```json
-{
-  "type": "chat",
-  "payload": {
-    "message": "Hello!"
-  }
-}
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I would like to order a latte."
+  }'
 ```
 
-### gRPC
-
-See `api/proto/service.proto` for service definitions.
 
 ## Development
-
-### Generate Protobuf
-
-```bash
-make proto
-```
 
 ### Run Tests
 

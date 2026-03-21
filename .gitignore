@@ -54,4 +54,4 @@ deploy_key
 deploy_key.pub
 
 # AI generated temp files
-server
+./server

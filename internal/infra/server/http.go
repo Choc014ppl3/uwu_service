@@ -9,13 +9,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/windfall/uwu_service/internal/infra/config"
-	"github.com/windfall/uwu_service/internal/infra/middleware"
 
+	"github.com/windfall/uwu_service/internal/config"
 	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/profile"
 	"github.com/windfall/uwu_service/internal/domain/video"
+	"github.com/windfall/uwu_service/internal/infra/middleware"
 )
 
 // HTTPServer represents the HTTP server

@@ -6,13 +6,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/windfall/uwu_service/internal/config"
 	"github.com/windfall/uwu_service/internal/domain/auth"
 	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/profile"
 	"github.com/windfall/uwu_service/internal/domain/video"
-
 	"github.com/windfall/uwu_service/internal/infra/client"
-	"github.com/windfall/uwu_service/internal/infra/config"
 	"github.com/windfall/uwu_service/internal/infra/server"
 	"github.com/windfall/uwu_service/pkg/logger"
 )
