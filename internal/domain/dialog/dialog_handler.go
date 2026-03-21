@@ -77,7 +77,7 @@ func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. response accepted
-	response.Accepted(w, result)
+	response.AcceptedWithMeta(w, result.Data, result.Meta)
 }
 
 // -------------------------------------------------------------------------

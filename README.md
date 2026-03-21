@@ -110,10 +110,45 @@ uwu_service/
 
 ## cURL Examples
 
-### Dialog Generation
+### 1. Health Checks
 
 ```bash
-# 1. Start generation
+curl -X GET http://localhost:8080/health
+```
+
+### 2. Authentication
+
+**Register User:**
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "email": "test@example.com",
+    "password": "password123"
+  }'
+```
+
+**Login:**
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "password123"
+  }'
+```
+
+### 3. Dialogs
+
+**List Dialog Contents:**
+```bash
+curl -X GET "http://localhost:8080/api/v1/dialogs/contents?page=1&page_size=10" \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Generate Dialog (Async):**
+```bash
 curl -X POST http://localhost:8080/api/v1/dialogs/generate \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
@@ -123,24 +158,21 @@ curl -X POST http://localhost:8080/api/v1/dialogs/generate \
     "language": "spanish",
     "level": "intermediate"
   }'
-
-# 2. Get status/details
-curl -H "Authorization: Bearer <jwt>" \
-  http://localhost:8080/api/v1/dialogs/{dialogID}/details
 ```
 
-### Video Upload
-
+**Get Dialog Details:**
 ```bash
-curl -X POST http://localhost:8080/api/v1/videos/upload \
-  -H "Authorization: Bearer <jwt>" \
-  -H "Language: english" \
-  -F "video=@/path/to/video.mp4" \
-  -F "thumbnail=@/path/to/thumb.jpg"
+curl -X GET http://localhost:8080/api/v1/dialogs/{dialogID}/details \
+  -H "Authorization: Bearer <jwt>"
 ```
 
-### Submit Speech (Multipart)
+**Start Dialogue Speech Practice:**
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-speech \
+  -H "Authorization: Bearer <jwt>"
+```
 
+**Submit Speech (Multipart Audio Scoring):**
 ```bash
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech \
   -H "Authorization: Bearer <jwt>" \
@@ -150,8 +182,13 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/
   -F "language=es-ES"
 ```
 
-### Submit Chat (JSON)
+**Start Dialogue Chat Practice:**
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-chat \
+  -H "Authorization: Bearer <jwt>"
+```
 
+**Submit Chat (AI Partner Request):**
 ```bash
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat \
   -H "Authorization: Bearer <jwt>" \
@@ -159,6 +196,71 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/
   -d '{
     "message": "I would like to order a latte."
   }'
+```
+
+**Toggle Saved Status:**
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/toggle-saved \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Generate Freeform Image:**
+```bash
+curl -X POST http://localhost:8080/api/v1/dialogs/generate-image \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "An anime style cafe with pastel colors"
+  }'
+```
+
+### 4. Videos
+
+**List Video Contents:**
+```bash
+curl -X GET "http://localhost:8080/api/v1/videos/contents?page=1&page_size=10" \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Upload Video (Async):**
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/upload \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Language: english" \
+  -F "video=@/path/to/video.mp4" \
+  -F "thumbnail=@/path/to/thumb.jpg"
+```
+
+**Get Video Details:**
+```bash
+curl -H "Authorization: Bearer <jwt>" \
+  http://localhost:8080/api/v1/videos/{videoID}/details
+```
+
+**Start Video Quiz:**
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/start-quiz \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Toggle Transcript Visibility:**
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/toggle-transcript \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Toggle Saved Status:**
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/toggle-saved \
+  -H "Authorization: Bearer <jwt>"
+```
+
+### 5. Profile
+
+**Get Profile Stats:**
+```bash
+curl -X GET http://localhost:8080/api/v1/profile \
+  -H "Authorization: Bearer <jwt>"
 ```
 
 

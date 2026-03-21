@@ -174,8 +174,8 @@ func (req *UploadVideoRequest) ToPayload() UploadVideoPayload {
 	audioPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_audio.wav", videoID))
 	videoPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_video%s", videoID, videoExt))
 	thumbPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb%s", videoID, thumbExt))
-	videoR2Path := fmt.Sprintf("videos/%s.%s", videoID, videoExt)
-	thumbR2Path := fmt.Sprintf("thumbnails/%s.%s", videoID, thumbExt)
+	videoR2Path := fmt.Sprintf("videos/%s%s", videoID, videoExt)
+	thumbR2Path := fmt.Sprintf("thumbnails/%s%s", videoID, thumbExt)
 
 	return UploadVideoPayload{
 		UserID:               req.UserID,
