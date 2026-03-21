@@ -209,3 +209,20 @@ func (h *DialogHandler) GenerateImage(w http.ResponseWriter, r *http.Request) {
 	// 3. response success
 	response.OK(w, result)
 }
+
+// SubmitChat handles POST /api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat
+func (h *DialogHandler) SubmitChat(w http.ResponseWriter, r *http.Request) {
+	var req SubmitChatRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	result, err := h.service.SubmitChat(r.Context(), req.ToInput())
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}

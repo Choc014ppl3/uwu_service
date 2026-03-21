@@ -67,6 +67,8 @@ type DialogRepository interface {
 	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 	SubmitSpeechAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError
+	GetChatAction(ctx context.Context, actionID, userID string) (*UserAction, *errors.AppError)
+	UpdateChatAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError
 }
 
 type dialogRepository struct {
@@ -338,6 +340,50 @@ func (r *dialogRepository) SubmitSpeechAction(ctx context.Context, actionID, use
 	}
 	if cmdTag.RowsAffected() == 0 {
 		return errors.NotFound("speech action not found or unauthorized")
+	}
+
+	return nil
+}
+
+func (r *dialogRepository) GetChatAction(ctx context.Context, actionID, userID string) (*UserAction, *errors.AppError) {
+	query := `
+		SELECT id, user_id, action_type, metadata, created_at, updated_at
+		FROM user_actions
+		WHERE id = $1 AND user_id = $2 AND action_type = 'submit_chat' AND deleted_at IS NULL
+	`
+
+	var action UserAction
+	err := r.db.Pool.QueryRow(ctx, query, actionID, userID).Scan(
+		&action.ID,
+		&action.UserID,
+		&action.ActionType,
+		&action.Metadata,
+		&action.CreatedAt,
+		&action.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NotFound("chat action not found or unauthorized")
+		}
+		return nil, errors.InternalWrap("failed to get chat action", err)
+	}
+
+	return &action, nil
+}
+
+func (r *dialogRepository) UpdateChatAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError {
+	query := `
+		UPDATE user_actions
+		SET metadata = $1, updated_at = NOW()
+		WHERE id = $2 AND user_id = $3 AND action_type = 'submit_chat'
+	`
+
+	cmdTag, err := r.db.Pool.Exec(ctx, query, metadataJSON, actionID, userID)
+	if err != nil {
+		return errors.InternalWrap("failed to update chat action", err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return errors.NotFound("chat action not found or unauthorized")
 	}
 
 	return nil

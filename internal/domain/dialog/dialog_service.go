@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/pkg/errors"
 	"github.com/windfall/uwu_service/pkg/response"
 )
@@ -54,6 +55,21 @@ type StartActionResponse struct {
 // GenerateImageResponse is returned after generating an image.
 type GenerateImageResponse struct {
 	ImageURL string `json:"image_url"`
+}
+
+// ChatMetadata is the structure stored in user_actions.metadata for chat actions.
+type ChatMetadata struct {
+	Messages            []client.ChatMessage `json:"messages"`
+	CompletedObjectives []int                `json:"completed_objectives"`
+	TotalObjectives     int                  `json:"total_objectives"`
+}
+
+// SubmitChatResponse is returned after submitting a chat message.
+type SubmitChatResponse struct {
+	ReplyMessage        string `json:"reply_message"`
+	CompletedObjectives []int  `json:"completed_objectives"`
+	TotalObjectives     int    `json:"total_objectives"`
+	Feedback            string `json:"feedback,omitempty"`
 }
 
 // NewDialogService creates a new DialogService.
@@ -433,6 +449,82 @@ func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) 
 		ActionID: actionID,
 		DialogID: dialogID,
 		UserID:   userID,
+	}, nil
+}
+
+// SubmitChat handles the logic of replying to a chat message and tracking objectives.
+func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (*SubmitChatResponse, *errors.AppError) {
+	// 1. Get dialog to extract ChatMode
+	learningItem, appErr := s.dialogRepo.GetDialog(ctx, input.DialogID)
+	if appErr != nil {
+		return nil, appErr
+	}
+
+	var details DialogDetails
+	if err := json.Unmarshal(learningItem.Details, &details); err != nil {
+		return nil, errors.InternalWrap("failed to parse dialog details", err)
+	}
+
+	if details.ChatMode.Situation == "" {
+		return nil, errors.Validation("this dialog does not have a chat mode")
+	}
+
+	// 2. Get existing chat action metadata (conversation history + progress)
+	action, appErr := s.dialogRepo.GetChatAction(ctx, input.ActionID, input.UserID)
+	if appErr != nil {
+		return nil, appErr
+	}
+
+	var chatMeta ChatMetadata
+	if len(action.Metadata) > 0 {
+		_ = json.Unmarshal(action.Metadata, &chatMeta)
+	}
+
+	// Initialize total objectives on first call
+	if chatMeta.TotalObjectives == 0 {
+		chatMeta.TotalObjectives = len(details.ChatMode.Objectives.Requirements)
+	}
+
+	// 3. Call AI with conversation history
+	result, appErr := s.aiRepo.ChatReply(ctx, details.ChatMode, chatMeta.Messages, input.Message)
+	if appErr != nil {
+		return nil, appErr
+	}
+
+	// 4. Append messages to history
+	chatMeta.Messages = append(chatMeta.Messages,
+		client.ChatMessage{Role: "user", Content: input.Message},
+		client.ChatMessage{Role: "assistant", Content: result.ReplyMessage},
+	)
+
+	// 5. Merge completed objectives (deduplicate)
+	existing := make(map[int]bool)
+	for _, idx := range chatMeta.CompletedObjectives {
+		existing[idx] = true
+	}
+	for _, idx := range result.CompletedObjectivesIndexes {
+		if idx >= 0 && idx < chatMeta.TotalObjectives && !existing[idx] {
+			chatMeta.CompletedObjectives = append(chatMeta.CompletedObjectives, idx)
+			existing[idx] = true
+		}
+	}
+
+	// 6. Save updated metadata
+	metadataJSON, err := json.Marshal(chatMeta)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to marshal chat metadata", err)
+	}
+
+	if appErr := s.dialogRepo.UpdateChatAction(ctx, input.ActionID, input.UserID, metadataJSON); appErr != nil {
+		return nil, appErr
+	}
+
+	// 7. Return response
+	return &SubmitChatResponse{
+		ReplyMessage:        result.ReplyMessage,
+		CompletedObjectives: chatMeta.CompletedObjectives,
+		TotalObjectives:     chatMeta.TotalObjectives,
+		Feedback:            result.Feedback,
 	}, nil
 }
 

@@ -19,16 +19,16 @@ type AzureChatGPTClient struct {
 	client   *http.Client
 }
 
-// chatRequest is the request body for the Chat Completions API.
-type chatRequest struct {
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature,omitempty"`
-}
-
-// chatMessage is a single message in the chat history.
-type chatMessage struct {
+// ChatMessage is a single message in the chat history.
+type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+// chatRequest is the request body for the Chat Completions API.
+type chatRequest struct {
+	Messages    []ChatMessage `json:"messages"`
+	Temperature float64       `json:"temperature,omitempty"`
 }
 
 // chatResponse is the response from the Chat Completions API.
@@ -36,9 +36,8 @@ type chatResponse struct {
 	Choices []chatChoice `json:"choices"`
 }
 
-// chatChoice is a single completion choice.
 type chatChoice struct {
-	Message chatMessage `json:"message"`
+	Message ChatMessage `json:"message"`
 }
 
 // NewAzureChatGPTClient creates a new Azure OpenAI Chat Completions client.
@@ -60,7 +59,7 @@ func (c *AzureChatGPTClient) ChatCompletion(ctx context.Context, systemPrompt, u
 	}
 
 	reqBody := chatRequest{
-		Messages: []chatMessage{
+		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userMessage},
 		},
@@ -73,6 +72,51 @@ func (c *AzureChatGPTClient) ChatCompletion(ctx context.Context, systemPrompt, u
 	}
 
 	// Azure OpenAI Chat Completions endpoint
+	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return "", errors.InternalWrap("failed to create request", err)
+	}
+
+	req.Header.Set("api-key", c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", errors.InternalWrap("failed to send request", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", errors.InternalWrap("azure openai chat api error", fmt.Errorf("status code: %d, response body: %s", resp.StatusCode, string(respBody)))
+	}
+
+	var result chatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", errors.InternalWrap("failed to decode response", err)
+	}
+
+	if len(result.Choices) == 0 {
+		return "", errors.Internal("no choices returned from azure openai")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
+// ChatCompletionMultiTurn sends a full message history to Azure OpenAI Chat Completions
+// and returns the assistant's response text. Use this for multi-turn conversations.
+func (c *AzureChatGPTClient) ChatCompletionMultiTurn(ctx context.Context, messages []ChatMessage) (string, *errors.AppError) {
+	if c.apiKey == "" || c.endpoint == "" {
+		return "", errors.Internal("Azure OpenAI Chat credentials not configured")
+	}
+
+	reqBody := chatRequest{Messages: messages}
+
+	bodyJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", errors.InternalWrap("failed to marshal request", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return "", errors.InternalWrap("failed to create request", err)

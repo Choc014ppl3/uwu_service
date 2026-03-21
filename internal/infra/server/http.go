@@ -79,7 +79,7 @@ func NewHTTPServer(
 			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
 			r.Post("/dialogs/{dialogID}/actions/{actionID}/submit-speech", dialogHandler.SubmitSpeech)
 			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
-			// r.Post("dialogs/submit-chat", dialogHandler.SubmitChat)
+			r.Post("/dialogs/{dialogID}/actions/{actionID}/submit-chat", dialogHandler.SubmitChat)
 			r.Post("/dialogs/{dialogID}/toggle-saved", dialogHandler.ToggleSaved)
 			r.Post("/dialogs/generate-image", dialogHandler.GenerateImage)
 

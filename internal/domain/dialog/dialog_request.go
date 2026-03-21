@@ -273,3 +273,61 @@ func (req *SubmitSpeechRequest) ToInput() SubmitSpeechInput {
 		Language:         req.Language,
 	}
 }
+
+// -------------------------------------------------------------------------
+// Submit Chat Request
+// -------------------------------------------------------------------------
+
+// SubmitChatRequest is the HTTP request struct for submitting a chat message
+type SubmitChatRequest struct {
+	UserID   string `json:"-"`
+	DialogID string `json:"-"`
+	ActionID string `json:"-"`
+	Message  string `json:"message"`
+}
+
+// SubmitChatInput is the input struct for service
+type SubmitChatInput struct {
+	UserID   string
+	DialogID string
+	ActionID string
+	Message  string
+}
+
+func (req *SubmitChatRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.DialogID = chi.URLParam(r, "dialogID")
+	req.ActionID = chi.URLParam(r, "actionID")
+	if req.DialogID == "" || req.ActionID == "" {
+		return errors.Validation("Dialog ID and Action ID are required")
+	}
+
+	// 3. Parse JSON Body
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		return errors.Validation("invalid request body")
+	}
+
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		return errors.Validation("message is required")
+	}
+
+	return nil
+}
+
+// ToInput convert SubmitChatRequest to SubmitChatInput
+func (req *SubmitChatRequest) ToInput() SubmitChatInput {
+	return SubmitChatInput{
+		UserID:   req.UserID,
+		DialogID: req.DialogID,
+		ActionID: req.ActionID,
+		Message:  req.Message,
+	}
+}
