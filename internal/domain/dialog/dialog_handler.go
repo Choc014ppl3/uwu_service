@@ -56,9 +56,10 @@ func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 2. generate payload once
 	payload := req.ToPayload()
 
-	// 2. send job to queue
+	// 3. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
 		Type:    JOB_GENERATE_DIALOG,
 		Payload: payload,
@@ -68,14 +69,14 @@ func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. create dialog record
+	// 4. create dialog record
 	result, err := h.service.CreateDialogContent(r.Context(), payload)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
-	// 4. response accepted
+	// 5. response accepted
 	response.Accepted(w, result)
 }
 

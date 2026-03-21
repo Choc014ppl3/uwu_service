@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/pkg/errors"
@@ -111,7 +112,7 @@ func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID, userID s
 	var metadata response.MetaProcessing
 	if len(learningItem.Metadata) > 0 {
 		_ = json.Unmarshal(learningItem.Metadata, &metadata)
-		if metadata.Status != BATCH_COMPLETED {
+		if metadata.Status == BATCH_COMPLETED {
 			// Response complete batch processing item from database
 			return &DialogDetailsResponse{
 				Data: learningItem,
@@ -314,6 +315,18 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 	tagsJSON, _ := json.Marshal(details.Tags)
 
 	batch, _ := s.batchRepo.GetBatch(ctx, payload.DialogID)
+	if batch != nil {
+		batch.Status = BATCH_COMPLETED
+		batch.CompletedJobs = batch.TotalJobs
+		now := time.Now().UTC().Format(time.RFC3339)
+		for i := range batch.BatchJobs {
+			if batch.BatchJobs[i].Name == PROCESS_SAVE_DIALOG {
+				batch.BatchJobs[i].Status = BATCH_COMPLETED
+				batch.BatchJobs[i].CompletedAt = now
+			}
+		}
+	}
+
 	metadataJSON, _ := json.Marshal(batch)
 	learningItem := &LearningItem{
 		ID:        uuid.Must(uuid.Parse(payload.DialogID)),
@@ -330,9 +343,9 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 	if err := s.dialogRepo.UpdateDialog(ctx, learningItem); err != nil {
 		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_FAILED, err.GetMessage())
 		return
+	} else {
+		_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_COMPLETED, "")
 	}
-
-	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_COMPLETED, "")
 }
 
 // ToggleSaved toggles the saved action for a dialog.
@@ -403,34 +416,6 @@ func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, me
 	for _, processName := range GetProcessNames()[1:] {
 		_ = s.batchRepo.UpdateJob(ctx, dialogID, processName, BATCH_FAILED, message)
 	}
-}
-
-func extractSpeechMode(raw json.RawMessage) (map[string]interface{}, string) {
-	if len(raw) == 0 {
-		return nil, ""
-	}
-
-	var speechMode map[string]interface{}
-	if err := json.Unmarshal(raw, &speechMode); err != nil {
-		return nil, ""
-	}
-
-	situationText, _ := speechMode["situation"].(string)
-	return speechMode, situationText
-}
-
-func extractSpeechScripts(speechMode map[string]interface{}) []interface{} {
-	if len(speechMode) == 0 {
-		return nil
-	}
-
-	scriptObj, ok := speechMode["script"]
-	if !ok {
-		return nil
-	}
-
-	scripts, _ := scriptObj.([]interface{})
-	return scripts
 }
 
 func voiceForDialogLanguage(language string) string {

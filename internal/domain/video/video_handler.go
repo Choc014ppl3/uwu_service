@@ -63,25 +63,28 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. send job to queue
+	// 4. generate payload once
+	payload := req.ToPayload()
+
+	// 5. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
 		Type:    JOB_UPLOAD_VIDEO,
-		Payload: req.ToPayload(),
+		Payload: payload,
 	})
 	if qErr != nil {
 		response.HandleError(w, qErr)
 		return
 	}
 
-	// 5. create video record
-	result, err := h.service.CreateVideoContent(r.Context(), req.ToPayload())
+	// 6. create video record
+	result, err := h.service.CreateVideoContent(r.Context(), payload)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
 	// 6. response accepted
-	response.Accepted(w, result)
+	response.AcceptedWithMeta(w, result.Data, result.Meta)
 }
 
 // -------------------------------------------------------------------------
@@ -110,7 +113,7 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. response success
-	response.OK(w, video)
+	response.OKWithMeta(w, video.Data, video.Meta)
 }
 
 // ToggleSaved handles POST /api/v1/videos/{videoID}/toggle-saved

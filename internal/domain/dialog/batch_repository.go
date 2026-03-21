@@ -190,6 +190,18 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*res
 				Name:   PROCESS_UPLOAD_AUDIO,
 				Status: BATCH_PENDING,
 			},
+			{
+				Name:   PROCESS_GENERATE_AUDIO_SCRIPTS,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_UPLOAD_AUDIO_SCRIPTS,
+				Status: BATCH_PENDING,
+			},
+			{
+				Name:   PROCESS_SAVE_DIALOG,
+				Status: BATCH_PENDING,
+			},
 		},
 		DateCreated: &now,
 		DateUpdated: &now,

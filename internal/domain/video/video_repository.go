@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/pkg/errors"
 )
@@ -67,15 +68,8 @@ type VideoDetails struct {
 		KeyPoints     []string `json:"key_points"`
 		RetellExample string   `json:"retell_example"`
 	} `json:"retell_story"`
-}
-
-// VideoMetadata is the structure of the metadata field in LearningItem model
-type VideoMetadata struct {
-	UserID       string       `json:"user_id"`
-	VideoURL     string       `json:"video_url"`
-	ThumbnailURL string       `json:"thumbnail_url"`
-	Status       string       `json:"status"`
-	Batch        *BatchResult `json:"batch"`
+	VideoURL     string `json:"video_url"`
+	ThumbnailURL string `json:"thumbnail_url"`
 }
 
 // VideoRepository interface
@@ -99,13 +93,52 @@ func NewVideoRepository(db *client.PostgresClient) VideoRepository {
 
 func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError) {
 	query := `
-		SELECT * FROM learning_items WHERE id = $1
+		SELECT 
+			l.id, l.feature_id, l.content, l.language, l.level,
+			l.details, l.metadata, l.tags, l.is_active, l.created_by,
+			l.created_at, l.updated_at,
+			COALESCE(
+				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL),
+				'[]'::jsonb
+			) as actions
+		FROM learning_items l
+		LEFT JOIN user_actions ua
+			ON l.id = ua.learning_id
+			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz')
+			AND ua.deleted_at IS NULL
+		WHERE l.id = $1 AND l.feature_id = $2
+		GROUP BY l.id
 	`
 
 	var item LearningItem
-	err := r.db.Pool.QueryRow(ctx, query, videoID).Scan(&item)
+	var actionsJSON []byte
+
+	err := r.db.Pool.QueryRow(ctx, query, videoID, FeatureID).Scan(
+		&item.ID,
+		&item.FeatureID,
+		&item.Content,
+		&item.Language,
+		&item.Level,
+		&item.Details,
+		&item.Metadata,
+		&item.Tags,
+		&item.IsActive,
+		&item.CreatedBy,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+		&actionsJSON,
+	)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NotFound("video content not found")
+		}
 		return nil, errors.InternalWrap("failed to get video content", err)
+	}
+
+	if len(actionsJSON) > 0 {
+		if err := json.Unmarshal(actionsJSON, &item.Actions); err != nil {
+			return nil, errors.InternalWrap("failed to unmarshal video actions", err)
+		}
 	}
 
 	return &item, nil
@@ -307,4 +340,3 @@ func (r *videoRepository) ToggleTranscript(ctx context.Context, videoID, userID 
 
 	return actionID, isEnabled, nil
 }
-

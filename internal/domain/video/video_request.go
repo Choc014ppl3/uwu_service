@@ -46,6 +46,18 @@ type UploadVideoPayload struct {
 	AudioPath            string
 }
 
+// AllowedLanguages
+var AllowedLanguages = map[string]bool{
+	"english":    true,
+	"chinese":    true,
+	"japanese":   true,
+	"french":     true,
+	"spanish":    true,
+	"portuguese": true,
+	"arabic":     true,
+	"russian":    true,
+}
+
 var allowedVideoMIME = map[string]bool{
 	"video/mp4":       true,
 	"video/quicktime": true,
@@ -92,13 +104,13 @@ func (req *UploadVideoRequest) ParseAndValidate(r *http.Request) error {
 		return errors.Validation("file too large or invalid multipart data")
 	}
 
-	// 3. Extract Language Header
-	req.Language = r.Header.Get("Language")
-	if req.Language == "" {
-		req.Language = "English"
+	// 3. Extract Language Header & Validate
+	req.Language = strings.ToLower(r.Header.Get("Language"))
+	if !AllowedLanguages[req.Language] {
+		return errors.Validation("unsupported language")
 	}
 
-	// --- 4. Extract and Validate Video ---
+	// 4. Extract and Validate Video
 	vFile, vHeader, err := r.FormFile("video")
 	if err != nil {
 		return errors.Validation("video file is required (form field: 'video')")
