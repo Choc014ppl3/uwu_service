@@ -40,8 +40,8 @@ type MetaProcessing struct {
 	TotalJobs     int        `json:"total_jobs"`
 	CompletedJobs int        `json:"completed_jobs"`
 	BatchJobs     []BatchJob `json:"jobs"`
-	DateCreated   *string    `json:"date_created"`
-	DateUpdated   *string    `json:"date_updated"`
+	CreatedAt     *string    `json:"created_at"`
+	UpdatedAt     *string    `json:"updated_at"`
 }
 
 type BatchJob struct {

@@ -81,16 +81,16 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*respon
 
 	totalJobs, _ := strconv.Atoi(batchFields["total_jobs"])
 	completedJobs, _ := strconv.Atoi(batchFields["completed_jobs"])
-	dateCreated := batchFields["date_created"]
-	dateUpdated := batchFields["date_updated"]
+	createdAt := batchFields["created_at"]
+	updatedAt := batchFields["updated_at"]
 
 	batch := &response.MetaProcessing{
 		BatchID:       batchID,
 		Status:        batchFields["status"],
 		TotalJobs:     totalJobs,
 		CompletedJobs: completedJobs,
-		DateCreated:   &dateCreated,
-		DateUpdated:   &dateUpdated,
+		CreatedAt:     &createdAt,
+		UpdatedAt:     &updatedAt,
 	}
 
 	jobsKey := fmt.Sprintf("batch:%s:jobs", batchID)
@@ -137,8 +137,8 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*res
 		"status", BATCH_PENDING,
 		"total_jobs", strconv.Itoa(totalJobs),
 		"completed_jobs", "0",
-		"date_created", now,
-		"date_updated", now,
+		"created_at", now,
+		"updated_at", now,
 	); err != nil {
 		r.log.Error("Failed to create video batch", "batch_id", batchID, "error", err)
 		return nil, errors.Internal("failed to create video batch")
@@ -186,8 +186,8 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*res
 				Status: BATCH_PENDING,
 			},
 		},
-		DateCreated: &now,
-		DateUpdated: &now,
+		CreatedAt: &now,
+		UpdatedAt: &now,
 	}, nil
 }
 
@@ -258,7 +258,7 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 	if err := r.redis.HSet(ctx, batchKey,
 		"status", batchStatus,
 		"completed_jobs", strconv.Itoa(completed),
-		"date_updated", now,
+		"updated_at", now,
 	); err != nil {
 		return err
 	}
