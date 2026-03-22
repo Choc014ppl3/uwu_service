@@ -32,18 +32,37 @@ Generate a clear summary of the transcript.
 - Write as if presenting the content directly, similar to how the transcript itself would state it.
 
 3. level:
-Estimate the language proficiency level required to understand the content using the appropriate standard:
-- English: CEFR (A1-C2)
-- Chinese: HSK (HSK1-HSK6)
-- Japanese: JLPT (N5-N1)
-- Spanish/French/Portuguese: CEFR (A1-C2)
-- Russian: TORFL (TORFL1-TORFL6)
-- Arabic: ACTFL (Novice, Intermediate, Advanced, Superior)
+Estimate the language proficiency level required to understand the content using the appropriate standard.
+
+You MUST follow BOTH the standard and the exact output format below:
+
+Allowed formats:
+- English: "CEFR A1", "CEFR A2", "CEFR B1", "CEFR B2", "CEFR C1", "CEFR C2"
+- Chinese: "HSK 1", "HSK 2", "HSK 3", "HSK 4", "HSK 5", "HSK 6"
+- Japanese: "JLPT N5", "JLPT N4", "JLPT N3", "JLPT N2", "JLPT N1"
+- Spanish/French/Portuguese: same as English → "CEFR B1", etc.
+- Russian: "TORFL 1", "TORFL 2", "TORFL 3", "TORFL 4", "TORFL 5", "TORFL 6"
+- Arabic: "ACTFL Novice", "ACTFL Intermediate", "ACTFL Advanced", "ACTFL Superior"
+
+Rules:
+- ALWAYS include both the standard and the level (e.g., "CEFR B1").
+- NEVER return only the level (e.g., "B1").
+- NEVER remove spaces (e.g., "HSK3" is invalid).
+- NEVER change format order (e.g., "B1 CEFR" is invalid).
+- Output MUST match exactly one of the allowed formats above.
+- If the level does not match one of the allowed formats exactly, regenerate it until it does.
 
 4. tags:
-Generate 3-5 contextual tags.
-- Tags must reflect specific situations, actions, or themes in the transcript.
+Generate 3-5 tags.
+
+Rules:
+- Each tag must be SHORT (1-3 words only).
+- Prefer noun or noun phrases.
+- Use hyphen (-) only if needed (e.g., "cold-water", "ice-fishing").
+- Focus on specific situations, actions, or themes.
+- Avoid long phrases or full sentences.
 - Avoid generic labels (e.g., "English learning", "A2 level").
+- Maximum 3 words per tag. If longer, shorten it.
 
 ## CRITICAL STEP (INTERNAL)
 Before generating the sequence question:
