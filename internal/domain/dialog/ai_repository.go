@@ -12,18 +12,45 @@ import (
 
 const dialogGenerationPrompt = `You are an expert language-learning dialogue designer.
 
-Generate a realistic dialogue guide as valid JSON only.
-Do not include markdown, commentary, or code fences.
+Generate a realistic and coherent dialogue guide strictly following the provided requirements and output schema.
 
-Requirements:
-- Keep the language natural and useful for learners.
-- Respect the requested topic, description, language, and level.
-- Generate 3 to 5 relevant tags if none are provided.
-- Keep the speech script concise and level-appropriate.
-- Keep objectives actionable and easy to follow.
-- Ensure the "chat_mode" context and objectives directly follow up on the conversation generated in the "speech_mode" script.
+Return valid JSON only.
+Do not include markdown, explanations, comments, or code fences.
+Do not include any text before or after the JSON.
+Ensure the output is properly formatted and fully parseable.
 
-Output schema:
+**Requirements:**
+- Keep the language natural, clear, and useful for learners.  
+- Follow the requested topic, description, target language, and proficiency level strictly.  
+
+- Generate a new **description** that:
+  - Is **1-2 sentences only**.
+  - Uses a **friendly, natural, and slightly story-like tone** (engaging but not exaggerated).
+  - Clearly summarizes the scenario, key interaction, and learning focus.
+  - Is aligned with both *speech_mode* and *chat_mode*.
+  - Does **not copy or directly paraphrase** the user-provided description.
+
+- Enforce vocabulary and grammar appropriate to the specified level:
+  - Use CEFR-aligned complexity (e.g., A1-A2: simple sentences, common words; B1-B2: more varied structures; C1+: nuanced and natural expressions).
+  - Avoid vocabulary or sentence structures significantly above the target level.
+
+- Generate 3-5 contextual tags only if none are provided:
+  - Tags must reflect key themes, vocabulary, or real-life situations in the content.
+  - Avoid generic labels such as language levels (e.g., A2, C1) or broad categories (e.g., English learning, Chinese learning).
+
+- Keep the speech script concise, coherent, and appropriate for the specified level.  
+
+- Ensure learning objectives are practical, actionable, and easy to follow.  
+
+- Make sure the **chat_mode** context and objectives:
+  - Directly and logically continue from the *speech_mode* conversation.
+  - Feel like a natural next step (not a separate or unrelated scenario).
+
+- Ensure all fields in the output schema are fully populated and consistent with each other:
+  - No contradictions between description, tags, and scenarios.
+  - Maintain a single coherent context across the entire output.
+
+**Output schema:**
 {
   "description": "string",
   "level": "string",

@@ -12,54 +12,88 @@ import (
 )
 
 // The unified system prompt used to generate details and quiz from a transcript.
-const systemPrompt = `# Role
-You are an expert Linguistic and Educational Content Analyzer. Your task is to analyze the description and generate content details and a quiz in a strict JSON format.
+const systemPrompt = `Role
+You are an expert Linguistic and Educational Content Analyzer. Your task is to analyze the transcript and generate structured learning content in a strict JSON format.
 
 # Instructions
-You must analyze the description and determine:
-1. topic: Identify the main topic of the video based solely on the transcript. The topic should be concise (1 short sentence or a short phrase).
-2. description: Generate a clear and summarizing the video content. The description must be based only on the transcript. Do not invent information that is not present in the transcript. Keep it 2-3 sentences long.
-3. level: The estimated language proficiency level required to understand the description. You must use the official or most widely recognized standard framework specific to the identified language. For example:
-    * For English: Use the CEFR scale (A1, A2, B1, B2, C1, C2).
-    * For Chinese: Use the HSK scale (HSK1, HSK2, HSK3, HSK4, HSK5, HSK6).
-    * For Japanese: Use the JLPT scale (N5, N4, N3, N2, N1).
-    * For Spanish: Use the DELE scale (A1, A2, B1, B2, C1, C2).
-    * For French: Use the DELF/DALF scale (A1, A2, B1, B2, C1, C2).
-	* For Russian: Use the TORFL scale (TORFL1, TORFL2, TORFL3, TORFL4, TORFL5, TORFL6).
-	* For Portuguese: Use the CAPLE scale (A1, A2, B1, B2, C1, C2).
-4. tags: A list of 3-5 relevant topic or thematic tags for the video (e.g., ["travel", "food", "daily life"]).
+You must analyze the transcript and determine:
 
-## CRITICAL STEP: THOUGHT PROCESS FOR QUIZ
-Before generating the JSON quiz, you must identify the chronological order of events for the "Sequence" question to ensure accuracy.
-1. Identify 4 key events.
-2. Verify their order in the description.
-3. Only then, map them to the JSON output.
+1. topic:
+Identify the main topic based ONLY on the transcript.
+Keep it concise (1 short sentence or phrase).
 
-## Part 1: Gist Quiz 3 Questions
-1.  **Context/Tone (1 Question):**
-    * category: "context"
-    * type: "multiple_response"
-    * Must have 1-2 correct options (set is_correct: true).
-2.  **Main Idea (1 Question):**
-    * category: "main_idea"
-    * type: "single_choice"
-    * Only 1 correct option.
-3.  **Sequence (1 Question):**
-    * category: "sequence"
-    * type: "ordering"
-    * Provide 4 events in options (shuffled/random order).
-    * Provide the correct_order array containing the correct sequence of Option IDs (e.g., ["B", "A", "C", "D"]).
+2. description:
+Generate a clear summary of the transcript.
+- Must be based ONLY on the transcript.
+- Do NOT invent or infer missing information.
+- Keep it 1-2 sentences long.
+- Use a **neutral, content-focused narrative style**.
+- Do NOT use first-person (e.g., "I") or reporting phrases (e.g., "the speaker explains", "the video shows").
+- Write as if presenting the content directly, similar to how the transcript itself would state it.
+
+3. level:
+Estimate the language proficiency level required to understand the content using the appropriate standard:
+- English: CEFR (A1-C2)
+- Chinese: HSK (HSK1-HSK6)
+- Japanese: JLPT (N5-N1)
+- Spanish/French/Portuguese: CEFR (A1-C2)
+- Russian: TORFL (TORFL1-TORFL6)
+- Arabic: ACTFL (Novice, Intermediate, Advanced, Superior)
+
+4. tags:
+Generate 3-5 contextual tags.
+- Tags must reflect specific situations, actions, or themes in the transcript.
+- Avoid generic labels (e.g., "English learning", "A2 level").
+
+## CRITICAL STEP (INTERNAL)
+Before generating the sequence question:
+- Identify 4 key events from the transcript
+- Determine their correct chronological order
+- Do NOT include this reasoning in the output
+
+## Part 1: Gist Quiz (EXACTLY 3 Questions)
+You MUST generate exactly:
+- 1 context question (multiple_response, 1-2 correct answers)
+- 1 main_idea question (single_choice, 1 correct answer)
+- 1 sequence question (ordering)
+
+### Rules:
+- Do NOT use external knowledge
+- Do NOT fabricate missing details
+
+### Sequence Question Rules:
+- Provide exactly 4 events
+- Shuffle the options
+- Use "correct_order" to define the answer
+- Do NOT include "is_correct" for ordering options
 
 ## Part 2: Retell Story
-Generate a concise example of how the user could retell the story based on the transcript following elements:
-1. "retell_example": Create a concise, natural-sounding summary of the story. This serves as a model answer or a good example for a student to follow. It should use clear chronological order and appropriate transition words.
-2. "key_points": Extract 3 to 5 essential plot points, main events, or key takeaways that the student MUST include in their retelling like in "retell_example" to be considered complete and accurate.
 
-2. "key_points": Extract 3 to 5 essential plot points, main events, or key takeaways that the student MUST include in their retelling like in "retell_example" to be considered complete and accurate.
+1. retell_example:
+- Use a **neutral, content-focused narrative style** (same style as description).
+- Do NOT use first-person (e.g., "I") or reporting phrases (e.g., "the transcript explains", "this video shows").
+- Present the content directly as a natural summary or short narration.
+
+- Enforce tone and style:
+  - Use a **natural storytelling flow**, not a step-by-step list.
+  - Avoid rigid transitions like "First", "Then", "After that".
+  - Use natural connectors where appropriate (e.g., "so", "because", "while", "later").
+
+- Adjust tone and complexity based on level:
+  - A1-A2: very simple sentences, basic vocabulary, short and clear ideas.
+  - B1-B2: more natural flow, some connectors, slightly longer sentences.
+  - C1-C2: fluent, expressive, nuanced phrasing.
+
+- Keep it concise and aligned with the language level.
+
+2. key_points:
+- Extract 3-5 essential events or takeaways.
+- Must align with retell_example and cover the full content.
 
 # Output Format (STRICT JSON)
-Do not output any markdown text, introductory phrases, or code blocks. Output ONLY the raw JSON object.
-Use the structure below:
+- Output ONLY valid JSON
+- Do NOT include markdown, comments, or extra text
+- Ensure the JSON is fully parsable
 
 {
   "topic": "string",
@@ -69,22 +103,20 @@ Use the structure below:
   "gist_quiz": [
     {
       "id": 1,
-      "category": "string (context | objective | sequence)",
-      "type": "string (multiple_response | single_choice | ordering)",
+      "category": "context | main_idea | sequence",
+      "type": "multiple_response | single_choice | ordering",
       "question": "string",
       "options": [
-        { "id": "A", "text": "string", "is_correct": true } // is_correct is null for ordering type
+        { "id": "A", "text": "string", "is_correct": true }
       ],
-      "correct_order": ["string"] // null for non-ordering types
+      "correct_order": ["string"]
     }
   ],
   "retell_story": {
     "retell_example": "string",
-	"key_points": ["string"] // 3-5 
+    "key_points": ["string"]
   }
 }
-
-* Ensure the JSON is valid and parsable.
 `
 
 // AIRepository interface
