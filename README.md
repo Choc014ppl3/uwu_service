@@ -60,6 +60,12 @@ uwu_service/
 └── deployments/docker/  # Docker and compose configurations
 ```
 
+## Standardized Attempt History
+
+- Refactored `StartQuiz` and `StartRetell` to return the full history of previous tries in a unified `attempts` field.
+- Standardized the database metadata property name to `attempts` for both gist quiz and retell story actions.
+- Implemented backward compatibility to handle legacy `quiz_attempts` and `retell_attempts` fields during the transition.
+
 ## API Endpoints
 
 ### 1. Health checks (Public)
@@ -236,12 +242,26 @@ curl -H "Authorization: Bearer <jwt>" \
 curl -X POST http://localhost:8080/api/v1/videos/{videoID}/start-quiz \
   -H "Authorization: Bearer <jwt>"
 ```
+Example Response:
+```json
+  {
+    "quiz_questions": [...],
+    "attempts": []
+  }
+```
 
 **Start Retell Story:**
 (Initializes a retell story session and returns the key points)
 ```bash
 curl -X POST http://localhost:8080/api/v1/videos/{videoID}/start-retell \
   -H "Authorization: Bearer <jwt>"
+```
+Example Response:
+```json
+  {
+    "retell_story": {...},
+    "attempts": []
+  }
 ```
 
 **Submit Gist Quiz:**
@@ -318,3 +338,34 @@ docker exec -t <ชื่อ_db_container> psql -U <db_user> <db_name> < backup_
 ## License
 
 MIT
+
+---
+
+## AI-Powered Features
+
+This service utilizes various third-party AI models to power its learning features, mapped by endpoint below:
+
+### 1. Dialogs
+
+#### **POST /api/v1/dialogs/generate**
+(Async background processing)
+- **Azure OpenAI (GPT-5 Nano)**: Generates dialog scenarios, character scripts, and learning objectives.
+- **Vertex AI (Imagen 3 Flash)**: Generates a thematic background image based on the scenario.
+- **Azure AI Speech (TTS)**: Synthesizes high-quality audio for AI characters and situational openings.
+
+#### **POST /api/v1/dialogs/{dialogID}/submit-speech**
+- **Azure AI Speech (Pronunciation Assessment)**: Evaluates user audio for accuracy, fluency, prosody, and completeness.
+
+#### **POST /api/v1/dialogs/{dialogID}/submit-chat**
+- **Azure OpenAI (GPT-5 Nano)**: Generates interactive AI partner replies, provides contextual feedback, and tracks objective completion.
+
+### 2. Videos
+
+#### **POST /api/v1/videos/upload**
+(Async background processing)
+- **Azure Whisper**: Transcribes the source video audio into text.
+- **Azure OpenAI (GPT-5 Nano)**: Analyzes the transcript to generate metadata (topic, level, tags), gist quizzes, and retell key points.
+
+#### **POST /api/v1/videos/{videoID}/submit-retell**
+- **Azure Whisper**: Transcribes the user's spoken retell attempt.
+- **Azure OpenAI (GPT-5 Nano)**: Evaluates the user's transcript for accuracy against the source material's key points.

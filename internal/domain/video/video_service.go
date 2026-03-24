@@ -44,18 +44,20 @@ type ToggleSavedResponse struct {
 
 // StartQuizResponse is returned after starting a gist quiz action.
 type StartQuizResponse struct {
-	ActionID string      `json:"action_id"`
-	VideoID  string      `json:"video_id"`
-	UserID   string      `json:"user_id"`
-	GistQuiz interface{} `json:"gist_quiz"`
+	ActionID string            `json:"action_id"`
+	VideoID  string            `json:"video_id"`
+	UserID   string            `json:"user_id"`
+	GistQuiz interface{}       `json:"gist_quiz"`
+	Attempts []GistQuizAttempt `json:"attempts"`
 }
 
 // StartRetellResponse is returned after starting a retell story action.
 type StartRetellResponse struct {
-	ActionID    string      `json:"action_id"`
-	VideoID     string      `json:"video_id"`
-	UserID      string      `json:"user_id"`
-	RetellStory interface{} `json:"retell_story"`
+	ActionID    string          `json:"action_id"`
+	VideoID     string          `json:"video_id"`
+	UserID      string          `json:"user_id"`
+	RetellStory interface{}     `json:"retell_story"`
+	Attempts    []RetellAttempt `json:"attempts"`
 }
 
 // ToggleTranscriptResponse is returned after toggling transcript state.
@@ -73,12 +75,16 @@ type VideoRetell struct {
 	RetellExample string   `json:"retell_example"`
 }
 
-// QuizMetadata represents the metadata stored in user_actions for quiz activities
-type QuizMetadata struct {
-	GistQuiz       *VideoGistQuiz    `json:"gist_quiz,omitempty"`
-	RetellStory    *VideoRetell      `json:"retell_story,omitempty"`
-	QuizAttempts   []GistQuizAttempt `json:"quiz_attempts,omitempty"`
-	RetellAttempts []RetellAttempt   `json:"retell_attempts,omitempty"`
+// GistQuizMetadata represents the metadata for gist quiz actions
+type GistQuizMetadata struct {
+	GistQuiz *VideoGistQuiz    `json:"gist_quiz,omitempty"`
+	Attempts []GistQuizAttempt `json:"attempts,omitempty"`
+}
+
+// RetellStoryMetadata represents the metadata for retell story actions
+type RetellStoryMetadata struct {
+	RetellStory *VideoRetell    `json:"retell_story,omitempty"`
+	Attempts    []RetellAttempt `json:"attempts,omitempty"`
 }
 
 // GistQuizAttempt represents a single attempt at the multiple-choice gist quiz
@@ -378,13 +384,27 @@ func (s *VideoService) StartQuiz(ctx context.Context, input StartQuizInput) (*St
 	}
 
 	if exists {
-		var metadata QuizMetadata
-		_ = json.Unmarshal(action.Metadata, &metadata)
+		var metadata GistQuizMetadata
+		if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+			return nil, errors.InternalWrap("failed to parse gist quiz metadata", err)
+		}
+		// Fallback for legacy data
+		if len(metadata.Attempts) == 0 {
+			var legacy struct {
+				QuizAttempts []GistQuizAttempt `json:"quiz_attempts"`
+			}
+			_ = json.Unmarshal(action.Metadata, &legacy)
+			if len(legacy.QuizAttempts) > 0 {
+				metadata.Attempts = legacy.QuizAttempts
+			}
+		}
+
 		return &StartQuizResponse{
 			ActionID: action.ID,
 			VideoID:  videoID,
 			UserID:   userID,
 			GistQuiz: metadata.GistQuiz,
+			Attempts: metadata.Attempts,
 		}, nil
 	}
 
@@ -400,8 +420,8 @@ func (s *VideoService) StartQuiz(ctx context.Context, input StartQuizInput) (*St
 	}
 
 	// 3. Create initial metadata snapshot
-	metadata := QuizMetadata{
-		QuizAttempts: []GistQuizAttempt{},
+	metadata := GistQuizMetadata{
+		Attempts: []GistQuizAttempt{},
 	}
 	gistJSON, _ := json.Marshal(videoDetails.GistQuiz)
 	_ = json.Unmarshal(gistJSON, &metadata.GistQuiz)
@@ -418,6 +438,7 @@ func (s *VideoService) StartQuiz(ctx context.Context, input StartQuizInput) (*St
 		VideoID:  videoID,
 		UserID:   userID,
 		GistQuiz: metadata.GistQuiz,
+		Attempts: metadata.Attempts,
 	}, nil
 }
 
@@ -433,13 +454,27 @@ func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) 
 	}
 
 	if exists {
-		var metadata QuizMetadata
-		_ = json.Unmarshal(action.Metadata, &metadata)
+		var metadata RetellStoryMetadata
+		if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+			return nil, errors.InternalWrap("failed to parse retell metadata", err)
+		}
+		// Fallback for legacy data
+		if len(metadata.Attempts) == 0 {
+			var legacy struct {
+				RetellAttempts []RetellAttempt `json:"retell_attempts"`
+			}
+			_ = json.Unmarshal(action.Metadata, &legacy)
+			if len(legacy.RetellAttempts) > 0 {
+				metadata.Attempts = legacy.RetellAttempts
+			}
+		}
+
 		return &StartRetellResponse{
 			ActionID:    action.ID,
 			VideoID:     videoID,
 			UserID:      userID,
 			RetellStory: metadata.RetellStory,
+			Attempts:    metadata.Attempts,
 		}, nil
 	}
 
@@ -455,8 +490,8 @@ func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) 
 	}
 
 	// 3. Create initial metadata snapshot
-	metadata := QuizMetadata{
-		RetellAttempts: []RetellAttempt{},
+	metadata := RetellStoryMetadata{
+		Attempts: []RetellAttempt{},
 	}
 	retellJSON, _ := json.Marshal(videoDetails.RetellStory)
 	_ = json.Unmarshal(retellJSON, &metadata.RetellStory)
@@ -473,6 +508,7 @@ func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) 
 		VideoID:     videoID,
 		UserID:      userID,
 		RetellStory: metadata.RetellStory,
+		Attempts:    metadata.Attempts,
 	}, nil
 }
 
@@ -487,9 +523,20 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 		return nil, errors.NotFound("quiz action not found for this video")
 	}
 
-	var metadata QuizMetadata
+	var metadata GistQuizMetadata
 	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
 		return nil, errors.InternalWrap("failed to parse quiz metadata", err)
+	}
+
+	// Fallback for legacy data
+	if len(metadata.Attempts) == 0 {
+		var legacy struct {
+			QuizAttempts []GistQuizAttempt `json:"quiz_attempts"`
+		}
+		_ = json.Unmarshal(action.Metadata, &legacy)
+		if len(legacy.QuizAttempts) > 0 {
+			metadata.Attempts = legacy.QuizAttempts
+		}
 	}
 
 	// 2. Score answers
@@ -505,7 +552,7 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 	}
 
 	// 4. Update metadata
-	metadata.QuizAttempts = append(metadata.QuizAttempts, attempt)
+	metadata.Attempts = append(metadata.Attempts, attempt)
 	metadataJSON, _ := json.Marshal(metadata)
 
 	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
@@ -529,9 +576,20 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 		return nil, errors.NotFound("retell action not found for this video")
 	}
 
-	var metadata QuizMetadata
+	var metadata RetellStoryMetadata
 	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
-		return nil, errors.InternalWrap("failed to parse quiz metadata", err)
+		return nil, errors.InternalWrap("failed to parse retell metadata", err)
+	}
+
+	// Fallback for legacy data
+	if len(metadata.Attempts) == 0 {
+		var legacy struct {
+			RetellAttempts []RetellAttempt `json:"retell_attempts"`
+		}
+		_ = json.Unmarshal(action.Metadata, &legacy)
+		if len(legacy.RetellAttempts) > 0 {
+			metadata.Attempts = legacy.RetellAttempts
+		}
 	}
 
 	// 2. Fetch video details for key points
@@ -598,7 +656,7 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 	}
 
 	// 6. Update metadata
-	metadata.RetellAttempts = append(metadata.RetellAttempts, attempt)
+	metadata.Attempts = append(metadata.Attempts, attempt)
 	metadataJSON, _ := json.Marshal(metadata)
 
 	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {

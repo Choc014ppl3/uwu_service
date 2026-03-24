@@ -28,7 +28,7 @@ func main() {
 	}
 
 	// Initialize Logger & Queue
-	logger := logger.NewLogger(cfg.Environment)
+	logger := logger.NewLogger(cfg.LogLevel, cfg.LogFormat)
 	queue := client.NewQueueClient(logger, cfg.QueueBufferSize)
 
 	// Initialize Database Connection

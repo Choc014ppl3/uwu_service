@@ -3,23 +3,37 @@ package logger
 import (
 	"log/slog"
 	"os"
+	"strings"
 )
 
-// New สร้างตัวแปร Logger ตาม Environment
-func NewLogger(env string) *slog.Logger {
+// NewLogger สร้างตัวแปร Logger ตาม Level และ Format ที่กำหนด
+func NewLogger(level, format string) *slog.Logger {
 	var handler slog.Handler
 
-	// กำหนดระดับของ Log (Info, Debug, Error)
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+	// กำหนดระดับของ Log (Debug, Info, Warn, Error)
+	var logLevel slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
 	}
 
-	if env == "development" {
-		opts.Level = slog.LevelDebug
+	opts := &slog.HandlerOptions{
+		Level: logLevel,
+	}
+
+	if strings.ToLower(format) == "text" {
 		// แบบ Text อ่านง่ายสำหรับนักพัฒนา
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
-		// แบบ JSON สำหรับ Production ให้เครื่องมืออื่นอ่านง่าย
+		// แบบ JSON สำหรับ Production หรือระบบ Log Centralized
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
 
