@@ -3,7 +3,9 @@ package video
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -40,11 +42,20 @@ type ToggleSavedResponse struct {
 	Saved    bool   `json:"saved"`
 }
 
-// StartActionResponse is returned after starting a quiz action.
-type StartActionResponse struct {
-	ActionID string `json:"action_id"`
-	VideoID  string `json:"video_id"`
-	UserID   string `json:"user_id"`
+// StartQuizResponse is returned after starting a gist quiz action.
+type StartQuizResponse struct {
+	ActionID string      `json:"action_id"`
+	VideoID  string      `json:"video_id"`
+	UserID   string      `json:"user_id"`
+	GistQuiz interface{} `json:"gist_quiz"`
+}
+
+// StartRetellResponse is returned after starting a retell story action.
+type StartRetellResponse struct {
+	ActionID    string      `json:"action_id"`
+	VideoID     string      `json:"video_id"`
+	UserID      string      `json:"user_id"`
+	RetellStory interface{} `json:"retell_story"`
 }
 
 // ToggleTranscriptResponse is returned after toggling transcript state.
@@ -53,6 +64,71 @@ type ToggleTranscriptResponse struct {
 	VideoID    string `json:"video_id"`
 	UserID     string `json:"user_id"`
 	Transcript bool   `json:"transcript"`
+}
+
+type VideoGistQuiz []gistQuizQuestion
+
+type VideoRetell struct {
+	KeyPoints     []string `json:"key_points"`
+	RetellExample string   `json:"retell_example"`
+}
+
+// QuizMetadata represents the metadata stored in user_actions for quiz activities
+type QuizMetadata struct {
+	GistQuiz       *VideoGistQuiz    `json:"gist_quiz,omitempty"`
+	RetellStory    *VideoRetell      `json:"retell_story,omitempty"`
+	QuizAttempts   []GistQuizAttempt `json:"quiz_attempts,omitempty"`
+	RetellAttempts []RetellAttempt   `json:"retell_attempts,omitempty"`
+}
+
+// GistQuizAttempt represents a single attempt at the multiple-choice gist quiz
+type GistQuizAttempt struct {
+	AttemptID   string       `json:"attempt_id"`
+	Answers     []QuizAnswer `json:"answers"`
+	QuizScore   float64      `json:"quiz_score"`
+	SubmittedAt time.Time    `json:"submitted_at"`
+}
+
+// RetellAttempt represents a single attempt at the audio retell story
+type RetellAttempt struct {
+	AttemptID        string         `json:"attempt_id"`
+	AudioURL         string         `json:"audio_url"`
+	Transcript       string         `json:"transcript"`
+	RetellScore      float64        `json:"retell_score"`
+	MatchesKeyPoints []string       `json:"matches_key_points"`
+	RetellAnalysis   string         `json:"retell_analysis"`
+	ScoringBreakdown map[string]any `json:"scoring_breakdown"`
+	SubmittedAt      time.Time      `json:"submitted_at"`
+}
+
+type SubmitGistQuizResponse struct {
+	AttemptID string  `json:"attempt_id"`
+	QuizScore float64 `json:"quiz_score"`
+}
+
+type SubmitRetellResponse struct {
+	AttemptID   string  `json:"attempt_id"`
+	RetellScore float64 `json:"retell_score"`
+}
+
+// SubmitQuizResponse is returned after submitting a quiz attempt
+type SubmitQuizResponse struct {
+	Score float64 `json:"score"`
+}
+
+type gistQuizOption struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	IsCorrect bool   `json:"is_correct"`
+}
+
+type gistQuizQuestion struct {
+	ID          int              `json:"id"`
+	Type        string           `json:"type"`
+	Options     []gistQuizOption  `json:"options"`
+	Category    string           `json:"category"`
+	Question    string           `json:"question"`
+	CorrectOrder []string        `json:"correct_order"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -276,32 +352,339 @@ func (s *VideoService) GetVideoDetails(ctx context.Context, videoID string) (*Vi
 }
 
 // ToggleSaved toggles the saved action for a video.
-func (s *VideoService) ToggleSaved(ctx context.Context, videoID, userID string) (*ToggleSavedResponse, *errors.AppError) {
-	actionID, saved, err := s.videoRepo.ToggleSaved(ctx, videoID, userID)
+func (s *VideoService) ToggleSaved(ctx context.Context, input ToggleSavedInput) (*ToggleSavedResponse, *errors.AppError) {
+	actionID, saved, err := s.videoRepo.ToggleSaved(ctx, input.VideoID, input.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ToggleSavedResponse{
 		ActionID: actionID,
-		VideoID:  videoID,
-		UserID:   userID,
+		VideoID:  input.VideoID,
+		UserID:   input.UserID,
 		Saved:    saved,
 	}, nil
 }
 
-// StartQuiz starts a quiz action for a video.
-func (s *VideoService) StartQuiz(ctx context.Context, videoID, userID string) (*StartActionResponse, *errors.AppError) {
-	actionID, err := s.videoRepo.StartQuiz(ctx, videoID, userID)
+// StartQuiz starts a gist quiz action for a video.
+func (s *VideoService) StartQuiz(ctx context.Context, input StartQuizInput) (*StartQuizResponse, *errors.AppError) {
+	videoID := input.VideoID
+	userID := input.UserID
+
+	// 1. Check if user already started this action (Idempotency)
+	action, exists, err := s.videoRepo.GetActionByUserID(ctx, videoID, userID, "submit_quiz")
 	if err != nil {
 		return nil, err
 	}
 
-	return &StartActionResponse{
+	if exists {
+		var metadata QuizMetadata
+		_ = json.Unmarshal(action.Metadata, &metadata)
+		return &StartQuizResponse{
+			ActionID: action.ID,
+			VideoID:  videoID,
+			UserID:   userID,
+			GistQuiz: metadata.GistQuiz,
+		}, nil
+	}
+
+	// 2. Fetch video details to get quiz snapshot
+	videoItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	var videoDetails VideoDetails
+	if err := json.Unmarshal(videoItem.Details, &videoDetails); err != nil {
+		return nil, errors.InternalWrap("failed to parse video details", err)
+	}
+
+	// 3. Create initial metadata snapshot
+	metadata := QuizMetadata{
+		QuizAttempts: []GistQuizAttempt{},
+	}
+	gistJSON, _ := json.Marshal(videoDetails.GistQuiz)
+	_ = json.Unmarshal(gistJSON, &metadata.GistQuiz)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	// 4. Create action record
+	actionID, err := s.videoRepo.StartQuiz(ctx, videoID, userID, metadataJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartQuizResponse{
 		ActionID: actionID,
 		VideoID:  videoID,
 		UserID:   userID,
+		GistQuiz: metadata.GistQuiz,
 	}, nil
+}
+
+// StartRetell starts a retell story action for a video.
+func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) (*StartRetellResponse, *errors.AppError) {
+	videoID := input.VideoID
+	userID := input.UserID
+
+	// 1. Check if user already started this action (Idempotency)
+	action, exists, err := s.videoRepo.GetActionByUserID(ctx, videoID, userID, "submit_retell")
+	if err != nil {
+		return nil, err
+	}
+
+	if exists {
+		var metadata QuizMetadata
+		_ = json.Unmarshal(action.Metadata, &metadata)
+		return &StartRetellResponse{
+			ActionID:    action.ID,
+			VideoID:     videoID,
+			UserID:      userID,
+			RetellStory: metadata.RetellStory,
+		}, nil
+	}
+
+	// 2. Fetch video details to get retell snapshot
+	videoItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+
+	var videoDetails VideoDetails
+	if err := json.Unmarshal(videoItem.Details, &videoDetails); err != nil {
+		return nil, errors.InternalWrap("failed to parse video details", err)
+	}
+
+	// 3. Create initial metadata snapshot
+	metadata := QuizMetadata{
+		RetellAttempts: []RetellAttempt{},
+	}
+	retellJSON, _ := json.Marshal(videoDetails.RetellStory)
+	_ = json.Unmarshal(retellJSON, &metadata.RetellStory)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	// 4. Create action record
+	actionID, err := s.videoRepo.StartRetell(ctx, videoID, userID, metadataJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartRetellResponse{
+		ActionID:    actionID,
+		VideoID:     videoID,
+		UserID:      userID,
+		RetellStory: metadata.RetellStory,
+	}, nil
+}
+
+// SubmitGistQuiz handles the submission and scoring of a gist quiz.
+func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizInput) (*SubmitGistQuizResponse, *errors.AppError) {
+	// 1. Get existing action by videoID, userID, and type
+	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_quiz")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.NotFound("quiz action not found for this video")
+	}
+
+	var metadata QuizMetadata
+	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+		return nil, errors.InternalWrap("failed to parse quiz metadata", err)
+	}
+
+	// 2. Score answers
+	quizScore := scoreQuizAnswers(metadata.GistQuiz, input.Answers)
+
+	// 3. Create attempt
+	attemptID := uuid.New().String()
+	attempt := GistQuizAttempt{
+		AttemptID:   attemptID,
+		Answers:     input.Answers,
+		QuizScore:   quizScore,
+		SubmittedAt: time.Now().UTC(),
+	}
+
+	// 4. Update metadata
+	metadata.QuizAttempts = append(metadata.QuizAttempts, attempt)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
+		return nil, err
+	}
+
+	return &SubmitGistQuizResponse{
+		AttemptID: attemptID,
+		QuizScore: quizScore,
+	}, nil
+}
+
+// SubmitRetellStory handles the submission and AI evaluation of a retell story.
+func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*SubmitRetellResponse, *errors.AppError) {
+	// 1. Get existing action by videoID, userID, and type
+	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_retell")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.NotFound("retell action not found for this video")
+	}
+
+	var metadata QuizMetadata
+	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+		return nil, errors.InternalWrap("failed to parse quiz metadata", err)
+	}
+
+	// 2. Fetch video details for key points
+	videoItem, err := s.videoRepo.GetVideo(ctx, action.LearningID)
+	if err != nil {
+		return nil, err
+	}
+
+	var videoDetails VideoDetails
+	if err := json.Unmarshal(videoItem.Details, &videoDetails); err != nil {
+		return nil, errors.InternalWrap("failed to parse video details", err)
+	}
+
+	// 3. Process audio
+	tempWav, err := s.fileRepo.SaveMultipartToTemp(input.AudioFile, "retell_*.wav")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tempWav.Name())
+
+	transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, tempWav.Name(), videoItem.Language)
+	if err != nil {
+		return nil, err
+	}
+
+	attemptID := uuid.New().String()
+	objectKey := fmt.Sprintf("retell-quiz/%s-%s.m4a", action.ID, attemptID)
+	m4aPath := filepath.Join(os.TempDir(), attemptID+".m4a")
+	defer os.Remove(m4aPath)
+
+	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), m4aPath); err != nil {
+		return nil, err
+	}
+
+	m4aFile, openErr := os.Open(m4aPath)
+	if openErr != nil {
+		return nil, errors.InternalWrap("failed to open m4a file", openErr)
+	}
+	defer m4aFile.Close()
+
+	audioURL, err := s.fileRepo.UploadToR2(ctx, m4aFile, objectKey, m4aPath, "audio/mp4")
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. AI Evaluation
+	eval, err := s.aiRepo.EvaluateRetellStory(ctx, transcript.Text, videoDetails.RetellStory.KeyPoints)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Create attempt
+	attempt := RetellAttempt{
+		AttemptID:        attemptID,
+		AudioURL:         audioURL,
+		Transcript:       transcript.Text,
+		RetellScore:      eval.Score,
+		MatchesKeyPoints: eval.MatchesKeyPoints,
+		RetellAnalysis:   eval.Analysis,
+		ScoringBreakdown: map[string]any{
+			"retell_score": eval.Score,
+		},
+		SubmittedAt: time.Now().UTC(),
+	}
+
+	// 6. Update metadata
+	metadata.RetellAttempts = append(metadata.RetellAttempts, attempt)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
+		return nil, err
+	}
+
+	return &SubmitRetellResponse{
+		AttemptID:   attemptID,
+		RetellScore: eval.Score,
+	}, nil
+}
+
+func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
+	raw, err := json.Marshal(gistQuiz)
+	if err != nil {
+		return 0
+	}
+
+	var questions []gistQuizQuestion
+	if err := json.Unmarshal(raw, &questions); err != nil {
+		return 0
+	}
+
+	if len(questions) == 0 {
+		return 0
+	}
+
+	answerMap := map[int]QuizAnswer{}
+	for _, ans := range answers {
+		answerMap[ans.QuizID] = ans
+	}
+
+	var total float64
+	for _, quiz := range questions {
+		ans, ok := answerMap[quiz.ID]
+		if !ok {
+			continue
+		}
+		switch quiz.Type {
+		case "single_choice":
+			correct := ""
+			for _, opt := range quiz.Options {
+				if opt.IsCorrect {
+					correct = opt.ID
+					break
+				}
+			}
+			if len(ans.OptionIDs) == 1 && ans.OptionIDs[0] == correct {
+				total += 1
+			}
+		case "multiple_response":
+			correctSet := map[string]struct{}{}
+			for _, opt := range quiz.Options {
+				if opt.IsCorrect {
+					correctSet[opt.ID] = struct{}{}
+				}
+			}
+			if len(ans.OptionIDs) == len(correctSet) {
+				match := true
+				for _, id := range ans.OptionIDs {
+					if _, ok := correctSet[id]; !ok {
+						match = false
+						break
+					}
+				}
+				if match {
+					total += 1
+				}
+			}
+		case "ordering":
+			if len(ans.Order) == len(quiz.CorrectOrder) {
+				match := true
+				for i := range quiz.CorrectOrder {
+					if ans.Order[i] != quiz.CorrectOrder[i] {
+						match = false
+						break
+					}
+				}
+				if match {
+					total += 1
+				}
+			}
+		}
+	}
+
+	return (total / float64(len(questions))) * 100
 }
 
 // ToggleTranscript toggles the transcript action for a video.

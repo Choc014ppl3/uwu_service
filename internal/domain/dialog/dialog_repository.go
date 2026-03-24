@@ -267,7 +267,7 @@ func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID str
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'dialogue_saved', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
+		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
 			action_type = 'dialogue_saved',
 			deleted_at = CASE
@@ -291,7 +291,7 @@ func (r *dialogRepository) StartSpeech(ctx context.Context, dialogID, userID str
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'submit_speech', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
+		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
 			action_type = 'submit_speech',
 			deleted_at = NULL,
@@ -311,7 +311,7 @@ func (r *dialogRepository) StartChat(ctx context.Context, dialogID, userID strin
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'submit_chat', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
+		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
 			action_type = 'submit_chat',
 			deleted_at = NULL,

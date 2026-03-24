@@ -60,6 +60,11 @@ type AppError interface {
 	GetDetails() map[string]interface{}
 }
 
+// DecodeBody decoded request body to target struct
+func DecodeBody(r *http.Request, target interface{}) error {
+	return json.NewDecoder(r.Body).Decode(target)
+}
+
 // -------------------------------------------------------------------------
 // 2. Base Writers
 // -------------------------------------------------------------------------

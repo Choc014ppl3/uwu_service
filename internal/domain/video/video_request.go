@@ -1,6 +1,7 @@
 package video
 
 import (
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/windfall/uwu_service/internal/infra/middleware"
 	"github.com/windfall/uwu_service/pkg/errors"
@@ -242,5 +244,243 @@ func (req *ListVideoContentsRequest) ToInput() ListVideoContentsInput {
 		PageSize: req.PageSize,
 		Limit:    limit,
 		Offset:   offset,
+	}
+}
+
+// -------------------------------------------------------------------------
+// Start Quiz Request
+// -------------------------------------------------------------------------
+
+// StartQuizRequest is the HTTP request struct for starting a quiz
+type StartQuizRequest struct {
+	UserID  string
+	VideoID string
+}
+
+// StartQuizInput is the input struct for service
+type StartQuizInput struct {
+	UserID  string
+	VideoID string
+}
+
+func (req *StartQuizRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID from auth context
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.VideoID = chi.URLParam(r, "videoID")
+	if req.VideoID == "" {
+		return errors.Validation("Video ID is required")
+	}
+
+	return nil
+}
+
+func (req *StartQuizRequest) ToInput() StartQuizInput {
+	return StartQuizInput{
+		UserID:  req.UserID,
+		VideoID: req.VideoID,
+	}
+}
+
+// -------------------------------------------------------------------------
+// Start Retell Request
+// -------------------------------------------------------------------------
+
+// StartRetellRequest is the HTTP request struct for starting a retell story
+type StartRetellRequest struct {
+	UserID  string
+	VideoID string
+}
+
+// StartRetellInput is the input struct for service
+type StartRetellInput struct {
+	UserID  string
+	VideoID string
+}
+
+func (req *StartRetellRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID from auth context
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.VideoID = chi.URLParam(r, "videoID")
+	if req.VideoID == "" {
+		return errors.Validation("Video ID is required")
+	}
+
+	return nil
+}
+
+func (req *StartRetellRequest) ToInput() StartRetellInput {
+	return StartRetellInput{
+		UserID:  req.UserID,
+		VideoID: req.VideoID,
+	}
+}
+
+// -------------------------------------------------------------------------
+// Submit Gist Quiz Request
+// -------------------------------------------------------------------------
+
+// QuizAnswer is the individual answer for a quiz question
+type QuizAnswer struct {
+	QuizID    int      `json:"quiz_id"`
+	Type      string   `json:"type"`
+	OptionIDs []string `json:"option_ids,omitempty"`
+	Order     []string `json:"order,omitempty"`
+}
+
+// SubmitGistQuizRequest is the HTTP request struct for submitting a gist quiz
+type SubmitGistQuizRequest struct {
+	UserID  string
+	VideoID string
+	Answers []QuizAnswer `json:"answers"`
+}
+
+// SubmitGistQuizInput is the input struct for service
+type SubmitGistQuizInput struct {
+	UserID  string
+	VideoID string
+	Answers []QuizAnswer
+}
+
+func (req *SubmitGistQuizRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID from auth context
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.VideoID = chi.URLParam(r, "videoID")
+	if req.VideoID == "" {
+		return errors.Validation("Video ID is required")
+	}
+
+	// 3. Parse JSON Body
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return errors.Validation("invalid JSON body")
+	}
+
+	if len(req.Answers) == 0 {
+		return errors.Validation("answers cannot be empty")
+	}
+
+	return nil
+}
+
+func (req *SubmitGistQuizRequest) ToInput() SubmitGistQuizInput {
+	return SubmitGistQuizInput{
+		UserID:  req.UserID,
+		VideoID: req.VideoID,
+		Answers: req.Answers,
+	}
+}
+
+// -------------------------------------------------------------------------
+// Submit Retell Request
+// -------------------------------------------------------------------------
+
+// SubmitRetellRequest is the HTTP request struct for submitting a retell story
+type SubmitRetellRequest struct {
+	UserID      string
+	VideoID     string
+	AudioFile   multipart.File
+	AudioHeader *multipart.FileHeader
+}
+
+// SubmitRetellInput is the input struct for service
+type SubmitRetellInput struct {
+	UserID    string
+	VideoID   string
+	AudioFile multipart.File
+}
+
+func (req *SubmitRetellRequest) Close() {
+	if req.AudioFile != nil {
+		_ = req.AudioFile.Close()
+	}
+}
+
+func (req *SubmitRetellRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID from auth context
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.VideoID = chi.URLParam(r, "videoID")
+	if req.VideoID == "" {
+		return errors.Validation("Video ID is required")
+	}
+
+	// 3. Parse multipart body
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return errors.Validation("invalid multipart body")
+	}
+
+	// 4. Extract audio file
+	audioFile, audioHeader, err := r.FormFile("audio")
+	if err != nil {
+		return errors.Validation("audio file is required (form field: 'audio')")
+	}
+	req.AudioFile = audioFile
+	req.AudioHeader = audioHeader
+
+	return nil
+}
+
+func (req *SubmitRetellRequest) ToInput() SubmitRetellInput {
+	return SubmitRetellInput{
+		UserID:    req.UserID,
+		VideoID:   req.VideoID,
+		AudioFile: req.AudioFile,
+	}
+}
+
+// -------------------------------------------------------------------------
+// Toggle Saved Request
+// -------------------------------------------------------------------------
+
+// ToggleSavedRequest is the HTTP request struct for toggling saved status
+type ToggleSavedRequest struct {
+	UserID  string
+	VideoID string
+}
+
+// ToggleSavedInput is the input struct for service
+type ToggleSavedInput struct {
+	UserID  string
+	VideoID string
+}
+
+func (req *ToggleSavedRequest) ParseAndValidate(r *http.Request) error {
+	// 1. Get user ID from auth context
+	req.UserID = middleware.GetUserID(r.Context())
+	if req.UserID == "" {
+		return errors.Unauthorized("user not authenticated")
+	}
+
+	// 2. Parse URL Params
+	req.VideoID = chi.URLParam(r, "videoID")
+	if req.VideoID == "" {
+		return errors.Validation("Video ID is required")
+	}
+
+	return nil
+}
+
+func (req *ToggleSavedRequest) ToInput() ToggleSavedInput {
+	return ToggleSavedInput{
+		UserID:  req.UserID,
+		VideoID: req.VideoID,
 	}
 }

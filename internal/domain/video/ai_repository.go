@@ -142,12 +142,19 @@ You MUST generate exactly:
 type AIRepository interface {
 	GenerateVideoTranscript(ctx context.Context, audioPath, language string) (*client.WhisperResponse, *errors.AppError)
 	GenerateVideoDetails(ctx context.Context, transcript *client.WhisperResponse) (*VideoDetails, *errors.AppError)
+	EvaluateRetellStory(ctx context.Context, transcript string, keyPoints []string) (*RetellEvaluation, *errors.AppError)
 }
 
 type TranscriptSegment struct {
 	Text     string  `json:"text"`
 	Start    float64 `json:"start"`
 	Duration float64 `json:"duration"`
+}
+
+type RetellEvaluation struct {
+	Score           float64  `json:"score"`
+	MatchesKeyPoints []string `json:"matches_key_points"`
+	Analysis        string   `json:"analysis"`
 }
 
 // aiRepository is the implementation of the AIRepository interface
@@ -233,4 +240,45 @@ func (r *aiRepository) GenerateVideoDetails(ctx context.Context, transcript *cli
 	videoDetails.Transcript = transcriptText
 
 	return &videoDetails, nil
+}
+
+// EvaluateRetellStory compares the transcript against key points and returns a summary.
+func (r *aiRepository) EvaluateRetellStory(ctx context.Context, transcript string, keyPoints []string) (*RetellEvaluation, *errors.AppError) {
+	if strings.TrimSpace(transcript) == "" {
+		return nil, errors.Internal("empty transcript")
+	}
+
+	if len(keyPoints) == 0 {
+		return &RetellEvaluation{Score: 0, MatchesKeyPoints: []string{}, Analysis: "No key points provided."}, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Evaluate the retell quality against the key points. Return strict JSON only.\n")
+	sb.WriteString("Format: {\"score\": number, \"matches_key_points\": [\"...\"], \"analysis\": \"...\"}\n")
+	sb.WriteString("Key points:\n")
+	for _, kp := range keyPoints {
+		sb.WriteString("- ")
+		sb.WriteString(kp)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("Transcript:\n")
+	sb.WriteString(transcript)
+
+	responseText, err := r.chatGPT.ChatCompletion(ctx, "You evaluate learner retells against key points.", sb.String())
+	if err != nil {
+		return nil, err
+	}
+
+	responseText = strings.TrimSpace(responseText)
+	responseText = strings.TrimPrefix(responseText, "```json")
+	responseText = strings.TrimPrefix(responseText, "```")
+	responseText = strings.TrimSuffix(responseText, "```")
+	responseText = strings.TrimSpace(responseText)
+
+	var evaluation RetellEvaluation
+	if err := json.Unmarshal([]byte(responseText), &evaluation); err != nil {
+		return nil, errors.InternalWrap("failed to parse retell evaluation", err)
+	}
+
+	return &evaluation, nil
 }

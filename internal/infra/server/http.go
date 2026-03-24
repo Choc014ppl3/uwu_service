@@ -76,21 +76,23 @@ func NewHTTPServer(
 			r.Get("/dialogs/contents", dialogHandler.ListDialogContents)
 			r.Post("/dialogs/generate", dialogHandler.GenerateDialog)
 			r.Get("/dialogs/{dialogID}/details", dialogHandler.GetDialogDetails)
-			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
-			r.Post("/dialogs/{dialogID}/actions/{actionID}/submit-speech", dialogHandler.SubmitSpeech)
-			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
-			r.Post("/dialogs/{dialogID}/actions/{actionID}/submit-chat", dialogHandler.SubmitChat)
 			r.Post("/dialogs/{dialogID}/toggle-saved", dialogHandler.ToggleSaved)
-			r.Post("/dialogs/generate-image", dialogHandler.GenerateImage)
+			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
+			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
+			r.Post("/dialogs/{dialogID}/submit-chat", dialogHandler.SubmitChat)
+			r.Post("/dialogs/{dialogID}/submit-speech", dialogHandler.SubmitSpeech)
+			r.Post("/dialogs/generate-image", dialogHandler.GenerateImage) // remove this API later
 
 			// Video
 			r.Get("/videos/contents", videoHandler.ListVideoContents)
 			r.Post("/videos/upload", videoHandler.UploadVideo)
 			r.Get("/videos/{videoID}/details", videoHandler.GetVideoDetails)
-			r.Post("/videos/{videoID}/start-quiz", videoHandler.StartQuiz)
-			// r.Post("videos/submit-quiz", videoHandler.SubmitQuiz)
-			r.Post("/videos/{videoID}/toggle-transcript", videoHandler.ToggleTranscript)
 			r.Post("/videos/{videoID}/toggle-saved", videoHandler.ToggleSaved)
+			r.Post("/videos/{videoID}/toggle-transcript", videoHandler.ToggleTranscript)
+			r.Post("/videos/{videoID}/start-quiz", videoHandler.StartQuiz)
+			r.Post("/videos/{videoID}/start-retell", videoHandler.StartRetell)
+			r.Post("/videos/{videoID}/submit-quiz", videoHandler.SubmitGistQuiz)
+			r.Post("/videos/{videoID}/submit-retell", videoHandler.SubmitRetellStory)
 
 			// Profile
 			r.Get("/profile", profileHandler.GetProfile)

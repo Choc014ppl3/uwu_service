@@ -96,7 +96,10 @@ uwu_service/
 | GET    | `/api/v1/videos/contents` | List paginated video contents |
 | POST   | `/api/v1/videos/upload` | Upload video and thumbnail (Async) |
 | GET    | `/api/v1/videos/{videoID}/details` | Get video details/processing status |
-| POST   | `/api/v1/videos/{videoID}/start-quiz` | Start video quiz session |
+| POST   | `/api/v1/videos/{videoID}/start-quiz` | Start gist quiz session |
+| POST   | `/api/v1/videos/{videoID}/start-retell` | Start retell story session |
+| POST   | `/api/v1/videos/{videoID}/submit-quiz` | Submit gist quiz answers |
+| POST   | `/api/v1/videos/{videoID}/submit-retell` | Submit retell story audio |
 | POST   | `/api/v1/videos/{videoID}/toggle-transcript` | Toggle transcript visibility |
 | POST   | `/api/v1/videos/{videoID}/toggle-saved` | Save or unsave video |
 
@@ -238,9 +241,39 @@ curl -H "Authorization: Bearer <jwt>" \
 ```
 
 **Start Video Quiz:**
+(Initializes a gist quiz session and returns the questions)
 ```bash
 curl -X POST http://localhost:8080/api/v1/videos/{videoID}/start-quiz \
   -H "Authorization: Bearer <jwt>"
+```
+
+**Start Retell Story:**
+(Initializes a retell story session and returns the key points)
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/start-retell \
+  -H "Authorization: Bearer <jwt>"
+```
+
+**Submit Gist Quiz:**
+(Submits multiple-choice/ordering answers as JSON)
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/submit-quiz \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "answers": [
+      {"quiz_id": 1, "type": "single_choice", "option_ids": ["A"]},
+      {"quiz_id": 2, "type": "ordering", "order": ["C", "A", "B"]}
+    ]
+  }'
+```
+
+**Submit Retell Story:**
+(Submits recorded audio file for scoring)
+```bash
+curl -X POST http://localhost:8080/api/v1/videos/{videoID}/submit-retell \
+  -H "Authorization: Bearer <jwt>" \
+  -F "audio=@/path/to/retell_voice.wav"
 ```
 
 **Toggle Transcript Visibility:**

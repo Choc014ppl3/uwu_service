@@ -25,7 +25,7 @@ func NewVideoHandler(service *VideoService, queue *client.QueueClient) *VideoHan
 }
 
 // -------------------------------------------------------------------------
-// ListVideoContents handles GET /api/v1/videos
+// GET /api/v1/videos
 // -------------------------------------------------------------------------
 
 func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +45,7 @@ func (h *VideoHandler) ListVideoContents(w http.ResponseWriter, r *http.Request)
 }
 
 // -------------------------------------------------------------------------
-// UploadVideo handles POST /api/v1/videos/upload
+// POST /api/v1/videos/upload
 // -------------------------------------------------------------------------
 
 func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 }
 
 // -------------------------------------------------------------------------
-// GetVideo handles GET /api/v1/videos/{videoID}/details
+// GET /api/v1/videos/{videoID}/details
 // -------------------------------------------------------------------------
 
 func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
@@ -109,21 +109,18 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 	response.OKWithMeta(w, video.Data, video.Meta)
 }
 
-// ToggleSaved handles POST /api/v1/videos/{videoID}/toggle-saved
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/toggle-saved
+// -------------------------------------------------------------------------
+
 func (h *VideoHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+	var req ToggleSavedRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
 		return
 	}
 
-	videoID := chi.URLParam(r, "videoID")
-	if videoID == "" {
-		response.HandleError(w, errors.Validation("Video ID is required"))
-		return
-	}
-
-	result, err := h.service.ToggleSaved(r.Context(), videoID, userID)
+	result, err := h.service.ToggleSaved(r.Context(), req.ToInput())
 	if err != nil {
 		response.HandleError(w, err)
 		return
@@ -132,21 +129,18 @@ func (h *VideoHandler) ToggleSaved(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
-// StartQuiz handles POST /api/v1/videos/{videoID}/start-quiz
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/start-quiz
+// -------------------------------------------------------------------------
+
 func (h *VideoHandler) StartQuiz(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+	var req StartQuizRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
 		return
 	}
 
-	videoID := chi.URLParam(r, "videoID")
-	if videoID == "" {
-		response.HandleError(w, errors.Validation("Video ID is required"))
-		return
-	}
-
-	result, err := h.service.StartQuiz(r.Context(), videoID, userID)
+	result, err := h.service.StartQuiz(r.Context(), req.ToInput())
 	if err != nil {
 		response.HandleError(w, err)
 		return
@@ -155,7 +149,30 @@ func (h *VideoHandler) StartQuiz(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
-// ToggleTranscript handles POST /api/v1/videos/{videoID}/toggle-transcript
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/start-retell
+// -------------------------------------------------------------------------
+
+func (h *VideoHandler) StartRetell(w http.ResponseWriter, r *http.Request) {
+	var req StartRetellRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	result, err := h.service.StartRetell(r.Context(), req.ToInput())
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
+
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/toggle-transcript
+// -------------------------------------------------------------------------
+
 func (h *VideoHandler) ToggleTranscript(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	if userID == "" {
@@ -170,6 +187,50 @@ func (h *VideoHandler) ToggleTranscript(w http.ResponseWriter, r *http.Request) 
 	}
 
 	result, err := h.service.ToggleTranscript(r.Context(), videoID, userID)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
+
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/submit-quiz
+// -------------------------------------------------------------------------
+
+func (h *VideoHandler) SubmitGistQuiz(w http.ResponseWriter, r *http.Request) {
+	var req SubmitGistQuizRequest
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	result, err := h.service.SubmitGistQuiz(r.Context(), req.ToInput())
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.OK(w, result)
+}
+
+// -------------------------------------------------------------------------
+// POST /api/v1/videos/{videoID}/submit-retell
+// -------------------------------------------------------------------------
+
+func (h *VideoHandler) SubmitRetellStory(w http.ResponseWriter, r *http.Request) {
+	const maxUploadSize = 10 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+
+	var req SubmitRetellRequest
+	defer req.Close()
+	if err := req.ParseAndValidate(r); err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	result, err := h.service.SubmitRetellStory(r.Context(), req.ToInput())
 	if err != nil {
 		response.HandleError(w, err)
 		return

@@ -16,6 +16,8 @@ import (
 type FileRepository interface {
 	ExtractAudio(ctx context.Context, videoPath, audioPath string) *errors.AppError
 	UploadToR2(ctx context.Context, src multipart.File, key, path, contentType string) (string, *errors.AppError)
+	ConvertAudioToM4A(ctx context.Context, srcPath, dstPath string) *errors.AppError
+	SaveMultipartToTemp(file multipart.File, pattern string) (*os.File, *errors.AppError)
 }
 
 // fileRepository is the implementation of the FileRepository interface
@@ -78,4 +80,44 @@ func (r *fileRepository) UploadToR2(ctx context.Context, src multipart.File, key
 	}
 
 	return url, nil
+}
+
+// ConvertAudioToM4A converts a WAV audio file to M4A using ffmpeg.
+func (r *fileRepository) ConvertAudioToM4A(ctx context.Context, srcPath, dstPath string) *errors.AppError {
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", srcPath,
+		"-af", "afftdn,loudnorm=I=-16:TP=-1.5:LRA=11",
+		"-c:a", "aac", "-b:a", "64k", "-ac", "1",
+		"-ar", "16000", "-movflags", "faststart",
+		dstPath,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		r.log.Error("FFmpeg audio conversion failed", "error", err.Error(), "ffmpeg_output", string(output))
+		return errors.InternalWrap("ffmpeg audio conversion", err)
+	}
+
+	return nil
+}
+
+// SaveMultipartToTemp saves a multipart file to a temporary file.
+func (r *fileRepository) SaveMultipartToTemp(file multipart.File, pattern string) (*os.File, *errors.AppError) {
+	tempFile, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to create temp file", err)
+	}
+
+	if _, err := io.Copy(tempFile, file); err != nil {
+		_ = os.Remove(tempFile.Name())
+		_ = tempFile.Close()
+		return nil, errors.InternalWrap("failed to write to temp file", err)
+	}
+
+	if _, err := tempFile.Seek(0, 0); err != nil {
+		_ = os.Remove(tempFile.Name())
+		_ = tempFile.Close()
+		return nil, errors.InternalWrap("failed to rewind temp file", err)
+	}
+
+	return tempFile, nil
 }

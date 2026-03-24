@@ -9,8 +9,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TYPE learning_source_type_enum AS ENUM ('word', 'sentence');
 CREATE TYPE user_stat_status_enum AS ENUM ('new', 'passed', 'recognized');
 CREATE TYPE user_action_type_enum AS ENUM (
-    'dialogue_saved', 'quiz_saved', 'quiz_transcript', 
-    'submit_chat', 'submit_speech', 'submit_quiz'
+    'quiz_saved', 'quiz_transcript', 'submit_quiz', 'submit_retell',
+    'dialogue_saved', 'submit_chat', 'submit_speech'
 );
 
 -- ============================================================
@@ -107,7 +107,7 @@ CREATE TABLE user_actions (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
-    UNIQUE (learning_id, user_id)
+    UNIQUE (learning_id, user_id, action_type)
 );
 CREATE INDEX idx_user_actions_user_id ON user_actions(user_id);
 

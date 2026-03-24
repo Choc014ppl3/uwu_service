@@ -18,6 +18,7 @@ const FeatureID = 1
 type UserAction struct {
 	ID         string          `json:"id"`
 	UserID     string          `json:"user_id"`
+	LearningID string          `json:"learning_id"`
 	ActionType string          `json:"action_type"`
 	Metadata   json.RawMessage `json:"metadata"`
 	CreatedAt  time.Time       `json:"created_at"`
@@ -79,8 +80,12 @@ type VideoRepository interface {
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	ToggleSaved(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError)
-	StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError)
+	StartQuiz(ctx context.Context, videoID, userID string, metadata json.RawMessage) (string, *errors.AppError)
+	StartRetell(ctx context.Context, videoID, userID string, metadata json.RawMessage) (string, *errors.AppError)
 	ToggleTranscript(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError)
+	GetQuizAction(ctx context.Context, actionID string) (*UserAction, *errors.AppError)
+	GetActionByUserID(ctx context.Context, videoID, userID, actionType string) (*UserAction, bool, *errors.AppError)
+	UpdateQuizAction(ctx context.Context, actionID string, metadata json.RawMessage) *errors.AppError
 }
 
 type videoRepository struct {
@@ -273,13 +278,52 @@ func (r *videoRepository) UpdateVideo(ctx context.Context, item *LearningItem) *
 	return nil
 }
 
+func (r *videoRepository) StartQuiz(ctx context.Context, videoID, userID string, metadata json.RawMessage) (string, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'submit_quiz', $3, NULL)
+		ON CONFLICT (learning_id, user_id, action_type)
+		DO UPDATE SET
+			metadata = EXCLUDED.metadata,
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var actionID string
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID, metadata).Scan(&actionID); err != nil {
+		return "", errors.InternalWrap("failed to start quiz action", err)
+	}
+
+	return actionID, nil
+}
+
+func (r *videoRepository) StartRetell(ctx context.Context, videoID, userID string, metadata json.RawMessage) (string, *errors.AppError) {
+	query := `
+		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
+		VALUES ($1, $2, 'submit_retell', $3, NULL)
+		ON CONFLICT (learning_id, user_id, action_type)
+		DO UPDATE SET
+			metadata = EXCLUDED.metadata,
+			deleted_at = NULL,
+			updated_at = NOW()
+		RETURNING id
+	`
+
+	var actionID string
+	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID, metadata).Scan(&actionID); err != nil {
+		return "", errors.InternalWrap("failed to start retell action", err)
+	}
+
+	return actionID, nil
+}
+
 func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'quiz_saved', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
+		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
-			action_type = 'quiz_saved',
 			deleted_at = CASE
 				WHEN user_actions.action_type = 'quiz_saved' AND user_actions.deleted_at IS NULL THEN NOW()
 				ELSE NULL
@@ -297,33 +341,12 @@ func (r *videoRepository) ToggleSaved(ctx context.Context, videoID, userID strin
 	return actionID, isSaved, nil
 }
 
-func (r *videoRepository) StartQuiz(ctx context.Context, videoID, userID string) (string, *errors.AppError) {
-	query := `
-		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
-		VALUES ($1, $2, 'submit_quiz', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
-		DO UPDATE SET
-			action_type = 'submit_quiz',
-			deleted_at = NULL,
-			updated_at = NOW()
-		RETURNING id
-	`
-
-	var actionID string
-	if err := r.db.Pool.QueryRow(ctx, query, userID, videoID).Scan(&actionID); err != nil {
-		return "", errors.InternalWrap("failed to start quiz action", err)
-	}
-
-	return actionID, nil
-}
-
 func (r *videoRepository) ToggleTranscript(ctx context.Context, videoID, userID string) (string, bool, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
 		VALUES ($1, $2, 'quiz_transcript', '{}'::jsonb, NULL)
-		ON CONFLICT (learning_id, user_id)
+		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
-			action_type = 'quiz_transcript',
 			deleted_at = CASE
 				WHEN user_actions.action_type = 'quiz_transcript' AND user_actions.deleted_at IS NULL THEN NOW()
 				ELSE NULL
@@ -339,4 +362,61 @@ func (r *videoRepository) ToggleTranscript(ctx context.Context, videoID, userID 
 	}
 
 	return actionID, isEnabled, nil
+}
+
+func (r *videoRepository) GetQuizAction(ctx context.Context, actionID string) (*UserAction, *errors.AppError) {
+	query := `
+		SELECT id, user_id, learning_id, action_type, metadata, created_at, updated_at, deleted_at
+		FROM user_actions
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+
+	var a UserAction
+	row := r.db.Pool.QueryRow(ctx, query, actionID)
+	if err := row.Scan(&a.ID, &a.UserID, &a.LearningID, &a.ActionType, &a.Metadata, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NotFound("quiz action not found")
+		}
+		return nil, errors.InternalWrap("failed to get quiz action", err)
+	}
+
+	return &a, nil
+}
+
+func (r *videoRepository) GetActionByUserID(ctx context.Context, videoID, userID, actionType string) (*UserAction, bool, *errors.AppError) {
+	query := `
+		SELECT id, user_id, learning_id, action_type, metadata, created_at, updated_at, deleted_at
+		FROM user_actions
+		WHERE learning_id = $1 AND user_id = $2 AND action_type = $3 AND deleted_at IS NULL
+		LIMIT 1
+	`
+
+	var a UserAction
+	err := r.db.Pool.QueryRow(ctx, query, videoID, userID, actionType).Scan(
+		&a.ID, &a.UserID, &a.LearningID, &a.ActionType, &a.Metadata, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, errors.InternalWrap("failed to get quiz action by user id", err)
+	}
+
+	return &a, true, nil
+}
+
+func (r *videoRepository) UpdateQuizAction(ctx context.Context, actionID string, metadata json.RawMessage) *errors.AppError {
+	query := `
+		UPDATE user_actions
+		SET metadata = $1, updated_at = NOW()
+		WHERE id = $2
+	`
+
+	_, err := r.db.Pool.Exec(ctx, query, metadata, actionID)
+	if err != nil {
+		return errors.InternalWrap("failed to update quiz action metadata", err)
+	}
+
+	return nil
 }
