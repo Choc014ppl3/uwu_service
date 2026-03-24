@@ -83,11 +83,10 @@ uwu_service/
 | POST   | `/api/v1/dialogs/generate` | Generate dialog content (Async) |
 | GET    | `/api/v1/dialogs/{dialogID}/details`| Get dialog details/results |
 | POST   | `/api/v1/dialogs/{dialogID}/start-speech` | Start dialogue speech practice session|
-| POST   | `/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech` | Submit spoken audio for scoring |
+| POST   | `/api/v1/dialogs/{dialogID}/submit-speech` | Submit spoken audio for scoring |
 | POST   | `/api/v1/dialogs/{dialogID}/start-chat` | Start dialogue chat session |
-| POST   | `/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat` | Send message to AI chat partner |
+| POST   | `/api/v1/dialogs/{dialogID}/submit-chat` | Send message to AI chat partner |
 | POST   | `/api/v1/dialogs/{dialogID}/toggle-saved` | Save or unsave dialog |
-| POST   | `/api/v1/dialogs/generate-image` | Generate image from prompt |
 
 ### 4. Videos (Protected)
 
@@ -177,7 +176,7 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-speech \
 
 **Submit Speech (Multipart Audio Scoring):**
 ```bash
-curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech \
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/submit-speech \
   -H "Authorization: Bearer <jwt>" \
   -F "audio=@/path/to/audio.wav" \
   -F "original_text=Hola, quisiera un café." \
@@ -193,7 +192,7 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-chat \
 
 **Submit Chat (AI Partner Request):**
 ```bash
-curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat \
+curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/submit-chat \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -207,15 +206,6 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/toggle-saved \
   -H "Authorization: Bearer <jwt>"
 ```
 
-**Generate Freeform Image:**
-```bash
-curl -X POST http://localhost:8080/api/v1/dialogs/generate-image \
-  -H "Authorization: Bearer <jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "An anime style cafe with pastel colors"
-  }'
-```
 
 ### 4. Videos
 

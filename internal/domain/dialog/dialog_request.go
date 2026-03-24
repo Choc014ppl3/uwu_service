@@ -148,29 +148,6 @@ func (req *ListDialogContentsRequest) ToInput() ListDialogContentsInput {
 	}
 }
 
-// -------------------------------------------------------------------------
-// Generate Image Request
-// -------------------------------------------------------------------------
-
-// GenerateImageRequest is the HTTP request struct for generating an image
-type GenerateImageRequest struct {
-	Prompt string `json:"prompt"`
-}
-
-// ParseAndValidate parses and validates the generate image request.
-func (req *GenerateImageRequest) ParseAndValidate(r *http.Request) error {
-	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		return errors.Validation("invalid request body")
-	}
-
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	if req.Prompt == "" {
-		return errors.Validation("prompt is required")
-	}
-
-	return nil
-}
 
 // -------------------------------------------------------------------------
 // Submit Speech Request
@@ -180,7 +157,6 @@ func (req *GenerateImageRequest) ParseAndValidate(r *http.Request) error {
 type SubmitSpeechRequest struct {
 	UserID           string
 	DialogID         string
-	ActionID         string
 	AudioFile        multipart.File
 	AudioContentType string
 	OriginalText     string
@@ -192,7 +168,6 @@ type SubmitSpeechRequest struct {
 type SubmitSpeechInput struct {
 	UserID           string
 	DialogID         string
-	ActionID         string
 	AudioFile        multipart.File
 	AudioContentType string
 	OriginalText     string
@@ -216,9 +191,8 @@ func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
 
 	// 2. Parse URL Params
 	req.DialogID = chi.URLParam(r, "dialogID")
-	req.ActionID = chi.URLParam(r, "actionID")
-	if req.DialogID == "" || req.ActionID == "" {
-		return errors.Validation("Dialog ID and Action ID are required")
+	if req.DialogID == "" {
+		return errors.Validation("Dialog ID is required")
 	}
 
 	// 3. Parse Multipart Form (10MB limit is enough for audio)
@@ -265,7 +239,6 @@ func (req *SubmitSpeechRequest) ToInput() SubmitSpeechInput {
 	return SubmitSpeechInput{
 		UserID:           req.UserID,
 		DialogID:         req.DialogID,
-		ActionID:         req.ActionID,
 		AudioFile:        req.AudioFile,
 		AudioContentType: req.AudioContentType,
 		OriginalText:     req.OriginalText,
@@ -282,7 +255,6 @@ func (req *SubmitSpeechRequest) ToInput() SubmitSpeechInput {
 type SubmitChatRequest struct {
 	UserID   string `json:"-"`
 	DialogID string `json:"-"`
-	ActionID string `json:"-"`
 	Message  string `json:"message"`
 }
 
@@ -290,7 +262,6 @@ type SubmitChatRequest struct {
 type SubmitChatInput struct {
 	UserID   string
 	DialogID string
-	ActionID string
 	Message  string
 }
 
@@ -303,9 +274,8 @@ func (req *SubmitChatRequest) ParseAndValidate(r *http.Request) error {
 
 	// 2. Parse URL Params
 	req.DialogID = chi.URLParam(r, "dialogID")
-	req.ActionID = chi.URLParam(r, "actionID")
-	if req.DialogID == "" || req.ActionID == "" {
-		return errors.Validation("Dialog ID and Action ID are required")
+	if req.DialogID == "" {
+		return errors.Validation("Dialog ID is required")
 	}
 
 	// 3. Parse JSON Body
@@ -327,7 +297,6 @@ func (req *SubmitChatRequest) ToInput() SubmitChatInput {
 	return SubmitChatInput{
 		UserID:   req.UserID,
 		DialogID: req.DialogID,
-		ActionID: req.ActionID,
 		Message:  req.Message,
 	}
 }

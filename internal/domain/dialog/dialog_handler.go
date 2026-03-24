@@ -148,7 +148,7 @@ func (h *DialogHandler) StartSpeech(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
-// SubmitSpeech handles POST /api/v1/dialogs/{dialogID}/actions/{actionID}/submit-speech
+// SubmitSpeech handles POST /api/v1/dialogs/{dialogID}/submit-speech
 func (h *DialogHandler) SubmitSpeech(w http.ResponseWriter, r *http.Request) {
 	var req SubmitSpeechRequest
 	defer req.Close()
@@ -190,27 +190,8 @@ func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
 	response.OK(w, result)
 }
 
-// GenerateImage handles POST /api/v1/dialogs/generate-image
-func (h *DialogHandler) GenerateImage(w http.ResponseWriter, r *http.Request) {
-	// 1. parse and validate request
-	var req GenerateImageRequest
-	if err := req.ParseAndValidate(r); err != nil {
-		response.HandleError(w, err)
-		return
-	}
 
-	// 2. generate image and upload to R2
-	result, err := h.service.GenerateImage(r.Context(), req.Prompt)
-	if err != nil {
-		response.HandleError(w, err)
-		return
-	}
-
-	// 3. response success
-	response.OK(w, result)
-}
-
-// SubmitChat handles POST /api/v1/dialogs/{dialogID}/actions/{actionID}/submit-chat
+// SubmitChat handles POST /api/v1/dialogs/{dialogID}/submit-chat
 func (h *DialogHandler) SubmitChat(w http.ResponseWriter, r *http.Request) {
 	var req SubmitChatRequest
 	if err := req.ParseAndValidate(r); err != nil {

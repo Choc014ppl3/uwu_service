@@ -52,10 +52,6 @@ type StartActionResponse struct {
 	UserID   string `json:"user_id"`
 }
 
-// GenerateImageResponse is returned after generating an image.
-type GenerateImageResponse struct {
-	ImageURL string `json:"image_url"`
-}
 
 // ChatMetadata is the structure stored in user_actions.metadata for chat actions.
 type ChatMetadata struct {
@@ -403,26 +399,35 @@ func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string
 
 // SubmitSpeech handles the logic of scoring speech and saving the result.
 func (s *DialogService) SubmitSpeech(ctx context.Context, req SubmitSpeechInput) (interface{}, *errors.AppError) {
-	// 1. Read audio bytes
-	audioBytes, err := io.ReadAll(req.AudioFile)
+	// 1. Get active action
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, req.DialogID, req.UserID, "submit_speech")
 	if err != nil {
-		return nil, errors.ValidationWrap("failed to read audio file", err)
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.NotFound("speech action not found for this dialog")
 	}
 
-	// 2. Evaluate Pronunciation via Azure Speech
+	// 2. Read audio bytes
+	audioBytes, rErr := io.ReadAll(req.AudioFile)
+	if rErr != nil {
+		return nil, errors.ValidationWrap("failed to read audio file", rErr)
+	}
+
+	// 3. Evaluate Pronunciation via Azure Speech
 	scoreData, evalErr := s.audioRepo.EvaluateSpeech(ctx, audioBytes, req.OriginalText, req.Language)
 	if evalErr != nil {
 		return nil, evalErr
 	}
 
-	// 3. Upload User Audio to R2
-	audioPath := fmt.Sprintf("dialogs/%s/actions/%s_speech.wav", req.DialogID, req.ActionID)
+	// 4. Upload User Audio to R2
+	audioPath := fmt.Sprintf("dialogs/%s/actions/%s_speech.wav", req.DialogID, action.ID)
 	audioURL, uploadErr := s.fileRepo.UploadBytes(ctx, audioBytes, audioPath, req.AudioContentType)
 	if uploadErr != nil {
 		return nil, uploadErr
 	}
 
-	// 4. Construct Metadata
+	// 5. Construct Metadata
 	metadata := map[string]interface{}{
 		"audio_url":    audioURL,
 		"script_index": req.ScriptIndex,
@@ -430,8 +435,8 @@ func (s *DialogService) SubmitSpeech(ctx context.Context, req SubmitSpeechInput)
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 
-	// 5. Update user_actions table
-	if saveErr := s.dialogRepo.SubmitSpeechAction(ctx, req.ActionID, req.UserID, metadataJSON); saveErr != nil {
+	// 6. Update user_actions table
+	if saveErr := s.dialogRepo.SubmitSpeechAction(ctx, action.ID, req.UserID, metadataJSON); saveErr != nil {
 		return nil, saveErr
 	}
 
@@ -470,9 +475,12 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 	}
 
 	// 2. Get existing chat action metadata (conversation history + progress)
-	action, appErr := s.dialogRepo.GetChatAction(ctx, input.ActionID, input.UserID)
-	if appErr != nil {
-		return nil, appErr
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, input.DialogID, input.UserID, "submit_chat")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.NotFound("chat action not found for this dialog")
 	}
 
 	var chatMeta ChatMetadata
@@ -510,13 +518,13 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 	}
 
 	// 6. Save updated metadata
-	metadataJSON, err := json.Marshal(chatMeta)
-	if err != nil {
-		return nil, errors.InternalWrap("failed to marshal chat metadata", err)
+	metadataJSON, mErr := json.Marshal(chatMeta)
+	if mErr != nil {
+		return nil, errors.InternalWrap("failed to marshal chat metadata", mErr)
 	}
 
-	if appErr := s.dialogRepo.UpdateChatAction(ctx, input.ActionID, input.UserID, metadataJSON); appErr != nil {
-		return nil, appErr
+	if err := s.dialogRepo.UpdateChatAction(ctx, action.ID, input.UserID, metadataJSON); err != nil {
+		return nil, err
 	}
 
 	// 7. Return response
@@ -528,26 +536,6 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 	}, nil
 }
 
-// GenerateImage generates an image from a prompt, uploads it to R2, and returns the URL.
-func (s *DialogService) GenerateImage(ctx context.Context, prompt string) (*GenerateImageResponse, *errors.AppError) {
-	// 1. Generate image bytes
-	imageBytes, err := s.imageRepo.GenerateImage(ctx, prompt)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Upload to R2
-	imageID := uuid.New().String()
-	key := fmt.Sprintf("dialogs/images/%s.png", imageID)
-	imageURL, err := s.fileRepo.UploadBytes(ctx, imageBytes, key, "image/png")
-	if err != nil {
-		return nil, err
-	}
-
-	return &GenerateImageResponse{
-		ImageURL: imageURL,
-	}, nil
-}
 
 func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, message string) {
 	for _, processName := range GetProcessNames()[1:] {

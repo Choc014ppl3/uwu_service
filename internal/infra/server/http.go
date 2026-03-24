@@ -81,7 +81,6 @@ func NewHTTPServer(
 			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
 			r.Post("/dialogs/{dialogID}/submit-chat", dialogHandler.SubmitChat)
 			r.Post("/dialogs/{dialogID}/submit-speech", dialogHandler.SubmitSpeech)
-			r.Post("/dialogs/generate-image", dialogHandler.GenerateImage) // remove this API later
 
 			// Video
 			r.Get("/videos/contents", videoHandler.ListVideoContents)

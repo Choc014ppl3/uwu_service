@@ -18,6 +18,7 @@ const FeatureID = 2
 type UserAction struct {
 	ID         string          `json:"id"`
 	UserID     string          `json:"user_id"`
+	LearningID string          `json:"learning_id"`
 	ActionType string          `json:"action_type"`
 	Metadata   json.RawMessage `json:"metadata"`
 	CreatedAt  time.Time       `json:"created_at"`
@@ -63,6 +64,7 @@ type DialogRepository interface {
 	ListDialogs(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
+	GetActionByUserID(ctx context.Context, learningID, userID, actionType string) (*UserAction, bool, *errors.AppError)
 	ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError)
 	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
 	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
@@ -261,6 +263,36 @@ func (r *dialogRepository) UpdateDialog(ctx context.Context, item *LearningItem)
 	}
 
 	return nil
+}
+
+func (r *dialogRepository) GetActionByUserID(ctx context.Context, learningID, userID, actionType string) (*UserAction, bool, *errors.AppError) {
+	query := `
+		SELECT id, user_id, learning_id, action_type, metadata, created_at, updated_at
+		FROM user_actions
+		WHERE learning_id = $1 AND user_id = $2 AND action_type = $3 AND deleted_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	var action UserAction
+	err := r.db.Pool.QueryRow(ctx, query, learningID, userID, actionType).Scan(
+		&action.ID,
+		&action.UserID,
+		&action.LearningID,
+		&action.ActionType,
+		&action.Metadata,
+		&action.CreatedAt,
+		&action.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, errors.InternalWrap("failed to get action by user ID", err)
+	}
+
+	return &action, true, nil
 }
 
 func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError) {
