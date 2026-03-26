@@ -398,9 +398,12 @@ type SubmitRetellRequest struct {
 
 // SubmitRetellInput is the input struct for service
 type SubmitRetellInput struct {
-	UserID    string
-	VideoID   string
-	AudioFile multipart.File
+	UserID       string
+	VideoID      string
+	AttemptID    string
+	AudioFile    multipart.File
+	AudioWavPath string
+	AudioM4APath string
 }
 
 func (req *SubmitRetellRequest) Close() {
@@ -439,10 +442,17 @@ func (req *SubmitRetellRequest) ParseAndValidate(r *http.Request) error {
 }
 
 func (req *SubmitRetellRequest) ToInput() SubmitRetellInput {
+	attemptID := uuid.New().String()
+
+	audioWavPath := fmt.Sprintf("retell-storey/%s.wav", attemptID)
+	audioM4APath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.m4a", attemptID))
+
 	return SubmitRetellInput{
-		UserID:    req.UserID,
-		VideoID:   req.VideoID,
-		AudioFile: req.AudioFile,
+		UserID:       req.UserID,
+		VideoID:      req.VideoID,
+		AudioFile:    req.AudioFile,
+		AudioWavPath: audioWavPath,
+		AudioM4APath: audioM4APath,
 	}
 }
 

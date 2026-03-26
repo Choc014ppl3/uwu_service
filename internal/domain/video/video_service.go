@@ -3,9 +3,8 @@ package video
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
-	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -78,13 +77,13 @@ type VideoRetell struct {
 // GistQuizMetadata represents the metadata for gist quiz actions
 type GistQuizMetadata struct {
 	GistQuiz *VideoGistQuiz    `json:"gist_quiz,omitempty"`
-	Attempts []GistQuizAttempt `json:"attempts,omitempty"`
+	Attempts []GistQuizAttempt `json:"attempts"`
 }
 
 // RetellStoryMetadata represents the metadata for retell story actions
 type RetellStoryMetadata struct {
 	RetellStory *VideoRetell    `json:"retell_story,omitempty"`
-	Attempts    []RetellAttempt `json:"attempts,omitempty"`
+	Attempts    []RetellAttempt `json:"attempts"`
 }
 
 // GistQuizAttempt represents a single attempt at the multiple-choice gist quiz
@@ -97,29 +96,13 @@ type GistQuizAttempt struct {
 
 // RetellAttempt represents a single attempt at the audio retell story
 type RetellAttempt struct {
-	AttemptID        string         `json:"attempt_id"`
-	AudioURL         string         `json:"audio_url"`
-	Transcript       string         `json:"transcript"`
-	RetellScore      float64        `json:"retell_score"`
-	MatchesKeyPoints []string       `json:"matches_key_points"`
-	RetellAnalysis   string         `json:"retell_analysis"`
-	ScoringBreakdown map[string]any `json:"scoring_breakdown"`
-	SubmittedAt      time.Time      `json:"submitted_at"`
-}
-
-type SubmitGistQuizResponse struct {
-	AttemptID string  `json:"attempt_id"`
-	QuizScore float64 `json:"quiz_score"`
-}
-
-type SubmitRetellResponse struct {
-	AttemptID   string  `json:"attempt_id"`
-	RetellScore float64 `json:"retell_score"`
-}
-
-// SubmitQuizResponse is returned after submitting a quiz attempt
-type SubmitQuizResponse struct {
-	Score float64 `json:"score"`
+	AttemptID        string    `json:"attempt_id"`
+	AudioURL         string    `json:"audio_url"`
+	Transcript       string    `json:"transcript"`
+	RetellScore      float64   `json:"retell_score"`
+	MatchesKeyPoints []string  `json:"matches_key_points"`
+	RetellAnalysis   string    `json:"retell_analysis"`
+	SubmittedAt      time.Time `json:"submitted_at"`
 }
 
 type gistQuizOption struct {
@@ -129,12 +112,12 @@ type gistQuizOption struct {
 }
 
 type gistQuizQuestion struct {
-	ID          int              `json:"id"`
-	Type        string           `json:"type"`
-	Options     []gistQuizOption  `json:"options"`
-	Category    string           `json:"category"`
-	Question    string           `json:"question"`
-	CorrectOrder []string        `json:"correct_order"`
+	ID           int              `json:"id"`
+	Type         string           `json:"type"`
+	Options      []gistQuizOption `json:"options"`
+	Category     string           `json:"category"`
+	Question     string           `json:"question"`
+	CorrectOrder []string         `json:"correct_order"`
 }
 
 // NewVideoService creates a new VideoService.
@@ -513,7 +496,7 @@ func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) 
 }
 
 // SubmitGistQuiz handles the submission and scoring of a gist quiz.
-func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizInput) (*SubmitGistQuizResponse, *errors.AppError) {
+func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizInput) (*GistQuizAttempt, *errors.AppError) {
 	// 1. Get existing action by videoID, userID, and type
 	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_quiz")
 	if err != nil {
@@ -553,20 +536,31 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 
 	// 4. Update metadata
 	metadata.Attempts = append(metadata.Attempts, attempt)
+
+	// Sort by score (desc) then by date (desc)
+	sort.Slice(metadata.Attempts, func(i, j int) bool {
+		if metadata.Attempts[i].QuizScore != metadata.Attempts[j].QuizScore {
+			return metadata.Attempts[i].QuizScore > metadata.Attempts[j].QuizScore
+		}
+		return metadata.Attempts[i].SubmittedAt.After(metadata.Attempts[j].SubmittedAt)
+	})
+
+	// Keep only top 3
+	if len(metadata.Attempts) > 3 {
+		metadata.Attempts = metadata.Attempts[:3]
+	}
+
 	metadataJSON, _ := json.Marshal(metadata)
 
 	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
 		return nil, err
 	}
 
-	return &SubmitGistQuizResponse{
-		AttemptID: attemptID,
-		QuizScore: quizScore,
-	}, nil
+	return &attempt, nil
 }
 
 // SubmitRetellStory handles the submission and AI evaluation of a retell story.
-func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*SubmitRetellResponse, *errors.AppError) {
+func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*RetellAttempt, *errors.AppError) {
 	// 1. Get existing action by videoID, userID, and type
 	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_retell")
 	if err != nil {
@@ -615,22 +609,18 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 		return nil, err
 	}
 
-	attemptID := uuid.New().String()
-	objectKey := fmt.Sprintf("retell-quiz/%s-%s.m4a", action.ID, attemptID)
-	m4aPath := filepath.Join(os.TempDir(), attemptID+".m4a")
-	defer os.Remove(m4aPath)
-
-	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), m4aPath); err != nil {
+	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), input.AudioM4APath); err != nil {
 		return nil, err
 	}
+	defer os.Remove(input.AudioM4APath)
 
-	m4aFile, openErr := os.Open(m4aPath)
+	m4aFile, openErr := os.Open(input.AudioM4APath)
 	if openErr != nil {
 		return nil, errors.InternalWrap("failed to open m4a file", openErr)
 	}
 	defer m4aFile.Close()
 
-	audioURL, err := s.fileRepo.UploadToR2(ctx, m4aFile, objectKey, m4aPath, "audio/mp4")
+	audioURL, err := s.fileRepo.UploadToR2(ctx, m4aFile, input.AudioWavPath, input.AudioM4APath, "audio/m4a")
 	if err != nil {
 		return nil, err
 	}
@@ -643,29 +633,52 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 
 	// 5. Create attempt
 	attempt := RetellAttempt{
-		AttemptID:        attemptID,
+		AttemptID:        input.AttemptID,
 		AudioURL:         audioURL,
 		Transcript:       transcript.Text,
 		RetellScore:      eval.Score,
 		MatchesKeyPoints: eval.MatchesKeyPoints,
 		RetellAnalysis:   eval.Analysis,
-		ScoringBreakdown: map[string]any{
-			"retell_score": eval.Score,
-		},
-		SubmittedAt: time.Now().UTC(),
+		SubmittedAt:      time.Now().UTC(),
 	}
 
 	// 6. Update metadata
 	metadata.Attempts = append(metadata.Attempts, attempt)
+
+	// Sort by score (desc) then by date (desc)
+	sort.Slice(metadata.Attempts, func(i, j int) bool {
+		if metadata.Attempts[i].RetellScore != metadata.Attempts[j].RetellScore {
+			return metadata.Attempts[i].RetellScore > metadata.Attempts[j].RetellScore
+		}
+		return metadata.Attempts[i].SubmittedAt.After(metadata.Attempts[j].SubmittedAt)
+	})
+
+	// Keep only top 3
+	if len(metadata.Attempts) > 3 {
+		metadata.Attempts = metadata.Attempts[:3]
+	}
+
 	metadataJSON, _ := json.Marshal(metadata)
 
 	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
 		return nil, err
 	}
 
-	return &SubmitRetellResponse{
-		AttemptID:   attemptID,
-		RetellScore: eval.Score,
+	return &attempt, nil
+}
+
+// ToggleTranscript toggles the transcript action for a video.
+func (s *VideoService) ToggleTranscript(ctx context.Context, videoID, userID string) (*ToggleTranscriptResponse, *errors.AppError) {
+	actionID, enabled, err := s.videoRepo.ToggleTranscript(ctx, videoID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToggleTranscriptResponse{
+		ActionID:   actionID,
+		VideoID:    videoID,
+		UserID:     userID,
+		Transcript: enabled,
 	}, nil
 }
 
@@ -743,19 +756,4 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 	}
 
 	return (total / float64(len(questions))) * 100
-}
-
-// ToggleTranscript toggles the transcript action for a video.
-func (s *VideoService) ToggleTranscript(ctx context.Context, videoID, userID string) (*ToggleTranscriptResponse, *errors.AppError) {
-	actionID, enabled, err := s.videoRepo.ToggleTranscript(ctx, videoID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ToggleTranscriptResponse{
-		ActionID:   actionID,
-		VideoID:    videoID,
-		UserID:     userID,
-		Transcript: enabled,
-	}, nil
 }

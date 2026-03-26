@@ -12,7 +12,7 @@ import (
 )
 
 // The unified system prompt used to generate details and quiz from a transcript.
-const systemPrompt = `Role
+const videoDetailsSystemPrompt = `Role
 You are an expert Linguistic and Educational Content Analyzer. Your task is to analyze the transcript and generate structured learning content in a strict JSON format.
 
 # Instructions
@@ -138,6 +138,24 @@ You MUST generate exactly:
 }
 `
 
+const evaluateRetellSystemPrompt = `Role
+You are an expert language assessment AI. Your task is to evaluate a learner's story retell against a list of required key points. You must focus on semantic matching (meaning) rather than exact word-for-word matching
+
+Please evaluate the learner's transcript based on the following key points.
+
+Evaluation Guidelines:
+1. Score (0-100): Calculate the score based proportionally on how many key points were covered. Give partial credit if the meaning is mostly there but lacks detail.
+2. Semantic Matching: A key point is considered a "match" if the core idea is present in the transcript, even if paraphrased or using synonyms.
+3. Matches Key Points: Return an array of the exact original key point sentences that were successfully met.
+4. Analysis: Provide a brief, objective summary explaining why points were awarded or deducted.
+
+Respond strictly in the following JSON format, with no markdown formatting or extra text:
+{
+  "score": <float>,
+  "matches_key_points": ["<point 1>", "<point 2>"],
+  "analysis": "<string>"
+}`
+
 // AIRepository interface
 type AIRepository interface {
 	GenerateVideoTranscript(ctx context.Context, audioPath, language string) (*client.WhisperResponse, *errors.AppError)
@@ -152,9 +170,9 @@ type TranscriptSegment struct {
 }
 
 type RetellEvaluation struct {
-	Score           float64  `json:"score"`
+	Score            float64  `json:"score"`
 	MatchesKeyPoints []string `json:"matches_key_points"`
-	Analysis        string   `json:"analysis"`
+	Analysis         string   `json:"analysis"`
 }
 
 // aiRepository is the implementation of the AIRepository interface
@@ -216,22 +234,15 @@ func (r *aiRepository) GenerateVideoDetails(ctx context.Context, transcript *cli
 	detectedLanguage := transcript.Language
 	userMessage := fmt.Sprintf("Transcript:\n\"\"\"\n%s\n\"\"\"\n\nLanguage: %s", transcriptText, detectedLanguage)
 
-	responseText, err := r.chatGPT.ChatCompletion(ctx, systemPrompt, userMessage)
+	responseText, err := r.chatGPT.ChatCompletion(ctx, videoDetailsSystemPrompt, userMessage)
 	if err != nil {
 		return nil, err
 	}
 
-	// Clean up responseText
-	responseText = strings.TrimSpace(responseText)
-	responseText = strings.TrimPrefix(responseText, "```json")
-	responseText = strings.TrimPrefix(responseText, "```")
-	responseText = strings.TrimSuffix(responseText, "```")
-	responseText = strings.TrimSpace(responseText)
-
-	// Parse responseText
-	var videoDetails VideoDetails
-	if err := json.Unmarshal([]byte(responseText), &videoDetails); err != nil {
-		return nil, errors.InternalWrap("failed to parse video details", err)
+	// Clean up and Parse responseText
+	videoDetails, err := cleanAndParseJSONResponse[VideoDetails](responseText)
+	if err != nil {
+		return nil, err
 	}
 
 	// Update video details
@@ -239,46 +250,42 @@ func (r *aiRepository) GenerateVideoDetails(ctx context.Context, transcript *cli
 	videoDetails.Segments = segments
 	videoDetails.Transcript = transcriptText
 
-	return &videoDetails, nil
+	return videoDetails, nil
 }
 
 // EvaluateRetellStory compares the transcript against key points and returns a summary.
 func (r *aiRepository) EvaluateRetellStory(ctx context.Context, transcript string, keyPoints []string) (*RetellEvaluation, *errors.AppError) {
-	if strings.TrimSpace(transcript) == "" {
-		return nil, errors.Internal("empty transcript")
-	}
+	// Build LLM prompt
+	transcript = strings.TrimSpace(transcript)
+	keyPointsList := "- " + strings.Join(keyPoints, "\n- ")
+	userMessage := fmt.Sprintf("Required Key Points:\n\"\"\"\n%s\n\"\"\"\n\nLearner's Transcript: %s", keyPointsList, transcript)
 
-	if len(keyPoints) == 0 {
-		return &RetellEvaluation{Score: 0, MatchesKeyPoints: []string{}, Analysis: "No key points provided."}, nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("Evaluate the retell quality against the key points. Return strict JSON only.\n")
-	sb.WriteString("Format: {\"score\": number, \"matches_key_points\": [\"...\"], \"analysis\": \"...\"}\n")
-	sb.WriteString("Key points:\n")
-	for _, kp := range keyPoints {
-		sb.WriteString("- ")
-		sb.WriteString(kp)
-		sb.WriteString("\n")
-	}
-	sb.WriteString("Transcript:\n")
-	sb.WriteString(transcript)
-
-	responseText, err := r.chatGPT.ChatCompletion(ctx, "You evaluate learner retells against key points.", sb.String())
+	// Call AI
+	responseText, err := r.chatGPT.ChatCompletion(ctx, evaluateRetellSystemPrompt, userMessage)
 	if err != nil {
 		return nil, err
 	}
 
-	responseText = strings.TrimSpace(responseText)
-	responseText = strings.TrimPrefix(responseText, "```json")
-	responseText = strings.TrimPrefix(responseText, "```")
-	responseText = strings.TrimSuffix(responseText, "```")
-	responseText = strings.TrimSpace(responseText)
-
-	var evaluation RetellEvaluation
-	if err := json.Unmarshal([]byte(responseText), &evaluation); err != nil {
-		return nil, errors.InternalWrap("failed to parse retell evaluation", err)
+	// Clean up and Parse responseText
+	evaulate, err := cleanAndParseJSONResponse[RetellEvaluation](responseText)
+	if err != nil {
+		return nil, err
 	}
 
-	return &evaluation, nil
+	return evaulate, nil
+}
+
+func cleanAndParseJSONResponse[T any](response string) (*T, *errors.AppError) {
+	cleaned := strings.TrimSpace(response)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	var result T
+	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
+		return nil, errors.InternalWrap("failed to parse LLM response", err)
+	}
+
+	return &result, nil
 }

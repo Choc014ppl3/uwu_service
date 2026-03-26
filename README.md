@@ -131,9 +131,10 @@ curl -X GET http://localhost:8080/health
 curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "testuser",
     "email": "test@example.com",
-    "password": "password123"
+    "password": "password123",
+    "display_name": "testuser",
+    "avatar_url": "https://api.dicebear.com/7.x/initials/svg?seed=testuser"
   }'
 ```
 
@@ -164,7 +165,8 @@ curl -X POST http://localhost:8080/api/v1/dialogs/generate \
     "topic": "Ordering Coffee",
     "description": "At a busy coffee shop",
     "language": "spanish",
-    "level": "intermediate"
+    "level": "intermediate",
+    "tags": ["travel", "food"]
   }'
 ```
 
