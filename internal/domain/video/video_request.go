@@ -402,8 +402,10 @@ type SubmitRetellInput struct {
 	VideoID      string
 	AttemptID    string
 	AudioFile    multipart.File
+	AudioR2Path  string
+	AudioM4aPath string
 	AudioWavPath string
-	AudioM4APath string
+	AudioType    string
 }
 
 func (req *SubmitRetellRequest) Close() {
@@ -437,22 +439,25 @@ func (req *SubmitRetellRequest) ParseAndValidate(r *http.Request) error {
 	}
 	req.AudioFile = audioFile
 	req.AudioHeader = audioHeader
-
 	return nil
 }
 
 func (req *SubmitRetellRequest) ToInput() SubmitRetellInput {
 	attemptID := uuid.New().String()
 
-	audioWavPath := fmt.Sprintf("retell-storey/%s.wav", attemptID)
-	audioM4APath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.m4a", attemptID))
+	audioR2Path := fmt.Sprintf("retell-story/%s.m4a", attemptID)
+	audioWavPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.wav", attemptID))
+	audioM4aPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.m4a", attemptID))
 
 	return SubmitRetellInput{
+		AttemptID:    attemptID,
 		UserID:       req.UserID,
 		VideoID:      req.VideoID,
 		AudioFile:    req.AudioFile,
+		AudioR2Path:  audioR2Path,
 		AudioWavPath: audioWavPath,
-		AudioM4APath: audioM4APath,
+		AudioM4aPath: audioM4aPath,
+		AudioType:    "audio/m4a",
 	}
 }
 

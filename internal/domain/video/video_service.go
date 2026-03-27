@@ -98,6 +98,7 @@ type GistQuizAttempt struct {
 type RetellAttempt struct {
 	AttemptID        string    `json:"attempt_id"`
 	AudioURL         string    `json:"audio_url"`
+	MimeType         string    `json:"mimeType"`
 	Transcript       string    `json:"transcript"`
 	RetellScore      float64   `json:"retell_score"`
 	MatchesKeyPoints []string  `json:"matches_key_points"`
@@ -537,15 +538,12 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 	// 4. Update metadata
 	metadata.Attempts = append(metadata.Attempts, attempt)
 
-	// Sort by score (desc) then by date (desc)
+	// Sort by date (desc) to keep 3 latest
 	sort.Slice(metadata.Attempts, func(i, j int) bool {
-		if metadata.Attempts[i].QuizScore != metadata.Attempts[j].QuizScore {
-			return metadata.Attempts[i].QuizScore > metadata.Attempts[j].QuizScore
-		}
 		return metadata.Attempts[i].SubmittedAt.After(metadata.Attempts[j].SubmittedAt)
 	})
 
-	// Keep only top 3
+	// Keep only latest 3
 	if len(metadata.Attempts) > 3 {
 		metadata.Attempts = metadata.Attempts[:3]
 	}
@@ -560,7 +558,7 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 }
 
 // SubmitRetellStory handles the submission and AI evaluation of a retell story.
-func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*RetellAttempt, *errors.AppError) {
+func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*StartRetellResponse, *errors.AppError) {
 	// 1. Get existing action by videoID, userID, and type
 	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_retell")
 	if err != nil {
@@ -598,29 +596,28 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 	}
 
 	// 3. Process audio
-	tempWav, err := s.fileRepo.SaveMultipartToTemp(input.AudioFile, "retell_*.wav")
+	tempWav, err := s.fileRepo.SaveMultipartToTemp(input.AudioFile, input.AudioWavPath)
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tempWav.Name())
+
+	// สำคัญ: ต้องมั่นใจว่าไฟล์ถูกปิดและถูกลบเมื่อจบฟังก์ชันนี้
+	defer func() {
+		tempWav.Close()
+		os.Remove(tempWav.Name())
+	}()
 
 	transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, tempWav.Name(), videoItem.Language)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), input.AudioM4APath); err != nil {
+	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), input.AudioM4aPath); err != nil {
 		return nil, err
 	}
-	defer os.Remove(input.AudioM4APath)
+	defer os.Remove(input.AudioM4aPath)
 
-	m4aFile, openErr := os.Open(input.AudioM4APath)
-	if openErr != nil {
-		return nil, errors.InternalWrap("failed to open m4a file", openErr)
-	}
-	defer m4aFile.Close()
-
-	audioURL, err := s.fileRepo.UploadToR2(ctx, m4aFile, input.AudioWavPath, input.AudioM4APath, "audio/m4a")
+	audioURL, err := s.fileRepo.UploadReaderToR2(ctx, input.AudioM4aPath, input.AudioR2Path, input.AudioType)
 	if err != nil {
 		return nil, err
 	}
@@ -635,6 +632,7 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 	attempt := RetellAttempt{
 		AttemptID:        input.AttemptID,
 		AudioURL:         audioURL,
+		MimeType:         "audio/m4a",
 		Transcript:       transcript.Text,
 		RetellScore:      eval.Score,
 		MatchesKeyPoints: eval.MatchesKeyPoints,
@@ -645,15 +643,12 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 	// 6. Update metadata
 	metadata.Attempts = append(metadata.Attempts, attempt)
 
-	// Sort by score (desc) then by date (desc)
+	// Sort by date (desc) to keep 3 latest
 	sort.Slice(metadata.Attempts, func(i, j int) bool {
-		if metadata.Attempts[i].RetellScore != metadata.Attempts[j].RetellScore {
-			return metadata.Attempts[i].RetellScore > metadata.Attempts[j].RetellScore
-		}
 		return metadata.Attempts[i].SubmittedAt.After(metadata.Attempts[j].SubmittedAt)
 	})
 
-	// Keep only top 3
+	// Keep only latest 3
 	if len(metadata.Attempts) > 3 {
 		metadata.Attempts = metadata.Attempts[:3]
 	}
@@ -664,7 +659,13 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 		return nil, err
 	}
 
-	return &attempt, nil
+	return &StartRetellResponse{
+		ActionID:    action.ID,
+		VideoID:     input.VideoID,
+		UserID:      input.UserID,
+		RetellStory: metadata.RetellStory,
+		Attempts:    metadata.Attempts,
+	}, nil
 }
 
 // ToggleTranscript toggles the transcript action for a video.
