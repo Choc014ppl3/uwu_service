@@ -702,9 +702,10 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 		return 0
 	}
 
-	answerMap := map[int]QuizAnswer{}
-	for _, ans := range answers {
-		answerMap[ans.QuizID] = ans
+	// Use pointers to modify the original slice elements
+	answerMap := map[int]*QuizAnswer{}
+	for i := range answers {
+		answerMap[answers[i].QuizID] = &answers[i]
 	}
 
 	// Question weights by ID: Q1=30%, Q2=30%, Q3=40%
@@ -727,6 +728,7 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 			weight = 100.0 / float64(len(questions))
 		}
 
+		var qScore float64
 		switch quiz.Type {
 
 		// Q2: single_choice — all-or-nothing, no special condition
@@ -739,14 +741,15 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 				}
 			}
 			if len(ans.OptionIDs) == 1 && ans.OptionIDs[0] == correct {
-				total += weight
+				qScore = weight
+			} else {
+				qScore = 0
 			}
 
 		// Q1: multiple_response — per-choice gain/loss
 		//   choice_value = weight / total_correct_choices
 		//   each correct pick: +choice_value
 		//   each wrong pick:   -choice_value
-		//   floored at 0 (cannot subtract from total score)
 		case "multiple_response":
 			correctSet := map[string]struct{}{}
 			for _, opt := range quiz.Options {
@@ -756,38 +759,36 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 			}
 			totalCorrect := float64(len(correctSet))
 			if totalCorrect == 0 {
+				qScore = 0
 				break
 			}
 			choiceValue := weight / totalCorrect
-			var q1Score float64
 			for _, id := range ans.OptionIDs {
 				if _, ok := correctSet[id]; ok {
-					q1Score += choiceValue
+					qScore += choiceValue
 				} else {
-					q1Score -= choiceValue
+					qScore -= choiceValue
 				}
 			}
-			if q1Score < 0 {
-				q1Score = 0
-			}
-			total += q1Score
 
 		// Q3: ordering — check by position, partial credit per correct position
 		//   position_value = weight / total_positions
 		//   each position where user order matches correct order: +position_value
 		case "ordering":
 			if len(quiz.CorrectOrder) == 0 {
+				qScore = 0
 				break
 			}
 			positionValue := weight / float64(len(quiz.CorrectOrder))
-			var q3Score float64
 			for i := range quiz.CorrectOrder {
 				if i < len(ans.Order) && ans.Order[i] == quiz.CorrectOrder[i] {
-					q3Score += positionValue
+					qScore += positionValue
 				}
 			}
-			total += q3Score
 		}
+
+		ans.Score = qScore
+		total += qScore
 	}
 
 	return total

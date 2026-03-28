@@ -335,6 +335,7 @@ type QuizAnswer struct {
 	Type      string   `json:"type"`
 	OptionIDs []string `json:"option_ids,omitempty"`
 	Order     []string `json:"order,omitempty"`
+	Score     float64  `json:"score"`
 }
 
 // SubmitGistQuizRequest is the HTTP request struct for submitting a gist quiz
