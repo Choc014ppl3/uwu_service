@@ -55,3 +55,8 @@ func (c *CloudflareClient) UploadR2Object(ctx context.Context, key string, data 
 	// Return the public URL
 	return fmt.Sprintf("%s/%s", c.cdnURL, key), nil
 }
+
+// GetR2ObjectURL returns the public URL for a given key.
+func (c *CloudflareClient) GetR2ObjectURL(key string) string {
+	return fmt.Sprintf("%s/%s", c.cdnURL, key)
+}

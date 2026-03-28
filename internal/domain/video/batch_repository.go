@@ -19,11 +19,16 @@ const completedBatchTTL = 10 * time.Minute
 
 // Batch processes:
 const (
+	// Upload Video Processes
 	PROCESS_UPLOAD_VIDEO        = "upload_video"
 	PROCESS_UPLOAD_THUMBNAIL    = "upload_thumbnail"
 	PROCESS_GENERATE_TRANSCRIPT = "generate_transcript"
 	PROCESS_GENERATE_DETAILS    = "generate_details"
 	PROCESS_SAVE_VIDEO          = "save_video"
+	// Evaluate Retell Processes
+	PROCESS_UPLOAD_RETELL_AUDIO = "upload_retell_audio"
+	PROCESS_EVALUATE_RETEL      = "evaluate_retel"
+	PROCESS_SAVE_RETEL          = "save_retel"
 )
 
 // Batch status:
@@ -35,7 +40,7 @@ const (
 	BATCH_UNKNOWN    = "unknown"
 )
 
-func GetProcessNames() []string {
+func GetUploadVideoProcessNames() []string {
 	return []string{
 		PROCESS_UPLOAD_VIDEO,
 		PROCESS_UPLOAD_THUMBNAIL,
@@ -45,11 +50,22 @@ func GetProcessNames() []string {
 	}
 }
 
+func GetEvaluateRetellProcessNames() []string {
+	return []string{
+		PROCESS_UPLOAD_RETELL_AUDIO,
+		PROCESS_EVALUATE_RETEL,
+		PROCESS_SAVE_RETEL,
+	}
+}
+
 // BatchRepository interface
 type BatchRepository interface {
-	GetBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
-	CreateBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
-	UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string) error
+	GetUploadVideoBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
+	GetEvaluateRetellBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
+	CreateUploadVideoBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
+	CreateEvaluateRetellBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError)
+	UpdateUploadVideoJob(ctx context.Context, batchID, jobName, status, jobErr string) error
+	UpdateEvaluateRetellJob(ctx context.Context, batchID, jobName, status, jobErr string) error
 	SetBatchResult(ctx context.Context, batchID string, result json.RawMessage) error
 }
 
@@ -67,8 +83,44 @@ func NewBatchRepository(redis *client.RedisClient, log *slog.Logger) BatchReposi
 	}
 }
 
+// GetUploadVideoBatch returns the full batch status including all jobs.
+func (r *batchRepository) GetUploadVideoBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+	processNames := GetUploadVideoProcessNames()
+	return r.GetBatch(ctx, batchID, processNames)
+}
+
+// GetEvaluateRetellBatch returns the full batch status including all jobs.
+func (r *batchRepository) GetEvaluateRetellBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+	processNames := GetEvaluateRetellProcessNames()
+	return r.GetBatch(ctx, batchID, processNames)
+}
+
+// CreateUploadVideoBatch initializes a batch and its jobs in Redis.
+func (r *batchRepository) CreateUploadVideoBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+	processNames := GetUploadVideoProcessNames()
+	return r.CreateBatch(ctx, batchID, processNames)
+}
+
+// CreateEvaluateRetellBatch initializes a batch and its jobs in Redis.
+func (r *batchRepository) CreateEvaluateRetellBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+	processNames := GetEvaluateRetellProcessNames()
+	return r.CreateBatch(ctx, batchID, processNames)
+}
+
+// UpldateUploadVideoBatch updates a batch and its jobs in Redis.
+func (r *batchRepository) UpdateUploadVideoJob(ctx context.Context, batchID, jobName, status, jobErr string) error {
+	processNames := GetUploadVideoProcessNames()
+	return r.UpdateJob(ctx, batchID, jobName, status, jobErr, processNames)
+}
+
+// UpdateEvaluateRetellJob updates a batch and its jobs in Redis.
+func (r *batchRepository) UpdateEvaluateRetellJob(ctx context.Context, batchID, jobName, status, jobErr string) error {
+	processNames := GetEvaluateRetellProcessNames()
+	return r.UpdateJob(ctx, batchID, jobName, status, jobErr, processNames)
+}
+
 // GetBatch returns the full batch status including all jobs.
-func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+func (r *batchRepository) GetBatch(ctx context.Context, batchID string, processNames []string) (*response.MetaProcessing, *errors.AppError) {
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 	batchFields, err := r.redis.HGetAll(ctx, batchKey)
 	if err != nil {
@@ -99,7 +151,6 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*respon
 		return nil, errors.NotFoundWrap("failed to get jobs", err)
 	}
 
-	processNames := GetProcessNames()
 	if namesRaw, ok := batchFields["job_names"]; ok && namesRaw != "" {
 		var customNames []string
 		if err := json.Unmarshal([]byte(namesRaw), &customNames); err == nil && len(customNames) > 0 {
@@ -127,9 +178,8 @@ func (r *batchRepository) GetBatch(ctx context.Context, batchID string) (*respon
 }
 
 // CreateBatch initializes a batch and its jobs in Redis.
-func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*response.MetaProcessing, *errors.AppError) {
+func (r *batchRepository) CreateBatch(ctx context.Context, batchID string, processNames []string) (*response.MetaProcessing, *errors.AppError) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	processNames := GetProcessNames()
 	totalJobs := len(processNames)
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 
@@ -192,7 +242,7 @@ func (r *batchRepository) CreateBatch(ctx context.Context, batchID string) (*res
 }
 
 // UpdateJob updates a single job within the batch and recalculates batch state.
-func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string) error {
+func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, status, jobErr string, processNames []string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	job := response.BatchJob{
 		Name:   jobName,
@@ -221,7 +271,6 @@ func (r *batchRepository) UpdateJob(ctx context.Context, batchID, jobName, statu
 		return err
 	}
 
-	processNames := GetProcessNames()
 	batchKey := fmt.Sprintf("batch:%s", batchID)
 	if batchMeta, err := r.redis.HGetAll(ctx, batchKey); err == nil {
 		if namesRaw, ok := batchMeta["job_names"]; ok && namesRaw != "" {

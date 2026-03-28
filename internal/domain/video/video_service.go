@@ -160,7 +160,7 @@ func (s *VideoService) ListVideoContents(ctx context.Context, input ListVideoCon
 
 // Create Video Content
 func (s *VideoService) CreateVideoContent(ctx context.Context, input UploadVideoPayload) (*VideoDetailsResponse, *errors.AppError) {
-	batchProcessing, err := s.batchRepo.CreateBatch(ctx, input.VideoID)
+	batchProcessing, err := s.batchRepo.CreateUploadVideoBatch(ctx, input.VideoID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,59 +199,59 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	// Job A1: Upload Video to R2
 	go func() {
 		defer wg.Done()
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_PROCESSING, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_PROCESSING, "")
 
 		url, err := s.fileRepo.UploadToR2(ctx, payload.VideoFile, payload.VideoR2Path, payload.VideoPath, payload.VideoContentType)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_FAILED, err.Error())
 			return
 		}
 
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_VIDEO, BATCH_COMPLETED, "")
 		videoURL = url
 	}()
 
 	// Job A2: Upload Thumbnail to R2
 	go func() {
 		defer wg.Done()
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_PROCESSING, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_PROCESSING, "")
 
 		url, err := s.fileRepo.UploadToR2(ctx, payload.ThumbnailFile, payload.ThumbnailR2Path, payload.ThumbnailPath, payload.ThumbnailContentType)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_FAILED, err.Error())
 			return
 		}
 
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_UPLOAD_THUMBNAIL, BATCH_COMPLETED, "")
 		thumbnailURL = url
 	}()
 
 	// Job B: Transcribe & Details
 	go func() {
 		defer wg.Done()
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_PROCESSING, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_PROCESSING, "")
 
 		if err := s.fileRepo.ExtractAudio(ctx, payload.VideoPath, payload.AudioPath); err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
 			return
 		}
 
 		transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, payload.AudioPath, payload.Language)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, "skipped: generate details failed")
 			return
 		}
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_COMPLETED, "")
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_PROCESSING, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_TRANSCRIPT, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_PROCESSING, "")
 
 		details, err := s.aiRepo.GenerateVideoDetails(ctx, transcript)
 		if err != nil {
-			_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, err.Error())
+			_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_FAILED, err.Error())
 			return
 		}
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_COMPLETED, "")
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_GENERATE_DETAILS, BATCH_COMPLETED, "")
 		videoDetails = details
 	}()
 
@@ -262,7 +262,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	defer os.Remove(payload.ThumbnailPath)
 
 	// Update video content
-	_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_PROCESSING, "")
+	_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_PROCESSING, "")
 
 	videoDetails.VideoURL = videoURL
 	videoDetails.ThumbnailURL = thumbnailURL
@@ -270,7 +270,7 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	detailsJSON, _ := json.Marshal(videoDetails)
 	tagsJSON, _ := json.Marshal(videoDetails.Tags)
 
-	batch, _ := s.batchRepo.GetBatch(ctx, payload.VideoID)
+	batch, _ := s.batchRepo.GetUploadVideoBatch(ctx, payload.VideoID)
 	if batch != nil {
 		batch.Status = BATCH_COMPLETED
 		batch.CompletedJobs = batch.TotalJobs
@@ -298,11 +298,11 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 	}
 
 	if err := s.videoRepo.UpdateVideo(ctx, learningItem); err != nil {
-		_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_FAILED, err.GetMessage())
+		_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_FAILED, err.GetMessage())
 		return
 	}
 
-	_ = s.batchRepo.UpdateJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_COMPLETED, "")
+	_ = s.batchRepo.UpdateUploadVideoJob(ctx, payload.VideoID, PROCESS_SAVE_VIDEO, BATCH_COMPLETED, "")
 }
 
 // Get Video Details
@@ -326,7 +326,7 @@ func (s *VideoService) GetVideoDetails(ctx context.Context, videoID string) (*Vi
 	}
 
 	// Get batch from Redis
-	metaProcessing, err := s.batchRepo.GetBatch(ctx, videoID)
+	metaProcessing, err := s.batchRepo.GetUploadVideoBatch(ctx, videoID)
 	if err != nil {
 		return nil, err
 	}
@@ -558,81 +558,90 @@ func (s *VideoService) SubmitGistQuiz(ctx context.Context, input SubmitGistQuizI
 }
 
 // SubmitRetellStory handles the submission and AI evaluation of a retell story.
-func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellInput) (*StartRetellResponse, *errors.AppError) {
-	// 1. Get existing action by videoID, userID, and type
-	action, exists, err := s.videoRepo.GetActionByUserID(ctx, input.VideoID, input.UserID, "submit_retell")
+func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetellPayload) (*RetellAttempt, *errors.AppError) {
+	// 1. Create batch processing
+	_, err := s.batchRepo.CreateEvaluateRetellBatch(ctx, input.AttemptID)
 	if err != nil {
 		return nil, err
 	}
-	if !exists {
-		return nil, errors.NotFound("retell action not found for this video")
+
+	// 2. Get media URL
+	audioURL, err := s.fileRepo.GetMediaURL(input.AudioR2Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RetellAttempt{
+		AttemptID:   input.AttemptID,
+		AudioURL:    audioURL,
+		MimeType:    input.AudioType,
+		Transcript:  "", // Update after process audio
+		RetellScore: 0,  // Update after process AI
+		SubmittedAt: time.Now().UTC(),
+	}, nil
+}
+
+// Worker: ProcessEvaluateRetel
+func (s *VideoService) ProcessEvaluateRetel(ctx context.Context, payload SubmitRetellPayload) {
+	// 1. Get existing action by videoID, userID, and type
+	action, exists, err := s.videoRepo.GetActionByUserID(ctx, payload.VideoID, payload.UserID, "submit_retell")
+	if err != nil || !exists {
+		return
 	}
 
 	var metadata RetellStoryMetadata
 	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
-		return nil, errors.InternalWrap("failed to parse retell metadata", err)
+		return
 	}
 
-	// Fallback for legacy data
-	if len(metadata.Attempts) == 0 {
-		var legacy struct {
-			RetellAttempts []RetellAttempt `json:"retell_attempts"`
-		}
-		_ = json.Unmarshal(action.Metadata, &legacy)
-		if len(legacy.RetellAttempts) > 0 {
-			metadata.Attempts = legacy.RetellAttempts
-		}
-	}
-
-	// 2. Fetch video details for key points
-	videoItem, err := s.videoRepo.GetVideo(ctx, action.LearningID)
+	// 2. Process audio
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_PROCESSING, "")
+	tempWav, err := s.fileRepo.SaveMultipartToTemp(payload.AudioFile, payload.AudioWavPath)
 	if err != nil {
-		return nil, err
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_FAILED, err.GetMessage())
+		return
 	}
 
-	var videoDetails VideoDetails
-	if err := json.Unmarshal(videoItem.Details, &videoDetails); err != nil {
-		return nil, errors.InternalWrap("failed to parse video details", err)
-	}
-
-	// 3. Process audio
-	tempWav, err := s.fileRepo.SaveMultipartToTemp(input.AudioFile, input.AudioWavPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// สำคัญ: ต้องมั่นใจว่าไฟล์ถูกปิดและถูกลบเมื่อจบฟังก์ชันนี้
+	// Defer close and remove temp file
 	defer func() {
 		tempWav.Close()
 		os.Remove(tempWav.Name())
 	}()
 
-	transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, tempWav.Name(), videoItem.Language)
+	transcript, err := s.aiRepo.GenerateVideoTranscript(ctx, tempWav.Name(), payload.Language)
 	if err != nil {
-		return nil, err
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_FAILED, err.GetMessage())
+		return
 	}
 
-	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), input.AudioM4aPath); err != nil {
-		return nil, err
+	if err := s.fileRepo.ConvertAudioToM4A(ctx, tempWav.Name(), payload.AudioM4aPath); err != nil {
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_FAILED, err.GetMessage())
+		return
 	}
-	defer os.Remove(input.AudioM4aPath)
+	defer os.Remove(payload.AudioM4aPath)
 
-	audioURL, err := s.fileRepo.UploadReaderToR2(ctx, input.AudioM4aPath, input.AudioR2Path, input.AudioType)
+	audioURL, err := s.fileRepo.UploadReaderToR2(ctx, payload.AudioM4aPath, payload.AudioR2Path, payload.AudioType)
 	if err != nil {
-		return nil, err
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_FAILED, err.GetMessage())
+		return
 	}
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_COMPLETED, "")
 
 	// 4. AI Evaluation
-	eval, err := s.aiRepo.EvaluateRetellStory(ctx, transcript.Text, videoDetails.RetellStory.KeyPoints)
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_EVALUATE_RETEL, BATCH_PROCESSING, "")
+	eval, err := s.aiRepo.EvaluateRetellStory(ctx, transcript.Text, metadata.RetellStory.KeyPoints)
 	if err != nil {
-		return nil, err
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_EVALUATE_RETEL, BATCH_FAILED, err.GetMessage())
+		return
 	}
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_EVALUATE_RETEL, BATCH_COMPLETED, "")
 
 	// 5. Create attempt
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_SAVE_RETEL, BATCH_PROCESSING, "")
 	attempt := RetellAttempt{
-		AttemptID:        input.AttemptID,
+		AttemptID:        payload.AttemptID,
 		AudioURL:         audioURL,
-		MimeType:         "audio/m4a",
+		MimeType:         payload.AudioType,
 		Transcript:       transcript.Text,
 		RetellScore:      eval.Score,
 		MatchesKeyPoints: eval.MatchesKeyPoints,
@@ -656,16 +665,11 @@ func (s *VideoService) SubmitRetellStory(ctx context.Context, input SubmitRetell
 	metadataJSON, _ := json.Marshal(metadata)
 
 	if err := s.videoRepo.UpdateQuizAction(ctx, action.ID, metadataJSON); err != nil {
-		return nil, err
+		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_SAVE_RETEL, BATCH_FAILED, err.GetMessage())
+		return
 	}
+	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_SAVE_RETEL, BATCH_COMPLETED, "")
 
-	return &StartRetellResponse{
-		ActionID:    action.ID,
-		VideoID:     input.VideoID,
-		UserID:      input.UserID,
-		RetellStory: metadata.RetellStory,
-		Attempts:    metadata.Attempts,
-	}, nil
 }
 
 // ToggleTranscript toggles the transcript action for a video.

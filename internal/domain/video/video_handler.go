@@ -68,7 +68,7 @@ func (h *VideoHandler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 
 	// 5. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
-		Type:    JOB_UPLOAD_VIDEO,
+		Type:    WORKER_UPLOAD_VIDEO,
 		Payload: payload,
 	})
 	if qErr != nil {
@@ -220,21 +220,37 @@ func (h *VideoHandler) SubmitGistQuiz(w http.ResponseWriter, r *http.Request) {
 // -------------------------------------------------------------------------
 
 func (h *VideoHandler) SubmitRetellStory(w http.ResponseWriter, r *http.Request) {
+	// 1. limit max upload size
 	const maxUploadSize = 10 << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
+	// 2. declare request struct and defer close
 	var req SubmitRetellRequest
-	defer req.Close()
 	if err := req.ParseAndValidate(r); err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
-	result, err := h.service.SubmitRetellStory(r.Context(), req.ToInput())
+	// 3. generate payload once
+	payload := req.ToPayload()
+
+	// 4. send job to queue
+	qErr := h.queue.Enqueue(client.Job{
+		Type:    WORKER_EVALUATE_RETEL,
+		Payload: payload,
+	})
+	if qErr != nil {
+		response.HandleError(w, qErr)
+		return
+	}
+
+	// 5. create video record
+	result, err := h.service.SubmitRetellStory(r.Context(), payload)
 	if err != nil {
 		response.HandleError(w, err)
 		return
 	}
 
-	response.OK(w, result)
+	// 6. response accepted
+	response.Accepted(w, result)
 }

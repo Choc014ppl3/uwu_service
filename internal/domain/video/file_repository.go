@@ -14,6 +14,7 @@ import (
 
 // FileRepository interface
 type FileRepository interface {
+	GetMediaURL(pattern string) (string, *errors.AppError)
 	ExtractAudio(ctx context.Context, videoPath, audioPath string) *errors.AppError
 	UploadToR2(ctx context.Context, src multipart.File, key, path, contentType string) (string, *errors.AppError)
 	UploadReaderToR2(ctx context.Context, audioM4APath, key, contentType string) (string, *errors.AppError)
@@ -30,6 +31,15 @@ type fileRepository struct {
 // NewFileRepository creates a new fileRepository
 func NewFileRepository(cloudflare *client.CloudflareClient, log *slog.Logger) *fileRepository {
 	return &fileRepository{cloudflare: cloudflare, log: log}
+}
+
+// GetMediaURL generates a temporary file path
+func (r *fileRepository) GetMediaURL(key string) (string, *errors.AppError) {
+	url := r.cloudflare.GetR2ObjectURL(key)
+	if url == "" {
+		return "", errors.Internal("failed to get media URL")
+	}
+	return url, nil
 }
 
 // ExtractAudio extracts audio from a video file

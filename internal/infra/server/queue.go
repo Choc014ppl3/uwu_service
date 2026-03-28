@@ -40,6 +40,7 @@ func (s *QueueServer) SetupWorkers() {
 
 	// มอบหมายให้แต่ละ Domain ลงทะเบียน Worker ของตัวเองเข้าคิวกลาง
 	video.RegisterVideoWorkers(s.queue, s.videoService)
+	video.RegisterEvaluateRetelWorker(s.queue, s.videoService)
 	dialog.RegisterDialogWorkers(s.queue, s.dialogService)
 }
 

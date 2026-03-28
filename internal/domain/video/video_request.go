@@ -392,26 +392,22 @@ func (req *SubmitGistQuizRequest) ToInput() SubmitGistQuizInput {
 type SubmitRetellRequest struct {
 	UserID      string
 	VideoID     string
+	Language    string
 	AudioFile   multipart.File
 	AudioHeader *multipart.FileHeader
 }
 
-// SubmitRetellInput is the input struct for service
-type SubmitRetellInput struct {
+// SubmitRetellPayload is the payload struct for service
+type SubmitRetellPayload struct {
 	UserID       string
 	VideoID      string
 	AttemptID    string
+	Language     string
 	AudioFile    multipart.File
 	AudioR2Path  string
 	AudioM4aPath string
 	AudioWavPath string
 	AudioType    string
-}
-
-func (req *SubmitRetellRequest) Close() {
-	if req.AudioFile != nil {
-		_ = req.AudioFile.Close()
-	}
 }
 
 func (req *SubmitRetellRequest) ParseAndValidate(r *http.Request) error {
@@ -427,32 +423,41 @@ func (req *SubmitRetellRequest) ParseAndValidate(r *http.Request) error {
 		return errors.Validation("Video ID is required")
 	}
 
-	// 3. Parse multipart body
+	// 3. Extract Language Header & Validate
+	req.Language = strings.ToLower(r.Header.Get("Language"))
+	if !AllowedLanguages[req.Language] {
+		return errors.Validation("unsupported language")
+	}
+
+	// 4. Parse multipart body
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		return errors.Validation("invalid multipart body")
 	}
 
-	// 4. Extract audio file
+	// 5. Extract audio file
 	audioFile, audioHeader, err := r.FormFile("audio")
 	if err != nil {
 		return errors.Validation("audio file is required (form field: 'audio')")
 	}
+	defer audioFile.Close()
+
 	req.AudioFile = audioFile
 	req.AudioHeader = audioHeader
 	return nil
 }
 
-func (req *SubmitRetellRequest) ToInput() SubmitRetellInput {
+func (req *SubmitRetellRequest) ToPayload() SubmitRetellPayload {
 	attemptID := uuid.New().String()
 
 	audioR2Path := fmt.Sprintf("retell-story/%s.m4a", attemptID)
 	audioWavPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.wav", attemptID))
 	audioM4aPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.m4a", attemptID))
 
-	return SubmitRetellInput{
+	return SubmitRetellPayload{
 		AttemptID:    attemptID,
 		UserID:       req.UserID,
 		VideoID:      req.VideoID,
+		Language:     req.Language,
 		AudioFile:    req.AudioFile,
 		AudioR2Path:  audioR2Path,
 		AudioWavPath: audioWavPath,
