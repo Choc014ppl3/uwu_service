@@ -14,6 +14,18 @@ import (
 	"github.com/windfall/uwu_service/pkg/errors"
 )
 
+// ConvertLangCode
+var ConvertLangCode = map[string]string{
+	"english":    "en-US",
+	"chinese":    "zh-CN",
+	"japanese":   "ja-JP",
+	"french":     "fr-FR",
+	"spanish":    "es-ES",
+	"portuguese": "pt-BR",
+	"arabic":     "ar-SA",
+	"russian":    "ru-RU",
+}
+
 // AzureSpeechClient wraps Azure AI Speech text-to-speech.
 type AzureSpeechClient struct {
 	apiKey string
@@ -89,9 +101,8 @@ func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioByte
 		return nil, errors.Internal("Azure speech credentials not configured")
 	}
 
-	if language == "" {
-		language = "en-US"
-	}
+	// Convert language to Azure Speech format
+	language = ConvertLangCode[language]
 
 	u := url.URL{
 		Scheme:   "https",
@@ -118,6 +129,7 @@ func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioByte
 		return nil, errors.InternalWrap("failed to encode pronunciation config", err)
 	}
 
+	// Base64 encode
 	encodedConfig := base64.StdEncoding.EncodeToString(configJSON)
 
 	req.Header.Set("Ocp-Apim-Subscription-Key", c.apiKey)
@@ -125,6 +137,7 @@ func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioByte
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Pronunciation-Assessment", encodedConfig)
 
+	// Execute request
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, errors.InternalWrap("failed to send azure speech recognition request", err)

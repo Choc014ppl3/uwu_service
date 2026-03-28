@@ -38,9 +38,11 @@ func NewQueueServer(
 func (s *QueueServer) SetupWorkers() {
 	s.log.Info("Registering background workers...")
 
-	// มอบหมายให้แต่ละ Domain ลงทะเบียน Worker ของตัวเองเข้าคิวกลาง
+	// Video Workers
 	video.RegisterVideoWorkers(s.queue, s.videoService)
 	video.RegisterEvaluateRetelWorker(s.queue, s.videoService)
+
+	// Dialog Workers
 	dialog.RegisterDialogWorkers(s.queue, s.dialogService)
 }
 

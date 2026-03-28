@@ -127,12 +127,17 @@ type dialogueGuideResponse struct {
 
 // Speech Mode
 type SpeechMode struct {
-	Situation string `json:"situation"`
-	Script    []struct {
-		AudioURL *string `json:"audio_url"`
-		Speaker  string  `json:"speaker"`
-		Text     string  `json:"text"`
-	} `json:"script"`
+	Situation string         `json:"situation"`
+	Script    []SpeechScript `json:"script"`
+}
+
+// SpeechScript
+type SpeechScript struct {
+	Speaker    string                  `json:"speaker"`
+	Text       string                  `json:"text"`
+	AudioURL   *string                 `json:"audio_url,omitempty"`
+	Transcript *string                 `json:"transcript,omitempty"`
+	Evaluation *map[string]interface{} `json:"evaluation,omitempty"`
 }
 
 // Chat Mode

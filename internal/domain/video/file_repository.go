@@ -19,7 +19,7 @@ type FileRepository interface {
 	UploadToR2(ctx context.Context, src multipart.File, key, path, contentType string) (string, *errors.AppError)
 	UploadReaderToR2(ctx context.Context, audioM4APath, key, contentType string) (string, *errors.AppError)
 	ConvertAudioToM4A(ctx context.Context, srcPath, dstPath string) *errors.AppError
-	SaveMultipartToTemp(file multipart.File, pattern string) (*os.File, *errors.AppError)
+	CreateTempFile(file multipart.File, pattern string) (*os.File, *errors.AppError)
 }
 
 // fileRepository is the implementation of the FileRepository interface
@@ -126,8 +126,8 @@ func (r *fileRepository) ConvertAudioToM4A(ctx context.Context, srcPath, dstPath
 	return nil
 }
 
-// SaveMultipartToTemp saves a multipart file to a temporary file.
-func (r *fileRepository) SaveMultipartToTemp(file multipart.File, tempPath string) (*os.File, *errors.AppError) {
+// CreateTempFile saves a multipart file to a temporary file.
+func (r *fileRepository) CreateTempFile(file multipart.File, tempPath string) (*os.File, *errors.AppError) {
 	// 1. ตรวจสอบว่าไฟล์ต้นทางไม่ได้ว่างเปล่า หรือหัวอ่านค้างอยู่ที่ท้ายไฟล์
 	// (หัวอ่านของ multipart.File อาจจะขยับไปแล้วถ้ามีการตรวจสอบไฟล์ก่อนหน้านี้)
 	if seeker, ok := file.(io.ReadSeeker); ok {

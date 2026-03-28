@@ -151,8 +151,6 @@ func (h *DialogHandler) StartSpeech(w http.ResponseWriter, r *http.Request) {
 // SubmitSpeech handles POST /api/v1/dialogs/{dialogID}/submit-speech
 func (h *DialogHandler) SubmitSpeech(w http.ResponseWriter, r *http.Request) {
 	var req SubmitSpeechRequest
-	defer req.Close()
-
 	if err := req.ParseAndValidate(r); err != nil {
 		response.HandleError(w, err)
 		return
@@ -164,7 +162,7 @@ func (h *DialogHandler) SubmitSpeech(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.OK(w, result)
+	response.Created(w, result)
 }
 
 // StartChat handles POST /api/v1/dialogs/{dialogID}/start-chat
@@ -189,7 +187,6 @@ func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
 
 	response.OK(w, result)
 }
-
 
 // SubmitChat handles POST /api/v1/dialogs/{dialogID}/submit-chat
 func (h *DialogHandler) SubmitChat(w http.ResponseWriter, r *http.Request) {

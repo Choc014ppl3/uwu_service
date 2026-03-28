@@ -66,8 +66,8 @@ type DialogRepository interface {
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	GetActionByUserID(ctx context.Context, learningID, userID, actionType string) (*UserAction, bool, *errors.AppError)
 	ToggleSaved(ctx context.Context, dialogID, userID string) (string, bool, *errors.AppError)
-	StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
-	StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError)
+	StartSpeech(ctx context.Context, dialogID, userID string, metadata json.RawMessage) (string, *errors.AppError)
+	StartChat(ctx context.Context, dialogID, userID string, metadata json.RawMessage) (string, *errors.AppError)
 	SubmitSpeechAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError
 	GetChatAction(ctx context.Context, actionID, userID string) (*UserAction, *errors.AppError)
 	UpdateChatAction(ctx context.Context, actionID, userID string, metadataJSON []byte) *errors.AppError
@@ -319,40 +319,40 @@ func (r *dialogRepository) ToggleSaved(ctx context.Context, dialogID, userID str
 	return actionID, isSaved, nil
 }
 
-func (r *dialogRepository) StartSpeech(ctx context.Context, dialogID, userID string) (string, *errors.AppError) {
+func (r *dialogRepository) StartSpeech(ctx context.Context, dialogID, userID string, metadata json.RawMessage) (string, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
-		VALUES ($1, $2, 'submit_speech', '{}'::jsonb, NULL)
+		VALUES ($1, $2, 'submit_speech', $3, NULL)
 		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
-			action_type = 'submit_speech',
+			metadata = EXCLUDED.metadata,
 			deleted_at = NULL,
 			updated_at = NOW()
 		RETURNING id
 	`
 
 	var actionID string
-	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&actionID); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID, metadata).Scan(&actionID); err != nil {
 		return "", errors.InternalWrap("failed to start speech action", err)
 	}
 
 	return actionID, nil
 }
 
-func (r *dialogRepository) StartChat(ctx context.Context, dialogID, userID string) (string, *errors.AppError) {
+func (r *dialogRepository) StartChat(ctx context.Context, dialogID, userID string, metadata json.RawMessage) (string, *errors.AppError) {
 	query := `
 		INSERT INTO user_actions (user_id, learning_id, action_type, metadata, deleted_at)
-		VALUES ($1, $2, 'submit_chat', '{}'::jsonb, NULL)
+		VALUES ($1, $2, 'submit_chat', $3, NULL)
 		ON CONFLICT (learning_id, user_id, action_type)
 		DO UPDATE SET
-			action_type = 'submit_chat',
+			metadata = EXCLUDED.metadata,
 			deleted_at = NULL,
 			updated_at = NOW()
 		RETURNING id
 	`
 
 	var actionID string
-	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID).Scan(&actionID); err != nil {
+	if err := r.db.Pool.QueryRow(ctx, query, userID, dialogID, metadata).Scan(&actionID); err != nil {
 		return "", errors.InternalWrap("failed to start chat action", err)
 	}
 

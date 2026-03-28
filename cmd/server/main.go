@@ -92,7 +92,7 @@ func main() {
 	dialogAIRepo := dialog.NewAIRepository(chatGPTClient)
 	dialogImageRepo := dialog.NewImageRepository(imageClient)
 	dialogAudioRepo := dialog.NewAudioRepository(speechClient)
-	dialogFileRepo := dialog.NewFileRepository(cloudflareClient)
+	dialogFileRepo := dialog.NewFileRepository(cloudflareClient, logger)
 
 	dialogBatchRepo := dialog.NewBatchRepository(redisClient, logger)
 	dialogRepo := dialog.NewDialogRepository(db)

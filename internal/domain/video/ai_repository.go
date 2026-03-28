@@ -156,6 +156,18 @@ Respond strictly in the following JSON format, with no markdown formatting or ex
   "analysis": "<string>"
 }`
 
+// Whisper language code map
+var transcriptLanguageMap = map[string]string{
+	"english":    "en",
+	"chinese":    "zh",
+	"japanese":   "ja",
+	"french":     "fr",
+	"spanish":    "es",
+	"portuguese": "pt",
+	"arabic":     "ar",
+	"russian":    "ru",
+}
+
 // AIRepository interface
 type AIRepository interface {
 	GenerateVideoTranscript(ctx context.Context, audioPath, language string) (*client.WhisperResponse, *errors.AppError)
@@ -189,17 +201,13 @@ func NewAIRepository(whisper *client.AzureWhisperClient, chatGPT *client.AzureCh
 
 // GenerateVideoTranscript generates video transcript
 func (r *aiRepository) GenerateVideoTranscript(ctx context.Context, audioPath, language string) (*client.WhisperResponse, *errors.AppError) {
-	// Convert language to ISO 639-1 code
-	switch language {
-	case "Chinese":
-		language = "zh"
-	case "Japanese":
-		language = "ja"
-	default:
-		language = "en"
+	// Convert language
+	langCode, ok := transcriptLanguageMap[language]
+	if !ok {
+		langCode = "en"
 	}
 
-	transcript, err := r.whisper.TranscribeFile(ctx, audioPath, language)
+	transcript, err := r.whisper.TranscribeFile(ctx, audioPath, langCode)
 	if err != nil {
 		r.log.Error("Whisper transcription failed", "error", err.Error())
 		return nil, err

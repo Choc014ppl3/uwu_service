@@ -596,7 +596,7 @@ func (s *VideoService) ProcessEvaluateRetel(ctx context.Context, payload SubmitR
 
 	// 2. Process audio
 	_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_PROCESSING, "")
-	tempWav, err := s.fileRepo.SaveMultipartToTemp(payload.AudioFile, payload.AudioWavPath)
+	tempWav, err := s.fileRepo.CreateTempFile(payload.AudioFile, payload.AudioWavPath)
 	if err != nil {
 		_ = s.batchRepo.UpdateEvaluateRetellJob(ctx, payload.AttemptID, PROCESS_UPLOAD_RETELL_AUDIO, BATCH_FAILED, err.GetMessage())
 		return

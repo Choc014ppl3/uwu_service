@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -45,16 +45,34 @@ type ToggleSavedResponse struct {
 	Saved    bool   `json:"saved"`
 }
 
-// StartActionResponse is returned after starting a speech or chat action.
-type StartActionResponse struct {
-	ActionID string `json:"action_id"`
-	DialogID string `json:"dialog_id"`
-	UserID   string `json:"user_id"`
+// StartChatResponse is returned after starting a chat action.
+type StartChatResponse struct {
+	ActionID            string               `json:"action_id"`
+	DialogID            string               `json:"dialog_id"`
+	UserID              string               `json:"user_id"`
+	ChatMode            *ChatMode            `json:"chat_mode"`
+	Messages            []client.ChatMessage `json:"messages"`
+	CompletedObjectives []int                `json:"completed_objectives"`
 }
 
+type StartDialogResponse struct {
+	ActionID string          `json:"action_id"`
+	DialogID string          `json:"dialog_id"`
+	UserID   string          `json:"user_id"`
+	Metadata *SpeechMetadata `json:"metadata"`
+}
+
+// SpeechMetadata represents the metadata for speech actions
+type SpeechMetadata struct {
+	SituationText     string           `json:"situation_text"`
+	SituationAudioURL string           `json:"situation_audio_url"`
+	Scripts           []SpeechScript   `json:"scripts"`
+	Attempts          [][]SpeechScript `json:"attempts"`
+}
 
 // ChatMetadata is the structure stored in user_actions.metadata for chat actions.
 type ChatMetadata struct {
+	ChatMode            *ChatMode            `json:"chat_mode,omitempty"`
 	Messages            []client.ChatMessage `json:"messages"`
 	CompletedObjectives []int                `json:"completed_objectives"`
 	TotalObjectives     int                  `json:"total_objectives"`
@@ -328,9 +346,9 @@ func (s *DialogService) ProcessGenerateDialog(ctx context.Context, payload Gener
 
 	details.ImageURL = imageURL
 	details.AudioURL = audioURL
-	
+
 	_ = s.batchRepo.UpdateJob(ctx, payload.DialogID, PROCESS_SAVE_DIALOG, BATCH_PROCESSING, "")
-	
+
 	detailsJSON, _ := json.Marshal(details)
 	tagsJSON, _ := json.Marshal(details.Tags)
 
@@ -384,23 +402,65 @@ func (s *DialogService) ToggleSaved(ctx context.Context, dialogID, userID string
 }
 
 // StartSpeech starts a speech action for a dialog.
-func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string) (*StartActionResponse, *errors.AppError) {
-	actionID, err := s.dialogRepo.StartSpeech(ctx, dialogID, userID)
+func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string) (*StartDialogResponse, *errors.AppError) {
+	// 1. Check if user already started this action (Idempotency)
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, dialogID, userID, "submit_speech")
 	if err != nil {
 		return nil, err
 	}
 
-	return &StartActionResponse{
+	if exists {
+		var metadata SpeechMetadata
+		if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+			return nil, errors.InternalWrap("failed to parse speech metadata", err)
+		}
+
+		return &StartDialogResponse{
+			ActionID: action.ID,
+			DialogID: dialogID,
+			UserID:   userID,
+			Metadata: &metadata,
+		}, nil
+	}
+
+	// 2. Fetch dialog details to get speech snapshot
+	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
+	if err != nil {
+		return nil, err
+	}
+
+	var details DialogDetails
+	if err := json.Unmarshal(learningItem.Details, &details); err != nil {
+		return nil, errors.InternalWrap("failed to parse dialog details", err)
+	}
+
+	// 3. Create initial metadata snapshot
+	metadata := SpeechMetadata{
+		SituationText:     details.SpeechMode.Situation,
+		SituationAudioURL: details.AudioURL,
+		Scripts:           details.SpeechMode.Script,
+		Attempts:          [][]SpeechScript{},
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	// 4. Create action record
+	actionID, err := s.dialogRepo.StartSpeech(ctx, dialogID, userID, metadataJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartDialogResponse{
 		ActionID: actionID,
 		DialogID: dialogID,
 		UserID:   userID,
+		Metadata: &metadata,
 	}, nil
 }
 
 // SubmitSpeech handles the logic of scoring speech and saving the result.
-func (s *DialogService) SubmitSpeech(ctx context.Context, req SubmitSpeechInput) (interface{}, *errors.AppError) {
+func (s *DialogService) SubmitSpeech(ctx context.Context, input SubmitSpeechInput) (*SpeechMetadata, *errors.AppError) {
 	// 1. Get active action
-	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, req.DialogID, req.UserID, "submit_speech")
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, input.DialogID, input.UserID, "submit_speech")
 	if err != nil {
 		return nil, err
 	}
@@ -408,52 +468,95 @@ func (s *DialogService) SubmitSpeech(ctx context.Context, req SubmitSpeechInput)
 		return nil, errors.NotFound("speech action not found for this dialog")
 	}
 
-	// 2. Read audio bytes
-	audioBytes, rErr := io.ReadAll(req.AudioFile)
-	if rErr != nil {
-		return nil, errors.ValidationWrap("failed to read audio file", rErr)
+	var metadata SpeechMetadata
+	if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+		return nil, errors.InternalWrap("failed to parse speech metadata", err)
 	}
 
-	// 3. Evaluate Pronunciation via Azure Speech
-	scoreData, evalErr := s.audioRepo.EvaluateSpeech(ctx, audioBytes, req.OriginalText, req.Language)
-	if evalErr != nil {
-		return nil, evalErr
+	if input.ScriptIndex < 0 || input.ScriptIndex >= len(metadata.Scripts) {
+		return nil, errors.Validation("invalid script index")
 	}
 
-	// 4. Upload User Audio to R2
-	audioPath := fmt.Sprintf("dialogs/%s/actions/%s_speech.wav", req.DialogID, action.ID)
-	audioURL, uploadErr := s.fileRepo.UploadBytes(ctx, audioBytes, audioPath, req.AudioContentType)
-	if uploadErr != nil {
-		return nil, uploadErr
+	// 2. Create temp file & Analyze with Azure Speech
+	tempWav, err := s.fileRepo.CreateTempFile(input.AudioFile, input.AudioWavPath)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tempWav.Name())
+
+	evaluation, err := s.audioRepo.EvaluateSpeech(ctx, tempWav, input.ReferenceText, input.Language)
+	if err != nil {
+		return nil, errors.InternalWrap("failed to analyze shadowing audio", err)
 	}
 
-	// 5. Construct Metadata
-	metadata := map[string]interface{}{
-		"audio_url":    audioURL,
-		"script_index": req.ScriptIndex,
-		"score":        scoreData,
-	}
+	// 3. Update metadata
+	metadata.Scripts[input.ScriptIndex].Evaluation = &evaluation
 	metadataJSON, _ := json.Marshal(metadata)
-
-	// 6. Update user_actions table
-	if saveErr := s.dialogRepo.SubmitSpeechAction(ctx, action.ID, req.UserID, metadataJSON); saveErr != nil {
-		return nil, saveErr
+	if err := s.dialogRepo.SubmitSpeechAction(ctx, action.ID, input.UserID, metadataJSON); err != nil {
+		return nil, err
 	}
 
-	return scoreData, nil
+	return &metadata, nil
 }
 
 // StartChat starts a chat action for a dialog.
-func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*StartActionResponse, *errors.AppError) {
-	actionID, err := s.dialogRepo.StartChat(ctx, dialogID, userID)
+func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*StartChatResponse, *errors.AppError) {
+	// 1. Check if user already started this action (Idempotency)
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, dialogID, userID, "submit_chat")
 	if err != nil {
 		return nil, err
 	}
 
-	return &StartActionResponse{
-		ActionID: actionID,
-		DialogID: dialogID,
-		UserID:   userID,
+	if exists {
+		var metadata ChatMetadata
+		if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
+			return nil, errors.InternalWrap("failed to parse chat metadata", err)
+		}
+
+		return &StartChatResponse{
+			ActionID:            action.ID,
+			DialogID:            dialogID,
+			UserID:              userID,
+			ChatMode:            metadata.ChatMode,
+			Messages:            metadata.Messages,
+			CompletedObjectives: metadata.CompletedObjectives,
+		}, nil
+	}
+
+	// 2. Fetch dialog details to get chat snapshot
+	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
+	if err != nil {
+		return nil, err
+	}
+
+	var details DialogDetails
+	if err := json.Unmarshal(learningItem.Details, &details); err != nil {
+		return nil, errors.InternalWrap("failed to parse dialog details", err)
+	}
+
+	// 3. Create initial metadata snapshot
+	metadata := ChatMetadata{
+		Messages:            []client.ChatMessage{},
+		CompletedObjectives: []int{},
+		TotalObjectives:     len(details.ChatMode.Objectives.Requirements),
+	}
+	chatJSON, _ := json.Marshal(details.ChatMode)
+	_ = json.Unmarshal(chatJSON, &metadata.ChatMode)
+	metadataJSON, _ := json.Marshal(metadata)
+
+	// 4. Create action record
+	actionID, err := s.dialogRepo.StartChat(ctx, dialogID, userID, metadataJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StartChatResponse{
+		ActionID:            actionID,
+		DialogID:            dialogID,
+		UserID:              userID,
+		ChatMode:            metadata.ChatMode,
+		Messages:            metadata.Messages,
+		CompletedObjectives: metadata.CompletedObjectives,
 	}, nil
 }
 
@@ -488,13 +591,23 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 		_ = json.Unmarshal(action.Metadata, &chatMeta)
 	}
 
-	// Initialize total objectives on first call
+	// Sync snapshot if missing (legacy)
+	if chatMeta.ChatMode == nil && details.ChatMode.Situation != "" {
+		chatMeta.ChatMode = &details.ChatMode
+	}
+
+	// Initialize total objectives if missing
 	if chatMeta.TotalObjectives == 0 {
 		chatMeta.TotalObjectives = len(details.ChatMode.Objectives.Requirements)
 	}
 
-	// 3. Call AI with conversation history
-	result, appErr := s.aiRepo.ChatReply(ctx, details.ChatMode, chatMeta.Messages, input.Message)
+	// 3. Call AI with conversation history (using snapshot or fresh details)
+	targetChatMode := details.ChatMode
+	if chatMeta.ChatMode != nil {
+		targetChatMode = *chatMeta.ChatMode
+	}
+
+	result, appErr := s.aiRepo.ChatReply(ctx, targetChatMode, chatMeta.Messages, input.Message)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -535,7 +648,6 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 		Feedback:            result.Feedback,
 	}, nil
 }
-
 
 func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, message string) {
 	for _, processName := range GetProcessNames()[1:] {

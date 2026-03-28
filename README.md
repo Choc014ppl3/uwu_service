@@ -186,10 +186,10 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-speech \
 ```bash
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/submit-speech \
   -H "Authorization: Bearer <jwt>" \
+  -H "Language: spanish" \
   -F "audio=@/path/to/audio.wav" \
-  -F "original_text=Hola, quisiera un café." \
-  -F "script_index=0" \
-  -F "language=es-ES"
+  -F "reference_text=Hola, quisiera un café." \
+  -F "script_index=0"
 ```
 
 **Start Dialogue Chat Practice:**

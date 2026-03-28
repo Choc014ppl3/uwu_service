@@ -2,8 +2,11 @@ package dialog
 
 import (
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -148,7 +151,6 @@ func (req *ListDialogContentsRequest) ToInput() ListDialogContentsInput {
 	}
 }
 
-
 // -------------------------------------------------------------------------
 // Submit Speech Request
 // -------------------------------------------------------------------------
@@ -159,7 +161,7 @@ type SubmitSpeechRequest struct {
 	DialogID         string
 	AudioFile        multipart.File
 	AudioContentType string
-	OriginalText     string
+	ReferenceText    string
 	ScriptIndex      int
 	Language         string
 }
@@ -168,18 +170,13 @@ type SubmitSpeechRequest struct {
 type SubmitSpeechInput struct {
 	UserID           string
 	DialogID         string
+	AudioID          string
 	AudioFile        multipart.File
+	AudioWavPath     string
 	AudioContentType string
-	OriginalText     string
+	ReferenceText    string
 	ScriptIndex      int
 	Language         string
-}
-
-// Close ensures the multipart file gets closed
-func (req *SubmitSpeechRequest) Close() {
-	if req.AudioFile != nil {
-		req.AudioFile.Close()
-	}
 }
 
 func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
@@ -202,9 +199,9 @@ func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
 	}
 
 	// 3. Extract Form Fields
-	req.OriginalText = r.FormValue("original_text")
-	if req.OriginalText == "" {
-		return errors.Validation("original_text is required")
+	req.ReferenceText = r.FormValue("reference_text")
+	if req.ReferenceText == "" {
+		return errors.Validation("reference_text is required")
 	}
 
 	scriptIdxStr := r.FormValue("script_index")
@@ -214,9 +211,9 @@ func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
 		return errors.Validation("invalid or missing script_index")
 	}
 
-	req.Language = r.FormValue("language")
-	if req.Language == "" {
-		req.Language = "en-US" // default
+	req.Language = strings.ToLower(r.Header.Get("Language"))
+	if !AllowedLanguages[req.Language] {
+		return errors.Validation("unsupported language")
 	}
 
 	// 4. Extract Audio File
@@ -224,6 +221,7 @@ func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
 	if err != nil {
 		return errors.Validation("audio file is required (form field: 'audio')")
 	}
+	defer aFile.Close()
 	req.AudioFile = aFile
 
 	req.AudioContentType = aHeader.Header.Get("Content-Type")
@@ -236,12 +234,17 @@ func (req *SubmitSpeechRequest) ParseAndValidate(r *http.Request) error {
 
 // ToInput convert SubmitSpeechRequest to SubmitSpeechInput
 func (req *SubmitSpeechRequest) ToInput() SubmitSpeechInput {
+	audioID := uuid.New().String()
+	audioWavPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s.wav", audioID))
+
 	return SubmitSpeechInput{
 		UserID:           req.UserID,
 		DialogID:         req.DialogID,
+		AudioID:          audioID,
 		AudioFile:        req.AudioFile,
+		AudioWavPath:     audioWavPath,
 		AudioContentType: req.AudioContentType,
-		OriginalText:     req.OriginalText,
+		ReferenceText:    req.ReferenceText,
 		ScriptIndex:      req.ScriptIndex,
 		Language:         req.Language,
 	}
