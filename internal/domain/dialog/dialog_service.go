@@ -559,8 +559,10 @@ func (s *DialogService) SubmitChat(ctx context.Context, payload ReplyChatMessage
 		_ = json.Unmarshal(action.Metadata, &chatMeta)
 	}
 
-	// 3. Update status to processing
+	// 3. Update status to processing and append user message (temp version)
 	chatMeta.Status = BATCH_PROCESSING
+	chatMeta.Messages = append(chatMeta.Messages, ChatMessage{Role: "user", Content: payload.Message})
+
 	metadataJSON, _ := json.Marshal(chatMeta)
 	if err := s.dialogRepo.UpdateChatAction(ctx, action.ID, payload.UserID, metadataJSON); err != nil {
 		return nil, err
@@ -583,7 +585,15 @@ func (s *DialogService) ProcessReplyChatMessage(ctx context.Context, payload Rep
 		_ = json.Unmarshal(action.Metadata, &chatMeta)
 	}
 
-	// 2. Call AI with conversation history
+	// 2. Remove the temp user message (to avoid duplication)
+	if len(chatMeta.Messages) > 0 {
+		lastMsg := chatMeta.Messages[len(chatMeta.Messages)-1]
+		if lastMsg.Role == "user" && lastMsg.Content == payload.Message {
+			chatMeta.Messages = chatMeta.Messages[:len(chatMeta.Messages)-1]
+		}
+	}
+
+	// 3. Call AI with conversation history
 	result, appErr := s.aiRepo.ReplyUserMessage(ctx, chatMeta.ChatObjective, chatMeta.Messages, chatMeta.SituationText, payload.Message)
 	if appErr != nil {
 		chatMeta.Status = BATCH_FAILED
