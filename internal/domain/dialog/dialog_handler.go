@@ -61,7 +61,7 @@ func (h *DialogHandler) GenerateDialog(w http.ResponseWriter, r *http.Request) {
 
 	// 3. send job to queue
 	qErr := h.queue.Enqueue(client.Job{
-		Type:    JOB_GENERATE_DIALOG,
+		Type:    WORKER_GENERATE_DIALOG,
 		Payload: payload,
 	})
 	if qErr != nil {
@@ -145,7 +145,7 @@ func (h *DialogHandler) StartSpeech(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.OK(w, result)
+	response.Created(w, result)
 }
 
 // SubmitSpeech handles POST /api/v1/dialogs/{dialogID}/submit-speech
@@ -185,7 +185,7 @@ func (h *DialogHandler) StartChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.OK(w, result)
+	response.Created(w, result)
 }
 
 // SubmitChat handles POST /api/v1/dialogs/{dialogID}/submit-chat
@@ -196,7 +196,38 @@ func (h *DialogHandler) SubmitChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.SubmitChat(r.Context(), req.ToInput())
+	payload := req.ToPayload()
+
+	// 1. Enqueue job (can be called before validation)
+	_ = h.queue.Enqueue(client.Job{
+		Type:    WORKER_REPLY_CHAT_MESSAGE,
+		Payload: payload,
+	})
+
+	result, err := h.service.SubmitChat(r.Context(), payload)
+	if err != nil {
+		response.HandleError(w, err)
+		return
+	}
+
+	response.Accepted(w, result)
+}
+
+// GetSubmitChat handles GET /api/v1/dialogs/{dialogID}/submit-chat
+func (h *DialogHandler) GetSubmitChat(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		response.HandleError(w, errors.Unauthorized("user not authenticated"))
+		return
+	}
+
+	dialogID := chi.URLParam(r, "dialogID")
+	if dialogID == "" {
+		response.HandleError(w, errors.Validation("Dialog ID is required"))
+		return
+	}
+
+	result, err := h.service.GetSubmitChat(r.Context(), dialogID, userID)
 	if err != nil {
 		response.HandleError(w, err)
 		return

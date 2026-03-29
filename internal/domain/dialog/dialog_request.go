@@ -261,6 +261,13 @@ type SubmitChatRequest struct {
 	Message  string `json:"message"`
 }
 
+// ReplyChatMessagePayload is the payload struct for the reply chat message worker
+type ReplyChatMessagePayload struct {
+	UserID   string
+	DialogID string
+	Message  string
+}
+
 // SubmitChatInput is the input struct for service
 type SubmitChatInput struct {
 	UserID   string
@@ -298,6 +305,15 @@ func (req *SubmitChatRequest) ParseAndValidate(r *http.Request) error {
 // ToInput convert SubmitChatRequest to SubmitChatInput
 func (req *SubmitChatRequest) ToInput() SubmitChatInput {
 	return SubmitChatInput{
+		UserID:   req.UserID,
+		DialogID: req.DialogID,
+		Message:  req.Message,
+	}
+}
+
+// ToPayload convert SubmitChatRequest to ReplyChatMessagePayload
+func (req *SubmitChatRequest) ToPayload() ReplyChatMessagePayload {
+	return ReplyChatMessagePayload{
 		UserID:   req.UserID,
 		DialogID: req.DialogID,
 		Message:  req.Message,

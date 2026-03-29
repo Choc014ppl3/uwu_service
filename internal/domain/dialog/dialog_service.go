@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/pkg/errors"
 	"github.com/windfall/uwu_service/pkg/response"
 )
@@ -45,16 +44,9 @@ type ToggleSavedResponse struct {
 	Saved    bool   `json:"saved"`
 }
 
-// StartChatResponse is returned after starting a chat action.
-type StartChatResponse struct {
-	ActionID            string               `json:"action_id"`
-	DialogID            string               `json:"dialog_id"`
-	UserID              string               `json:"user_id"`
-	ChatMode            *ChatMode            `json:"chat_mode"`
-	Messages            []client.ChatMessage `json:"messages"`
-	CompletedObjectives []int                `json:"completed_objectives"`
-}
-
+// -------------------------------------------------
+// Remove this later and use Metadata instead
+// -------------------------------------------------
 type StartDialogResponse struct {
 	ActionID string          `json:"action_id"`
 	DialogID string          `json:"dialog_id"`
@@ -64,26 +56,26 @@ type StartDialogResponse struct {
 
 // SpeechMetadata represents the metadata for speech actions
 type SpeechMetadata struct {
-	SituationText     string           `json:"situation_text"`
-	SituationAudioURL string           `json:"situation_audio_url"`
-	Scripts           []SpeechScript   `json:"scripts"`
-	Attempts          [][]SpeechScript `json:"attempts"`
+	SituationText     string         `json:"situation_text"`
+	SituationAudioURL string         `json:"situation_audio_url"`
+	Scripts           []SpeechScript `json:"scripts"`
+	// To implement later
+	Attempts [][]SpeechScript `json:"attempts"`
 }
 
 // ChatMetadata is the structure stored in user_actions.metadata for chat actions.
 type ChatMetadata struct {
-	ChatMode            *ChatMode            `json:"chat_mode,omitempty"`
-	Messages            []client.ChatMessage `json:"messages"`
-	CompletedObjectives []int                `json:"completed_objectives"`
-	TotalObjectives     int                  `json:"total_objectives"`
+	SituationText       string        `json:"situation_text"`
+	ChatObjective       ChatObjective `json:"chat_objective"`
+	Messages            []ChatMessage `json:"messages"`
+	CompletedObjectives []string      `json:"completed_objectives"`
+	Status              string        `json:"status,omitempty"`
 }
 
-// SubmitChatResponse is returned after submitting a chat message.
-type SubmitChatResponse struct {
-	ReplyMessage        string `json:"reply_message"`
-	CompletedObjectives []int  `json:"completed_objectives"`
-	TotalObjectives     int    `json:"total_objectives"`
-	Feedback            string `json:"feedback,omitempty"`
+type ChatMessage struct {
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	Suggestion string `json:"suggestion"`
 }
 
 // NewDialogService creates a new DialogService.
@@ -521,30 +513,9 @@ func (s *DialogService) SubmitSpeech(ctx context.Context, input SubmitSpeechInpu
 }
 
 // StartChat starts a chat action for a dialog.
-func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*StartChatResponse, *errors.AppError) {
-	// 1. Check if user already started this action (Idempotency)
-	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, dialogID, userID, "submit_chat")
-	if err != nil {
-		return nil, err
-	}
-
-	if exists {
-		var metadata ChatMetadata
-		if err := json.Unmarshal(action.Metadata, &metadata); err != nil {
-			return nil, errors.InternalWrap("failed to parse chat metadata", err)
-		}
-
-		return &StartChatResponse{
-			ActionID:            action.ID,
-			DialogID:            dialogID,
-			UserID:              userID,
-			ChatMode:            metadata.ChatMode,
-			Messages:            metadata.Messages,
-			CompletedObjectives: metadata.CompletedObjectives,
-		}, nil
-	}
-
-	// 2. Fetch dialog details to get chat snapshot
+// This function will reset the chat history and completed objectives every time the user starts a chat.
+func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*ChatMetadata, *errors.AppError) {
+	// 1. Fetch dialog details to get chat snapshot
 	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
 	if err != nil {
 		return nil, err
@@ -557,49 +528,25 @@ func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) 
 
 	// 3. Create initial metadata snapshot
 	metadata := ChatMetadata{
-		Messages:            []client.ChatMessage{},
-		CompletedObjectives: []int{},
-		TotalObjectives:     len(details.ChatMode.Objectives.Requirements),
+		SituationText:       details.ChatMode.Situation,
+		ChatObjective:       details.ChatMode.Objectives,
+		Messages:            []ChatMessage{},
+		CompletedObjectives: []string{},
 	}
-	chatJSON, _ := json.Marshal(details.ChatMode)
-	_ = json.Unmarshal(chatJSON, &metadata.ChatMode)
-	metadataJSON, _ := json.Marshal(metadata)
 
 	// 4. Create action record
-	actionID, err := s.dialogRepo.StartChat(ctx, dialogID, userID, metadataJSON)
-	if err != nil {
+	metadataJSON, _ := json.Marshal(metadata)
+	if _, err := s.dialogRepo.StartChat(ctx, dialogID, userID, metadataJSON); err != nil {
 		return nil, err
 	}
 
-	return &StartChatResponse{
-		ActionID:            actionID,
-		DialogID:            dialogID,
-		UserID:              userID,
-		ChatMode:            metadata.ChatMode,
-		Messages:            metadata.Messages,
-		CompletedObjectives: metadata.CompletedObjectives,
-	}, nil
+	return &metadata, nil
 }
 
-// SubmitChat handles the logic of replying to a chat message and tracking objectives.
-func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (*SubmitChatResponse, *errors.AppError) {
-	// 1. Get dialog to extract ChatMode
-	learningItem, appErr := s.dialogRepo.GetDialog(ctx, input.DialogID)
-	if appErr != nil {
-		return nil, appErr
-	}
-
-	var details DialogDetails
-	if err := json.Unmarshal(learningItem.Details, &details); err != nil {
-		return nil, errors.InternalWrap("failed to parse dialog details", err)
-	}
-
-	if details.ChatMode.Situation == "" {
-		return nil, errors.Validation("this dialog does not have a chat mode")
-	}
-
-	// 2. Get existing chat action metadata (conversation history + progress)
-	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, input.DialogID, input.UserID, "submit_chat")
+// SubmitChat handles enqueuing a chat message for background processing.
+func (s *DialogService) SubmitChat(ctx context.Context, payload ReplyChatMessagePayload) (*ChatMetadata, *errors.AppError) {
+	// 1. Validate that a submit_chat action exists
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, payload.DialogID, payload.UserID, "submit_chat")
 	if err != nil {
 		return nil, err
 	}
@@ -612,62 +559,83 @@ func (s *DialogService) SubmitChat(ctx context.Context, input SubmitChatInput) (
 		_ = json.Unmarshal(action.Metadata, &chatMeta)
 	}
 
-	// Sync snapshot if missing (legacy)
-	if chatMeta.ChatMode == nil && details.ChatMode.Situation != "" {
-		chatMeta.ChatMode = &details.ChatMode
-	}
-
-	// Initialize total objectives if missing
-	if chatMeta.TotalObjectives == 0 {
-		chatMeta.TotalObjectives = len(details.ChatMode.Objectives.Requirements)
-	}
-
-	// 3. Call AI with conversation history (using snapshot or fresh details)
-	targetChatMode := details.ChatMode
-	if chatMeta.ChatMode != nil {
-		targetChatMode = *chatMeta.ChatMode
-	}
-
-	result, appErr := s.aiRepo.ChatReply(ctx, targetChatMode, chatMeta.Messages, input.Message)
-	if appErr != nil {
-		return nil, appErr
-	}
-
-	// 4. Append messages to history
-	chatMeta.Messages = append(chatMeta.Messages,
-		client.ChatMessage{Role: "user", Content: input.Message},
-		client.ChatMessage{Role: "assistant", Content: result.ReplyMessage},
-	)
-
-	// 5. Merge completed objectives (deduplicate)
-	existing := make(map[int]bool)
-	for _, idx := range chatMeta.CompletedObjectives {
-		existing[idx] = true
-	}
-	for _, idx := range result.CompletedObjectivesIndexes {
-		if idx >= 0 && idx < chatMeta.TotalObjectives && !existing[idx] {
-			chatMeta.CompletedObjectives = append(chatMeta.CompletedObjectives, idx)
-			existing[idx] = true
-		}
-	}
-
-	// 6. Save updated metadata
-	metadataJSON, mErr := json.Marshal(chatMeta)
-	if mErr != nil {
-		return nil, errors.InternalWrap("failed to marshal chat metadata", mErr)
-	}
-
-	if err := s.dialogRepo.UpdateChatAction(ctx, action.ID, input.UserID, metadataJSON); err != nil {
+	// 3. Update status to processing
+	chatMeta.Status = BATCH_PROCESSING
+	metadataJSON, _ := json.Marshal(chatMeta)
+	if err := s.dialogRepo.UpdateChatAction(ctx, action.ID, payload.UserID, metadataJSON); err != nil {
 		return nil, err
 	}
 
-	// 7. Return response
-	return &SubmitChatResponse{
-		ReplyMessage:        result.ReplyMessage,
-		CompletedObjectives: chatMeta.CompletedObjectives,
-		TotalObjectives:     chatMeta.TotalObjectives,
-		Feedback:            result.Feedback,
-	}, nil
+	return &chatMeta, nil
+}
+
+// ProcessReplyChatMessage handles the background logic of replying to a chat message.
+// worker method
+func (s *DialogService) ProcessReplyChatMessage(ctx context.Context, payload ReplyChatMessagePayload) {
+	// 1. Get existing chat action metadata (conversation history + progress)
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, payload.DialogID, payload.UserID, "submit_chat")
+	if err != nil || !exists {
+		return
+	}
+
+	var chatMeta ChatMetadata
+	if len(action.Metadata) > 0 {
+		_ = json.Unmarshal(action.Metadata, &chatMeta)
+	}
+
+	// 2. Call AI with conversation history
+	result, appErr := s.aiRepo.ReplyUserMessage(ctx, chatMeta.ChatObjective, chatMeta.Messages, chatMeta.SituationText, payload.Message)
+	if appErr != nil {
+		chatMeta.Status = BATCH_FAILED
+		metadataJSON, _ := json.Marshal(chatMeta)
+		_ = s.dialogRepo.UpdateChatAction(ctx, action.ID, payload.UserID, metadataJSON)
+		return
+	}
+
+	// 3. Append messages to history
+	chatMeta.Messages = append(chatMeta.Messages,
+		ChatMessage{Role: "user", Content: payload.Message},
+		ChatMessage{Role: "assistant", Content: result.ReplyMessage},
+	)
+
+	// 4. Merge completed objectives (deduplicate)
+	existing := make(map[string]bool)
+	for _, text := range chatMeta.CompletedObjectives {
+		existing[text] = true
+	}
+	totalRequirements := len(chatMeta.ChatObjective.Requirements)
+	for _, idx := range result.CompletedObjectivesIndexes {
+		if idx >= 0 && idx < totalRequirements {
+			newCompleted := chatMeta.ChatObjective.Requirements[idx]
+			if !existing[newCompleted] {
+				chatMeta.CompletedObjectives = append(chatMeta.CompletedObjectives, newCompleted)
+			}
+		}
+	}
+
+	// 5. Update status and save metadata
+	chatMeta.Status = BATCH_COMPLETED
+	metadataJSON, _ := json.Marshal(chatMeta)
+
+	_ = s.dialogRepo.UpdateChatAction(ctx, action.ID, payload.UserID, metadataJSON)
+}
+
+// GetSubmitChat returns the current status and metadata of a chat submission.
+func (s *DialogService) GetSubmitChat(ctx context.Context, dialogID, userID string) (*ChatMetadata, *errors.AppError) {
+	action, exists, err := s.dialogRepo.GetActionByUserID(ctx, dialogID, userID, "submit_chat")
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.NotFound("chat action not found for this dialog")
+	}
+
+	var chatMeta ChatMetadata
+	if len(action.Metadata) > 0 {
+		_ = json.Unmarshal(action.Metadata, &chatMeta)
+	}
+
+	return &chatMeta, nil
 }
 
 func (s *DialogService) failRemainingMediaJobs(ctx context.Context, dialogID, message string) {

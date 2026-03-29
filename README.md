@@ -91,7 +91,8 @@ uwu_service/
 | POST   | `/api/v1/dialogs/{dialogID}/start-speech` | Start dialogue speech practice session|
 | POST   | `/api/v1/dialogs/{dialogID}/submit-speech` | Submit spoken audio for scoring |
 | POST   | `/api/v1/dialogs/{dialogID}/start-chat` | Start dialogue chat session |
-| POST   | `/api/v1/dialogs/{dialogID}/submit-chat` | Send message to AI chat partner |
+| POST   | `/api/v1/dialogs/{dialogID}/submit-chat` | Send message to AI chat partner (Async) |
+| GET    | `/api/v1/dialogs/{dialogID}/submit-chat` | Get chat status or AI reply |
 | POST   | `/api/v1/dialogs/{dialogID}/toggle-saved` | Save or unsave dialog |
 
 ### 4. Videos (Protected)
@@ -233,15 +234,64 @@ Example Response:
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-chat \
   -H "Authorization: Bearer <jwt>"
 ```
+Example Response:
+```json
+{
+  "situation_text": "You are at a coffee shop in Madrid...",
+  "chat_objective": {
+    "requirements": ["Order a coffee", "Ask for the price"],
+    "persuasion": ["Try to get a discount"],
+    "constraints": ["Speak in Spanish only"]
+  },
+  "messages": [],
+  "completed_objectives": []
+}
+```
 
-**Submit Chat (AI Partner Request):**
+**Submit Chat (Async):**
 ```bash
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/submit-chat \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "I would like to order a latte."
+    "message": "Hola, un café por favor."
   }'
+```
+Example Response (202 Accepted):
+```json
+{
+  "situation_text": "You are at a coffee shop in Madrid...",
+  "chat_objective": { ... },
+  "messages": [ ... history ... ],
+  "completed_objectives": [ ... ],
+  "status": "processing"
+}
+```
+
+**Get Chat Status / AI Reply (Polling):**
+```bash
+curl -X GET http://localhost:8080/api/v1/dialogs/{dialogID}/submit-chat \
+  -H "Authorization: Bearer <jwt>"
+```
+Example Response (200 OK - Completed):
+```json
+{
+  "situation_text": "...",
+  "chat_objective": { ... },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hola, un café por favor."
+    },
+    {
+      "role": "assistant",
+      "content": "¡Hola! Claro, ¿qué tipo de café prefieres?",
+      "suggestion": "Good start! You can also say: 'Quisiera un café solo, por favor.'"
+    }
+  ],
+  "completed_objectives": ["Order a coffee"],
+  "status": "completed"
+}
 ```
 
 **Toggle Saved Status:**
@@ -395,6 +445,7 @@ This service utilizes various third-party AI models to power its learning featur
 - **Azure AI Speech (Pronunciation Assessment)**: Evaluates user audio for accuracy, fluency, prosody, and completeness.
 
 #### **POST /api/v1/dialogs/{dialogID}/submit-chat**
+(Async background processing)
 - **Azure OpenAI (GPT-5 Nano)**: Generates interactive AI partner replies, provides contextual feedback, and tracks objective completion.
 
 ### 2. Videos

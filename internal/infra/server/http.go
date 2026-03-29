@@ -80,6 +80,7 @@ func NewHTTPServer(
 			r.Post("/dialogs/{dialogID}/start-chat", dialogHandler.StartChat)
 			r.Post("/dialogs/{dialogID}/start-speech", dialogHandler.StartSpeech)
 			r.Post("/dialogs/{dialogID}/submit-chat", dialogHandler.SubmitChat)
+			r.Get("/dialogs/{dialogID}/submit-chat", dialogHandler.GetSubmitChat)
 			r.Post("/dialogs/{dialogID}/submit-speech", dialogHandler.SubmitSpeech)
 			// GET /dialogs/{dialogID}/speech-scripts
 			// POST /dialogs/{dialogID}/speech-scripts

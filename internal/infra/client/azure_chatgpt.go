@@ -131,7 +131,7 @@ func (c *AzureChatGPTClient) ChatCompletionMultiTurn(ctx context.Context, messag
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		respBody, _ := io.ReadAll(resp.Body)
 		return "", errors.InternalWrap("azure openai chat api error", fmt.Errorf("status code: %d, response body: %s", resp.StatusCode, string(respBody)))
 	}

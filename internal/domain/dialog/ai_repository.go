@@ -84,6 +84,8 @@ const submitChatPrompt = `You are an AI language learning conversational partner
 
 ## Communication Constraints & Guidelines
 Follow these rules strictly when formulating your response:
+- **Pacing & Flow:** Ask ONLY ONE question at a time. Do not overwhelm the user with multiple questions or choices in a single message. Wait for the user's response before moving forward.
+- **Natural Conversation:** Keep your responses short, natural, and conversational. Do not rush to complete the User Objectives all at once. Let the conversation flow naturally step-by-step.
 %s
 %s
 
@@ -95,25 +97,20 @@ The user needs to accomplish the following objectives during this conversation:
 Analyze the user's latest message based on the conversation history. 
 1. Generate an appropriate, natural reply following the constraints.
 2. Evaluate if the user's message successfully fulfills any of the pending "User Objectives".
+3. Formulate helpful feedback in the "suggestion" field based on their performance.
 
 You MUST respond strictly in the following JSON format:
 {
   "reply_message": "Your conversational response here.",
   "completed_objectives_indexes": [0, 2],
-  "feedback": "Optional short feedback or hint for the user (internal use, keep it empty if the user is doing well)."
+  "suggestion": "Helpful feedback. Provide a short grammar/vocabulary correction."
 }`
 
-// AIRepository generates dialog content from the LLM.
-type AIRepository interface {
-	GenerateDialog(ctx context.Context, payload GenerateDialogPayload) (*DialogDetails, *errors.AppError)
-	ChatReply(ctx context.Context, chatMode ChatMode, history []client.ChatMessage, userMessage string) (*ChatReplyResult, *errors.AppError)
-}
-
-// ChatReplyResult is the parsed AI response for chat mode.
-type ChatReplyResult struct {
+// ReplyMessageResult is the parsed AI response for chat mode.
+type ReplyMessageResult struct {
 	ReplyMessage               string `json:"reply_message"`
+	Suggestion                 string `json:"suggestion"`
 	CompletedObjectivesIndexes []int  `json:"completed_objectives_indexes"`
-	Feedback                   string `json:"feedback"`
 }
 
 type dialogueGuideResponse struct {
@@ -139,7 +136,7 @@ type SpeechScript struct {
 	Evaluation *Evaluation `json:"evaluation,omitempty"`
 }
 
-// Evaluation
+// Evaluation & EvaluationWord
 type Evaluation struct {
 	AccuracyScore     float64          `json:"accuracy_score"`
 	FluencyScore      float64          `json:"fluency_score"`
@@ -159,14 +156,22 @@ type EvaluationWord struct {
 	Word          string  `json:"Word"`
 }
 
-// Chat Mode
+// Chat Mode & ChatObjective
 type ChatMode struct {
-	Situation  string `json:"situation"`
-	Objectives struct {
-		Requirements []string `json:"requirements"`
-		Persuasion   []string `json:"persuasion"`
-		Constraints  []string `json:"constraints"`
-	} `json:"objectives"`
+	Situation  string        `json:"situation"`
+	Objectives ChatObjective `json:"objectives"`
+}
+
+type ChatObjective struct {
+	Requirements []string `json:"requirements"`
+	Persuasion   []string `json:"persuasion"`
+	Constraints  []string `json:"constraints"`
+}
+
+// AIRepository generates dialog content from the LLM.
+type AIRepository interface {
+	GenerateDialog(ctx context.Context, payload GenerateDialogPayload) (*DialogDetails, *errors.AppError)
+	ReplyUserMessage(ctx context.Context, chatObjective ChatObjective, history []ChatMessage, situation, userMessage string) (*ReplyMessageResult, *errors.AppError)
 }
 
 type aiRepository struct {
@@ -245,19 +250,21 @@ func buildDialogUserPrompt(payload GenerateDialogPayload) string {
 	return b.String()
 }
 
-// ChatReply sends a multi-turn chat request and parses the structured AI response.
-func (r *aiRepository) ChatReply(ctx context.Context, chatMode ChatMode, history []client.ChatMessage, userMessage string) (*ChatReplyResult, *errors.AppError) {
+// ReplyUserMessage sends a multi-turn chat request and parses the structured AI response.
+func (r *aiRepository) ReplyUserMessage(ctx context.Context, chatObjective ChatObjective, history []ChatMessage, situation, userMessage string) (*ReplyMessageResult, *errors.AppError) {
 	if r.chatGPT == nil {
 		return nil, errors.Internal("dialog AI client not configured")
 	}
 
 	// Build system prompt
-	systemPrompt := buildChatReplySystemPrompt(chatMode)
+	systemPrompt := buildChatReplySystemPrompt(chatObjective, situation)
 
 	// Build full message list: system + history + new user message
 	messages := make([]client.ChatMessage, 0, len(history)+2)
 	messages = append(messages, client.ChatMessage{Role: "system", Content: systemPrompt})
-	messages = append(messages, history...)
+	for _, msg := range history {
+		messages = append(messages, client.ChatMessage{Role: msg.Role, Content: msg.Content})
+	}
 	messages = append(messages, client.ChatMessage{Role: "user", Content: userMessage})
 
 	raw, err := r.chatGPT.ChatCompletionMultiTurn(ctx, messages)
@@ -272,7 +279,7 @@ func (r *aiRepository) ChatReply(ctx context.Context, chatMode ChatMode, history
 	clean = strings.TrimSuffix(clean, "```")
 	clean = strings.TrimSpace(clean)
 
-	var result ChatReplyResult
+	var result ReplyMessageResult
 	if parseErr := json.Unmarshal([]byte(clean), &result); parseErr != nil {
 		return nil, errors.InternalWrap("failed to parse chat reply", parseErr)
 	}
@@ -280,28 +287,28 @@ func (r *aiRepository) ChatReply(ctx context.Context, chatMode ChatMode, history
 	return &result, nil
 }
 
-func buildChatReplySystemPrompt(chatMode ChatMode) string {
+func buildChatReplySystemPrompt(chatObjective ChatObjective, situation string) string {
 	// Build constraints list
 	var constraints strings.Builder
-	for i, c := range chatMode.Objectives.Constraints {
+	for i, c := range chatObjective.Constraints {
 		constraints.WriteString(fmt.Sprintf("%d. %s\n", i+1, c))
 	}
 
 	// Build persuasion list
 	var persuasion strings.Builder
-	for i, p := range chatMode.Objectives.Persuasion {
+	for i, p := range chatObjective.Persuasion {
 		persuasion.WriteString(fmt.Sprintf("%d. %s\n", i+1, p))
 	}
 
 	// Build requirements list
 	var requirements strings.Builder
-	for i, r := range chatMode.Objectives.Requirements {
+	for i, r := range chatObjective.Requirements {
 		requirements.WriteString(fmt.Sprintf("%d. [Index %d] %s\n", i+1, i, r))
 	}
 
 	return fmt.Sprintf(
 		submitChatPrompt,
-		chatMode.Situation,
+		situation,
 		constraints.String(),
 		persuasion.String(),
 		requirements.String(),
