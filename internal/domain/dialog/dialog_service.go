@@ -489,8 +489,29 @@ func (s *DialogService) SubmitSpeech(ctx context.Context, input SubmitSpeechInpu
 		return nil, errors.InternalWrap("failed to analyze shadowing audio", err)
 	}
 
+	// loop remove property: Phonemes, Syllables
+	newWords := make([]EvaluationWord, 0)
+	for _, word := range evaluation.NBest[0].Words {
+		newWords = append(newWords, EvaluationWord{
+			AccuracyScore: word.AccuracyScore,
+			Confidence:    word.Confidence,
+			Duration:      word.Duration,
+			ErrorType:     word.ErrorType,
+			Offset:        word.Offset,
+			Word:          word.Word,
+		})
+	}
+
 	// 3. Update metadata
-	metadata.Scripts[input.ScriptIndex].Evaluation = &evaluation
+	metadata.Scripts[input.ScriptIndex].Evaluation = &Evaluation{
+		AccuracyScore:     evaluation.NBest[0].AccuracyScore,
+		FluencyScore:      evaluation.NBest[0].FluencyScore,
+		PronScore:         evaluation.NBest[0].PronScore,
+		CompletenessScore: evaluation.NBest[0].CompletenessScore,
+		DisplayText:       evaluation.NBest[0].DisplayText,
+		Duration:          evaluation.Duration,
+		Words:             newWords,
+	}
 	metadataJSON, _ := json.Marshal(metadata)
 	if err := s.dialogRepo.SubmitSpeechAction(ctx, action.ID, input.UserID, metadataJSON); err != nil {
 		return nil, err

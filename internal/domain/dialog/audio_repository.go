@@ -11,7 +11,7 @@ import (
 // AudioRepository generates dialog audio.
 type AudioRepository interface {
 	Synthesize(ctx context.Context, text, voice string) ([]byte, *errors.AppError)
-	EvaluateSpeech(ctx context.Context, tempWav *os.File, referenceText string, language string) (map[string]interface{}, *errors.AppError)
+	EvaluateSpeech(ctx context.Context, tempWav *os.File, referenceText string, language string) (*client.AzureEvaluationSpeech, *errors.AppError)
 }
 
 type audioRepository struct {
@@ -30,7 +30,7 @@ func (r *audioRepository) Synthesize(ctx context.Context, text, voice string) ([
 	return r.speechClient.Synthesize(ctx, text, voice)
 }
 
-func (r *audioRepository) EvaluateSpeech(ctx context.Context, tempWav *os.File, referenceText string, language string) (map[string]interface{}, *errors.AppError) {
+func (r *audioRepository) EvaluateSpeech(ctx context.Context, tempWav *os.File, referenceText string, language string) (*client.AzureEvaluationSpeech, *errors.AppError) {
 	if r.speechClient == nil {
 		return nil, errors.Internal("dialog speech client not configured")
 	}

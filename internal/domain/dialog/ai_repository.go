@@ -133,11 +133,30 @@ type SpeechMode struct {
 
 // SpeechScript
 type SpeechScript struct {
-	Speaker    string                  `json:"speaker"`
-	Text       string                  `json:"text"`
-	AudioURL   *string                 `json:"audio_url,omitempty"`
-	Transcript *string                 `json:"transcript,omitempty"`
-	Evaluation *map[string]interface{} `json:"evaluation,omitempty"`
+	Speaker    string      `json:"speaker"`
+	Text       string      `json:"text"`
+	AudioURL   *string     `json:"audio_url,omitempty"`
+	Evaluation *Evaluation `json:"evaluation,omitempty"`
+}
+
+// Evaluation
+type Evaluation struct {
+	AccuracyScore     float64          `json:"accuracy_score"`
+	FluencyScore      float64          `json:"fluency_score"`
+	PronScore         float64          `json:"pron_score"`
+	CompletenessScore float64          `json:"completeness_score"`
+	DisplayText       string           `json:"display_text"`
+	Duration          int              `json:"duration"`
+	Words             []EvaluationWord `json:"words"`
+}
+
+type EvaluationWord struct {
+	AccuracyScore float64 `json:"AccuracyScore"`
+	Confidence    float64 `json:"Confidence"`
+	Duration      int     `json:"Duration"`
+	ErrorType     string  `json:"ErrorType"`
+	Offset        int     `json:"Offset"`
+	Word          string  `json:"Word"`
 }
 
 // Chat Mode

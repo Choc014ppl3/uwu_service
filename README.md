@@ -181,6 +181,23 @@ curl -X GET http://localhost:8080/api/v1/dialogs/{dialogID}/details \
 curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/start-speech \
   -H "Authorization: Bearer <jwt>"
 ```
+Example Response:
+```json
+{
+  "action_id": "uuid",
+  "dialog_id": "uuid",
+  "user_id": "uuid",
+  "metadata": {
+    "situation_text": "...",
+    "situation_audio_url": "...",
+    "scripts": [
+      { "speaker": "AI", "text": "...", "audio_url": "..." },
+      { "speaker": "User", "text": "..." }
+    ],
+    "attempts": []
+  }
+}
+```
 
 **Submit Speech (Multipart Audio Scoring):**
 ```bash
@@ -190,6 +207,25 @@ curl -X POST http://localhost:8080/api/v1/dialogs/{dialogID}/submit-speech \
   -F "audio=@/path/to/audio.wav" \
   -F "reference_text=Hola, quisiera un café." \
   -F "script_index=0"
+```
+Example Response:
+```json
+{
+  "situation_text": "...",
+  "situation_audio_url": "...",
+  "scripts": [
+    {
+      "speaker": "User",
+      "text": "Hola, quisiera un café.",
+      "evaluation": {
+        "AccuracyScore": 100.0,
+        "FluencyScore": 100.0,
+        "PronScore": 100.0
+      }
+    }
+  ],
+  "attempts": []
+}
 ```
 
 **Start Dialogue Chat Practice:**

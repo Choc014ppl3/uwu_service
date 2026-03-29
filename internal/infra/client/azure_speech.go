@@ -26,6 +26,36 @@ var ConvertLangCode = map[string]string{
 	"russian":    "ru-RU",
 }
 
+// AzureWord
+type AzureWord struct {
+	AccuracyScore float64 `json:"AccuracyScore"`
+	Confidence    float64 `json:"Confidence"`
+	Duration      int     `json:"Duration"`
+	ErrorType     string  `json:"ErrorType"`
+	Offset        int     `json:"Offset"`
+	Word          string  `json:"Word"`
+	Phonemes      []any   `json:"Phonemes"`
+	Syllables     []any   `json:"Syllables"`
+}
+
+// AzureNBest
+type AzureNBest struct {
+	AccuracyScore     float64     `json:"AccuracyScore"`
+	CompletenessScore float64     `json:"CompletenessScore"`
+	Confidence        float64     `json:"Confidence"`
+	DisplayText       string      `json:"DisplayText"`
+	FluencyScore      float64     `json:"FluencyScore"`
+	PronScore         float64     `json:"PronScore"`
+	Words             []AzureWord `json:"Words"`
+}
+
+// AzureEvaluationSpeech
+type AzureEvaluationSpeech struct {
+	DisplayText string       `json:"DisplayText"`
+	Duration    int          `json:"Duration"`
+	NBest       []AzureNBest `json:"NBest"`
+}
+
 // AzureSpeechClient wraps Azure AI Speech text-to-speech.
 type AzureSpeechClient struct {
 	apiKey string
@@ -96,7 +126,7 @@ func (c *AzureSpeechClient) Synthesize(ctx context.Context, text, voice string) 
 }
 
 // EvaluatePronunciation assesses pronunciation of audio bytes against a reference text.
-func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioBytes []byte, referenceText string, language string) (map[string]interface{}, *errors.AppError) {
+func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioBytes []byte, referenceText string, language string) (*AzureEvaluationSpeech, *errors.AppError) {
 	if c.apiKey == "" || c.region == "" {
 		return nil, errors.Internal("Azure speech credentials not configured")
 	}
@@ -120,7 +150,8 @@ func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioByte
 	assessmentConfig := map[string]interface{}{
 		"ReferenceText": referenceText,
 		"GradingSystem": "HundredMark",
-		"Granularity":   "Phoneme",
+		"Granularity":   "Word", // Word - less granular, Phoneme - more accurate
+		"EnableMiscue":  true,   // Enable Insertion, Omission, Substitution detection
 		"Dimension":     "Comprehensive",
 	}
 
@@ -149,10 +180,83 @@ func (c *AzureSpeechClient) EvaluatePronunciation(ctx context.Context, audioByte
 		return nil, errors.Internal(fmt.Sprintf("azure speech recognition api error %d: %s", resp.StatusCode, string(body)))
 	}
 
-	var result map[string]interface{}
+	var result AzureEvaluationSpeech
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, errors.InternalWrap("failed to decode azure speech recognition response", err)
 	}
 
-	return result, nil
+	// Deduplicate ErrorType: Insertion
+	result = DeduplicateWords(result)
+
+	return &result, nil
+}
+
+// DeduplicateWords processes the Azure Speech response to handle duplicated words.
+// When Azure returns the same word multiple times (e.g., one with "Insertion" error and one with other errors),
+// this function keeps only the word with "Insertion" error type and calculates the average AccuracyScore.
+func DeduplicateWords(result AzureEvaluationSpeech) AzureEvaluationSpeech {
+	if len(result.NBest) == 0 {
+		return result
+	}
+
+	// Process the first NBest entry (primary result)
+	nBest := &result.NBest[0]
+	words := nBest.Words
+
+	// Group words by their Word value
+	wordGroups := make(map[string][]int) // word -> indices
+	for i, word := range words {
+		wordGroups[word.Word] = append(wordGroups[word.Word], i)
+	}
+
+	// Find duplicates and process them
+	indicesToRemove := make(map[int]bool)
+	for _, indices := range wordGroups {
+		if len(indices) <= 1 {
+			continue // Not a duplicate
+		}
+
+		// Find the Insertion index and calculate average AccuracyScore
+		var insertionIndex int = -1
+		var totalAccuracy float64 = 0
+		var count int = 0
+
+		for _, idx := range indices {
+			word := words[idx]
+
+			if word.ErrorType == "Insertion" {
+				insertionIndex = idx
+			}
+
+			totalAccuracy += word.AccuracyScore
+			count++
+		}
+
+		// If we found an Insertion, keep it and remove others
+		if insertionIndex != -1 && count > 0 {
+			// Calculate average and update the Insertion word
+			avgAccuracy := totalAccuracy / float64(count)
+			words[insertionIndex].AccuracyScore = avgAccuracy
+
+			// Mark other indices for removal
+			for _, idx := range indices {
+				if idx != insertionIndex {
+					indicesToRemove[idx] = true
+				}
+			}
+		}
+	}
+
+	// Build new words array without removed indices
+	if len(indicesToRemove) > 0 {
+		newWords := make([]AzureWord, 0, len(words)-len(indicesToRemove))
+		for i, word := range words {
+			if !indicesToRemove[i] {
+				newWords = append(newWords, word)
+			}
+		}
+		nBest.Words = newWords
+	}
+
+	return result
 }
