@@ -92,7 +92,8 @@ func (h *DialogHandler) GetDialogDetails(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 2. get dialog details from service
-	dialog, err := h.service.GetDialogDetails(r.Context(), dialogID)
+	userID := middleware.GetUserID(r.Context())
+	dialog, err := h.service.GetDialogDetails(r.Context(), dialogID, userID)
 	if err != nil {
 		response.HandleError(w, err)
 		return

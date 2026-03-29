@@ -125,9 +125,9 @@ func (s *DialogService) ListDialogContents(ctx context.Context, input ListDialog
 }
 
 // Get Dialog Details
-func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID string) (*DialogDetailsResponse, *errors.AppError) {
+func (s *DialogService) GetDialogDetails(ctx context.Context, dialogID, userID string) (*DialogDetailsResponse, *errors.AppError) {
 	// Get dialog from database
-	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
+	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +416,7 @@ func (s *DialogService) StartSpeech(ctx context.Context, dialogID, userID string
 	}
 
 	// 2. Fetch dialog details to get speech snapshot
-	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
+	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -516,7 +516,7 @@ func (s *DialogService) SubmitSpeech(ctx context.Context, input SubmitSpeechInpu
 // This function will reset the chat history and completed objectives every time the user starts a chat.
 func (s *DialogService) StartChat(ctx context.Context, dialogID, userID string) (*ChatMetadata, *errors.AppError) {
 	// 1. Fetch dialog details to get chat snapshot
-	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID)
+	learningItem, err := s.dialogRepo.GetDialog(ctx, dialogID, userID)
 	if err != nil {
 		return nil, err
 	}

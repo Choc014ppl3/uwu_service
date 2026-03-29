@@ -26,6 +26,20 @@ type UserAction struct {
 	DeletedAt  *time.Time      `json:"deleted_at"`
 }
 
+// DialogActions model
+type DialogActions struct {
+	Type struct {
+		Saved  int `json:"saved"`
+		Chat   int `json:"chat"`
+		Speech int `json:"speech"`
+	} `json:"type"`
+	User struct {
+		Saved  bool `json:"saved"`
+		Chat   bool `json:"chat"`
+		Speech bool `json:"speech"`
+	} `json:"user"`
+}
+
 // LearningItem model
 type LearningItem struct {
 	ID        uuid.UUID       `json:"id"`
@@ -41,7 +55,7 @@ type LearningItem struct {
 	CreatedAt *time.Time      `json:"created_at"`
 	UpdatedAt *time.Time      `json:"updated_at"`
 	// Learning Item Actions
-	Actions []UserAction `json:"actions"`
+	Actions DialogActions `json:"actions"`
 }
 
 // DialogDetails is the structure of the details field in LearningItem model
@@ -60,7 +74,7 @@ type DialogDetails struct {
 
 // DialogRepository interface
 type DialogRepository interface {
-	GetDialog(ctx context.Context, dialogID string) (*LearningItem, *errors.AppError)
+	GetDialog(ctx context.Context, dialogID, userID string) (*LearningItem, *errors.AppError)
 	ListDialogs(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateDialog(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateDialog(ctx context.Context, item *LearningItem) *errors.AppError
@@ -81,14 +95,17 @@ func NewDialogRepository(db *client.PostgresClient) DialogRepository {
 	return &dialogRepository{db: db}
 }
 
-func (r *dialogRepository) GetDialog(ctx context.Context, dialogID string) (*LearningItem, *errors.AppError) {
+func (r *dialogRepository) GetDialog(ctx context.Context, dialogID, userID string) (*LearningItem, *errors.AppError) {
 	query := `
 		SELECT 
 			l.id, l.feature_id, l.content, l.language, l.level,
 			l.details, l.metadata, l.tags, l.is_active, l.created_by,
 			l.created_at, l.updated_at,
 			COALESCE(
-				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL),
+				jsonb_agg(jsonb_build_object(
+					'user_id', ua.user_id,
+					'action_type', ua.action_type
+				)) FILTER (WHERE ua.id IS NOT NULL),
 				'[]'::jsonb
 			) as actions
 		FROM learning_items l
@@ -125,9 +142,32 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID string) (*Lea
 		return nil, errors.InternalWrap("failed to get dialog content", err)
 	}
 
+	// Calculate counts and user status from actionsJSON logic
 	if len(actionsJSON) > 0 {
-		if err := json.Unmarshal(actionsJSON, &item.Actions); err != nil {
-			return nil, errors.InternalWrap("failed to unmarshal dialog actions", err)
+		var rawActions []struct {
+			UserID     string `json:"user_id"`
+			ActionType string `json:"action_type"`
+		}
+		if err := json.Unmarshal(actionsJSON, &rawActions); err == nil {
+			for _, action := range rawActions {
+				switch action.ActionType {
+				case "dialogue_saved":
+					item.Actions.Type.Saved++
+					if action.UserID == userID {
+						item.Actions.User.Saved = true
+					}
+				case "submit_chat":
+					item.Actions.Type.Chat++
+					if action.UserID == userID {
+						item.Actions.User.Chat = true
+					}
+				case "submit_speech":
+					item.Actions.Type.Speech++
+					if action.UserID == userID {
+						item.Actions.User.Speech = true
+					}
+				}
+			}
 		}
 	}
 
@@ -148,18 +188,9 @@ func (r *dialogRepository) ListDialogs(ctx context.Context, limit, offset int) (
 		SELECT 
 			l.id, l.feature_id, l.content, l.language, l.level, 
 			l.details, l.metadata, l.tags, l.is_active, l.created_by, 
-			l.created_at, l.updated_at,
-			COALESCE(
-				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL), 
-				'[]'::jsonb
-			) as actions
+			l.created_at, l.updated_at
 		FROM learning_items l
-		LEFT JOIN user_actions ua 
-			ON l.id = ua.learning_id 
-			AND ua.action_type IN ('dialogue_saved', 'submit_chat', 'submit_speech')
-			AND ua.deleted_at IS NULL
 		WHERE l.feature_id = $1
-		GROUP BY l.id
 		ORDER BY l.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -173,7 +204,6 @@ func (r *dialogRepository) ListDialogs(ctx context.Context, limit, offset int) (
 	var dialogs []*LearningItem
 	for rows.Next() {
 		var dialog LearningItem
-		var actionsJSON []byte
 
 		err := rows.Scan(
 			&dialog.ID,
@@ -188,18 +218,12 @@ func (r *dialogRepository) ListDialogs(ctx context.Context, limit, offset int) (
 			&dialog.CreatedBy,
 			&dialog.CreatedAt,
 			&dialog.UpdatedAt,
-			&actionsJSON,
 		)
 		if err != nil {
 			return nil, 0, errors.InternalWrap("failed to scan dialog content", err)
 		}
 
-		if len(actionsJSON) > 0 {
-			if err := json.Unmarshal(actionsJSON, &dialog.Actions); err != nil {
-				return nil, 0, errors.InternalWrap("failed to unmarshal actions JSON", err)
-			}
-		}
-
+		dialog.Actions = DialogActions{}
 		dialogs = append(dialogs, &dialog)
 	}
 

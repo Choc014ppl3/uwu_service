@@ -26,6 +26,21 @@ type UserAction struct {
 	DeletedAt  *time.Time      `json:"deleted_at"`
 }
 
+// VideoActions model
+type VideoActions struct {
+	Type struct {
+		Saved  int `json:"saved"`
+		Quiz   int `json:"quiz"`
+		Retell int `json:"retell"`
+	} `json:"type"`
+	User struct {
+		Saved      bool `json:"saved"`
+		Quiz       bool `json:"quiz"`
+		Retell     bool `json:"retell"`
+		Transcript bool `json:"transcript"`
+	} `json:"user"`
+}
+
 // LearningItem model
 type LearningItem struct {
 	ID        uuid.UUID       `json:"id"`
@@ -41,7 +56,7 @@ type LearningItem struct {
 	CreatedAt *time.Time      `json:"created_at"`
 	UpdatedAt *time.Time      `json:"updated_at"`
 	// Learning Item Actions
-	Actions []UserAction `json:"actions"`
+	Actions VideoActions `json:"actions"`
 }
 
 // VideoDetails is the structure of the details field in LearningItem model
@@ -75,7 +90,7 @@ type VideoDetails struct {
 
 // VideoRepository interface
 type VideoRepository interface {
-	GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError)
+	GetVideo(ctx context.Context, videoID, userID string) (*LearningItem, *errors.AppError)
 	ListVideos(ctx context.Context, limit, offset int) ([]*LearningItem, int, *errors.AppError)
 	CreateVideo(ctx context.Context, item *LearningItem) *errors.AppError
 	UpdateVideo(ctx context.Context, item *LearningItem) *errors.AppError
@@ -96,20 +111,23 @@ func NewVideoRepository(db *client.PostgresClient) VideoRepository {
 	return &videoRepository{db: db}
 }
 
-func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*LearningItem, *errors.AppError) {
+func (r *videoRepository) GetVideo(ctx context.Context, videoID, userID string) (*LearningItem, *errors.AppError) {
 	query := `
 		SELECT 
 			l.id, l.feature_id, l.content, l.language, l.level,
 			l.details, l.metadata, l.tags, l.is_active, l.created_by,
 			l.created_at, l.updated_at,
 			COALESCE(
-				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL),
+				jsonb_agg(jsonb_build_object(
+					'user_id', ua.user_id,
+					'action_type', ua.action_type
+				)) FILTER (WHERE ua.id IS NOT NULL),
 				'[]'::jsonb
 			) as actions
 		FROM learning_items l
 		LEFT JOIN user_actions ua
 			ON l.id = ua.learning_id
-			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz')
+			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz', 'submit_retell')
 			AND ua.deleted_at IS NULL
 		WHERE l.id = $1 AND l.feature_id = $2
 		GROUP BY l.id
@@ -140,9 +158,36 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID string) (*Learni
 		return nil, errors.InternalWrap("failed to get video content", err)
 	}
 
+	// Calculate counts and user status from actionsJSON logic
 	if len(actionsJSON) > 0 {
-		if err := json.Unmarshal(actionsJSON, &item.Actions); err != nil {
-			return nil, errors.InternalWrap("failed to unmarshal video actions", err)
+		var rawActions []struct {
+			UserID     string `json:"user_id"`
+			ActionType string `json:"action_type"`
+		}
+		if err := json.Unmarshal(actionsJSON, &rawActions); err == nil {
+			for _, action := range rawActions {
+				switch action.ActionType {
+				case "quiz_saved":
+					item.Actions.Type.Saved++
+					if action.UserID == userID {
+						item.Actions.User.Saved = true
+					}
+				case "quiz_transcript":
+					if action.UserID == userID {
+						item.Actions.User.Transcript = true
+					}
+				case "submit_quiz":
+					item.Actions.Type.Quiz++
+					if action.UserID == userID {
+						item.Actions.User.Quiz = true
+					}
+				case "submit_retell":
+					item.Actions.Type.Retell++
+					if action.UserID == userID {
+						item.Actions.User.Retell = true
+					}
+				}
+			}
 		}
 	}
 
@@ -163,18 +208,9 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 		SELECT 
 			l.id, l.feature_id, l.content, l.language, l.level, 
 			l.details, l.metadata, l.tags, l.is_active, l.created_by, 
-			l.created_at, l.updated_at,
-			COALESCE(
-				jsonb_agg(to_jsonb(ua)) FILTER (WHERE ua.id IS NOT NULL), 
-				'[]'::jsonb
-			) as actions
+			l.created_at, l.updated_at
 		FROM learning_items l
-		LEFT JOIN user_actions ua 
-			ON l.id = ua.learning_id 
-			AND ua.action_type IN ('quiz_saved', 'quiz_transcript', 'submit_quiz')
-			AND ua.deleted_at IS NULL
 		WHERE l.feature_id = $1
-		GROUP BY l.id
 		ORDER BY l.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -188,7 +224,6 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 	var videos []*LearningItem
 	for rows.Next() {
 		var video LearningItem
-		var actionsJSON []byte // ตัวแปรสำหรับรับก้อน JSON จาก DB
 
 		err := rows.Scan(
 			&video.ID,
@@ -203,19 +238,12 @@ func (r *videoRepository) ListVideos(ctx context.Context, limit, offset int) ([]
 			&video.CreatedBy,
 			&video.CreatedAt,
 			&video.UpdatedAt,
-			&actionsJSON, // รับค่า jsonb เข้ามาเป็น bytes
 		)
 		if err != nil {
 			return nil, 0, errors.InternalWrap("failed to scan video content", err)
 		}
 
-		// แปลง JSON string/bytes กลับเป็น Struct ของ Go
-		if len(actionsJSON) > 0 {
-			if err := json.Unmarshal(actionsJSON, &video.Actions); err != nil {
-				return nil, 0, errors.InternalWrap("failed to unmarshal actions JSON", err)
-			}
-		}
-
+		video.Actions = VideoActions{}
 		videos = append(videos, &video)
 	}
 

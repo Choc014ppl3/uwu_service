@@ -306,9 +306,9 @@ func (s *VideoService) ProcessUploadVideo(ctx context.Context, payload UploadVid
 }
 
 // Get Video Details
-func (s *VideoService) GetVideoDetails(ctx context.Context, videoID string) (*VideoDetailsResponse, *errors.AppError) {
+func (s *VideoService) GetVideoDetails(ctx context.Context, videoID, userID string) (*VideoDetailsResponse, *errors.AppError) {
 	// Get video from database
-	learningItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	learningItem, err := s.videoRepo.GetVideo(ctx, videoID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +393,7 @@ func (s *VideoService) StartQuiz(ctx context.Context, input StartQuizInput) (*St
 	}
 
 	// 2. Fetch video details to get quiz snapshot
-	videoItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	videoItem, err := s.videoRepo.GetVideo(ctx, videoID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +463,7 @@ func (s *VideoService) StartRetell(ctx context.Context, input StartRetellInput) 
 	}
 
 	// 2. Fetch video details to get retell snapshot
-	videoItem, err := s.videoRepo.GetVideo(ctx, videoID)
+	videoItem, err := s.videoRepo.GetVideo(ctx, videoID, userID)
 	if err != nil {
 		return nil, err
 	}

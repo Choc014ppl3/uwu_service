@@ -99,7 +99,8 @@ func (h *VideoHandler) GetVideoDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. get video from batch or database
-	video, err := h.service.GetVideoDetails(r.Context(), videoID)
+	userID := middleware.GetUserID(r.Context())
+	video, err := h.service.GetVideoDetails(r.Context(), videoID, userID)
 	if err != nil {
 		response.HandleError(w, err)
 		return
