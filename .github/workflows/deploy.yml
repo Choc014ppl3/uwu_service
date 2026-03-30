@@ -100,6 +100,8 @@ jobs:
             GITHUB_ACTOR,
             GITHUB_REPOSITORY,
             DOMAIN,
+            QUEUE_WORKER_COUNT,
+            QUEUE_BUFFER_SIZE,
             POSTGRES_USER,
             POSTGRES_PASSWORD,
             POSTGRES_DB,
@@ -164,6 +166,8 @@ jobs:
 
           # App Configs
           DOMAIN: ${{ vars.DOMAIN }}
+          QUEUE_WORKER_COUNT: ${{ vars.QUEUE_WORKER_COUNT }}
+          QUEUE_BUFFER_SIZE: ${{ vars.QUEUE_BUFFER_SIZE }}
           
           # AI Services
           GEMINI_SA_BASE64: ${{ secrets.GEMINI_SA_BASE64 }}
