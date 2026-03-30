@@ -38,6 +38,7 @@ type DialogActions struct {
 		Saved  bool `json:"saved"`
 		Chat   bool `json:"chat"`
 		Speech bool `json:"speech"`
+		Passed bool `json:"passed"`
 	} `json:"user"`
 }
 
@@ -177,9 +178,12 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID, userID strin
 			}
 
 			// Intersection: submit_chat AND submit_speech
-			for _, actions := range userActionsMap {
+			for uid, actions := range userActionsMap {
 				if actions["submit_chat"] && actions["submit_speech"] {
 					item.Actions.Type.Passed++
+					if uid == userID {
+						item.Actions.User.Passed = true
+					}
 				}
 			}
 		}

@@ -39,6 +39,7 @@ type VideoActions struct {
 		Quiz       bool `json:"quiz"`
 		Retell     bool `json:"retell"`
 		Transcript bool `json:"transcript"`
+		Passed     bool `json:"passed"`
 	} `json:"user"`
 }
 
@@ -197,9 +198,12 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID, userID string) 
 			}
 
 			// Intersection: submit_quiz AND submit_retell
-			for _, actions := range userActionsMap {
+			for uid, actions := range userActionsMap {
 				if actions["submit_quiz"] && actions["submit_retell"] {
 					item.Actions.Type.Passed++
+					if uid == userID {
+						item.Actions.User.Passed = true
+					}
 				}
 			}
 		}

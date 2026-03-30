@@ -779,9 +779,26 @@ func scoreQuizAnswers(gistQuiz any, answers []QuizAnswer) float64 {
 				qScore = 0
 				break
 			}
+
+			// Map text values to IDs for comparison
+			textToID := make(map[string]string)
+			for _, opt := range quiz.Options {
+				textToID[opt.Text] = opt.ID
+			}
+
 			positionValue := weight / float64(len(quiz.CorrectOrder))
-			for i := range quiz.CorrectOrder {
-				if i < len(ans.Order) && ans.Order[i] == quiz.CorrectOrder[i] {
+			for i, correctVal := range quiz.CorrectOrder {
+				if i >= len(ans.Order) {
+					break
+				}
+
+				// Compare ID directly or resolve text to ID
+				targetID, exists := textToID[correctVal]
+				if !exists {
+					targetID = correctVal // Fallback if no match (maybe it's already an ID)
+				}
+
+				if ans.Order[i] == targetID {
 					qScore += positionValue
 				}
 			}
