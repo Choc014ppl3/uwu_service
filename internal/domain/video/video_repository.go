@@ -32,6 +32,7 @@ type VideoActions struct {
 		Saved  int `json:"saved"`
 		Quiz   int `json:"quiz"`
 		Retell int `json:"retell"`
+		Passed int `json:"passed"`
 	} `json:"type"`
 	User struct {
 		Saved      bool `json:"saved"`
@@ -165,7 +166,13 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID, userID string) 
 			ActionType string `json:"action_type"`
 		}
 		if err := json.Unmarshal(actionsJSON, &rawActions); err == nil {
+			userActionsMap := make(map[string]map[string]bool)
 			for _, action := range rawActions {
+				if _, ok := userActionsMap[action.UserID]; !ok {
+					userActionsMap[action.UserID] = make(map[string]bool)
+				}
+				userActionsMap[action.UserID][action.ActionType] = true
+
 				switch action.ActionType {
 				case "quiz_saved":
 					item.Actions.Type.Saved++
@@ -186,6 +193,13 @@ func (r *videoRepository) GetVideo(ctx context.Context, videoID, userID string) 
 					if action.UserID == userID {
 						item.Actions.User.Retell = true
 					}
+				}
+			}
+
+			// Intersection: submit_quiz AND submit_retell
+			for _, actions := range userActionsMap {
+				if actions["submit_quiz"] && actions["submit_retell"] {
+					item.Actions.Type.Passed++
 				}
 			}
 		}

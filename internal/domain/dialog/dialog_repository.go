@@ -32,6 +32,7 @@ type DialogActions struct {
 		Saved  int `json:"saved"`
 		Chat   int `json:"chat"`
 		Speech int `json:"speech"`
+		Passed int `json:"passed"`
 	} `json:"type"`
 	User struct {
 		Saved  bool `json:"saved"`
@@ -149,7 +150,13 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID, userID strin
 			ActionType string `json:"action_type"`
 		}
 		if err := json.Unmarshal(actionsJSON, &rawActions); err == nil {
+			userActionsMap := make(map[string]map[string]bool)
 			for _, action := range rawActions {
+				if _, ok := userActionsMap[action.UserID]; !ok {
+					userActionsMap[action.UserID] = make(map[string]bool)
+				}
+				userActionsMap[action.UserID][action.ActionType] = true
+
 				switch action.ActionType {
 				case "dialogue_saved":
 					item.Actions.Type.Saved++
@@ -166,6 +173,13 @@ func (r *dialogRepository) GetDialog(ctx context.Context, dialogID, userID strin
 					if action.UserID == userID {
 						item.Actions.User.Speech = true
 					}
+				}
+			}
+
+			// Intersection: submit_chat AND submit_speech
+			for _, actions := range userActionsMap {
+				if actions["submit_chat"] && actions["submit_speech"] {
+					item.Actions.Type.Passed++
 				}
 			}
 		}
