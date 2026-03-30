@@ -66,38 +66,38 @@ func NewHTTPServer(
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/dev/clear-migrations", func(w http.ResponseWriter, r *http.Request) {
-			user, pass, ok := r.BasicAuth()
+		// r.Post("/dev/clear-migrations", func(w http.ResponseWriter, r *http.Request) {
+		// 	user, pass, ok := r.BasicAuth()
 
-			expectedUser := cfg.DevAdminUser
-			expectedPass := cfg.DevAdminPass
+		// 	expectedUser := cfg.DevAdminUser
+		// 	expectedPass := cfg.DevAdminPass
 
-			if !ok || user != expectedUser || pass != expectedPass {
-				w.Header().Set("WWW-Authenticate", `Basic realm="Restricted Development Area"`)
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"status":  "error",
-					"message": "Unauthorized access",
-				})
-				return
-			}
+		// 	if !ok || user != expectedUser || pass != expectedPass {
+		// 		w.Header().Set("WWW-Authenticate", `Basic realm="Restricted Development Area"`)
+		// 		w.WriteHeader(http.StatusUnauthorized)
+		// 		json.NewEncoder(w).Encode(map[string]interface{}{
+		// 			"status":  "error",
+		// 			"message": "Unauthorized access",
+		// 		})
+		// 		return
+		// 	}
 
-			_, err := db.Pool.Exec(r.Context(), "TRUNCATE TABLE schema_migrations;")
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"status": "error",
-					"error":  err.Error(),
-				})
-				return
-			}
+		// 	_, err := db.Pool.Exec(r.Context(), "TRUNCATE TABLE schema_migrations;")
+		// 	if err != nil {
+		// 		w.WriteHeader(http.StatusInternalServerError)
+		// 		json.NewEncoder(w).Encode(map[string]interface{}{
+		// 			"status": "error",
+		// 			"error":  err.Error(),
+		// 		})
+		// 		return
+		// 	}
 
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":  "success",
-				"message": "schema_migrations rows cleared",
-			})
-		})
+		// 	w.WriteHeader(http.StatusOK)
+		// 	json.NewEncoder(w).Encode(map[string]interface{}{
+		// 		"status":  "success",
+		// 		"message": "schema_migrations rows cleared",
+		// 	})
+		// })
 
 		// Public auth endpoints
 		r.Post("/auth/register", authHandler.Register)
