@@ -1,5 +1,43 @@
 BEGIN;
 
+-- ============================================================
+-- 0. Drop all tables and types
+-- ============================================================
+DO $$ 
+DECLARE
+    r RECORD;
+BEGIN
+    -- ==========================================
+    -- 0.1. Drop all tables (except schema_migrations)
+    -- ==========================================
+    FOR r IN (
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = 'public' 
+          AND tablename != 'schema_migrations'
+    ) 
+    LOOP
+        EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+
+    -- ==========================================
+    -- 0.2. Drop Custom Types
+    -- ==========================================
+    FOR r IN (
+        SELECT t.typname 
+        FROM pg_type t 
+        JOIN pg_namespace n ON t.typnamespace = n.oid 
+        WHERE n.nspname = 'public' 
+          AND t.typrelid = 0 
+          AND t.typname NOT LIKE '\_%' 
+          AND t.typname NOT LIKE '%schema_migrations%'
+    ) 
+    LOOP
+        EXECUTE 'DROP TYPE IF EXISTS public.' || quote_ident(r.typname) || ' CASCADE';
+    END LOOP;
+
+END $$;
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

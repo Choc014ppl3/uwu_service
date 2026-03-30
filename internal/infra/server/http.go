@@ -15,6 +15,7 @@ import (
 	"github.com/windfall/uwu_service/internal/domain/dialog"
 	"github.com/windfall/uwu_service/internal/domain/profile"
 	"github.com/windfall/uwu_service/internal/domain/video"
+	"github.com/windfall/uwu_service/internal/infra/client"
 	"github.com/windfall/uwu_service/internal/infra/middleware"
 )
 
@@ -28,6 +29,7 @@ type HTTPServer struct {
 func NewHTTPServer(
 	cfg *config.Config,
 	log *slog.Logger,
+	db *client.PostgresClient,
 	authRepo auth.AuthRepository,
 	authHandler *auth.AuthHandler,
 	videoHandler *video.VideoHandler,
@@ -64,6 +66,39 @@ func NewHTTPServer(
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/dev/clear-migrations", func(w http.ResponseWriter, r *http.Request) {
+			user, pass, ok := r.BasicAuth()
+
+			expectedUser := cfg.DevAdminUser
+			expectedPass := cfg.DevAdminPass
+
+			if !ok || user != expectedUser || pass != expectedPass {
+				w.Header().Set("WWW-Authenticate", `Basic realm="Restricted Development Area"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status":  "error",
+					"message": "Unauthorized access",
+				})
+				return
+			}
+
+			_, err := db.Pool.Exec(r.Context(), "TRUNCATE TABLE schema_migrations;")
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "error",
+					"error":  err.Error(),
+				})
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "success",
+				"message": "schema_migrations rows cleared",
+			})
+		})
+
 		// Public auth endpoints
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)

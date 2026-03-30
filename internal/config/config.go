@@ -15,6 +15,10 @@ type Config struct {
 	HTTPPort    int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
 	Environment string `envconfig:"SERVER_ENV" default:"development"`
 
+	// Admin
+	DevAdminUser string `envconfig:"DEV_ADMIN_USER" default:"wavvy"`
+	DevAdminPass string `envconfig:"DEV_ADMIN_PASS" default:"secretpass"`
+
 	// JWT
 	JWTSecret string `envconfig:"JWT_SECRET" default:"jwt-secret"`
 

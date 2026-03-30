@@ -120,7 +120,7 @@ func main() {
 	// -----------------------------------------
 	// 4. Setup & Start HTTP Server
 	// -----------------------------------------
-	httpServer := server.NewHTTPServer(cfg, logger, authRepo, authHandler, videoHandler, dialogHandler, profileHandler)
+	httpServer := server.NewHTTPServer(cfg, logger, db, authRepo, authHandler, videoHandler, dialogHandler, profileHandler)
 
 	// สั่งรัน HTTP Server ใน Goroutine เพื่อให้ main thread ไปรอรับสัญญาณ Shutdown ได้
 	go func() {
