@@ -11,10 +11,25 @@ import (
 // Config holds all configuration for the service.
 type Config struct {
 	// Server
-	Host     string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
-	HTTPPort int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
-
+	Host        string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
+	HTTPPort    int    `envconfig:"SERVER_HTTP_PORT" default:"8080"`
 	Environment string `envconfig:"SERVER_ENV" default:"development"`
+
+	// Admin
+	DevAdminUser string `envconfig:"DEV_ADMIN_USER" default:"wavvy"`
+	DevAdminPass string `envconfig:"DEV_ADMIN_PASS" default:"secretpass"`
+
+	// JWT
+	JWTSecret string `envconfig:"JWT_SECRET" default:"jwt-secret"`
+
+	// CORS
+	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
+	CORSAllowedMethods []string `envconfig:"CORS_ALLOWED_METHODS" default:"GET,POST,PUT,DELETE,OPTIONS"`
+	CORSAllowedHeaders []string `envconfig:"CORS_ALLOWED_HEADERS" default:"Accept,Authorization,Content-Type,X-Request-ID"`
+
+	// Queue
+	QueueWorkerCount int `envconfig:"QUEUE_WORKER_COUNT" default:"4"`
+	QueueBufferSize  int `envconfig:"QUEUE_BUFFER_SIZE" default:"100"`
 
 	// Timeouts
 	ReadTimeout     time.Duration `envconfig:"SERVER_READ_TIMEOUT" default:"15s"`
@@ -26,7 +41,7 @@ type Config struct {
 	LogLevel  string `envconfig:"LOG_LEVEL" default:"info"`
 	LogFormat string `envconfig:"LOG_FORMAT" default:"json"`
 
-	// AI Services
+	// Gemini Services
 	GeminiSABase64 string `envconfig:"GEMINI_SA_BASE64"` // Base64-encoded service account JSON
 	GCPLocation    string `envconfig:"GCP_LOCATION" default:"asia-southeast1"`
 
@@ -34,11 +49,11 @@ type Config struct {
 	AzureAISpeechKey   string `envconfig:"AZURE_AI_SPEECH_KEY"`
 	AzureServiceRegion string `envconfig:"AZURE_SERVICE_REGION"`
 
-	// Azure Whisper
+	// Azure (OpenAI) Whisper
 	AzureWhisperEndpoint string `envconfig:"AZURE_WHISPER_ENDPOINT"`
 	AzureWhisperKey      string `envconfig:"AZURE_WHISPER_KEY"`
 
-	// Azure GPT5 Nano Chat
+	// Azure (OpenAI) GPT5 Nano
 	AzureGPT5NanoEndpoint string `envconfig:"AZURE_GPT5_NANO_ENDPOINT"`
 	AzureGPT5NanoKey      string `envconfig:"AZURE_GPT5_NANO_KEY"`
 
@@ -58,14 +73,6 @@ type Config struct {
 	CloudflareR2Endpoint  string `envconfig:"CLOUDFLARE_R2_ENDPOINT"`
 	CloudflarePublicURL   string `envconfig:"CLOUDFLARE_PUBLIC_URL"`
 	CloudflareBucketName  string `envconfig:"CLOUDFLARE_BUCKET_NAME"`
-
-	// CORS
-	CORSAllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
-	CORSAllowedMethods []string `envconfig:"CORS_ALLOWED_METHODS" default:"GET,POST,PUT,DELETE,OPTIONS"`
-	CORSAllowedHeaders []string `envconfig:"CORS_ALLOWED_HEADERS" default:"Accept,Authorization,Content-Type,X-Request-ID"`
-
-	// JWT
-	JWTSecret string `envconfig:"JWT_SECRET" default:"jwt-secret"`
 }
 
 // Load loads configuration from environment variables.
@@ -83,11 +90,6 @@ func Load() (*Config, error) {
 // HTTPAddress returns the HTTP server address.
 func (c *Config) HTTPAddress() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.HTTPPort)
-}
-
-// IsDevelopment returns true if running in development mode.
-func (c *Config) IsDevelopment() bool {
-	return c.Environment == "development"
 }
 
 // DatabaseURL returns the constructed database URL.

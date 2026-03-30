@@ -5,137 +5,157 @@ import (
 	"net/http"
 )
 
-// Response represents a standard API response.
+// -------------------------------------------------------------------------
+// 1. Data Structures
+// -------------------------------------------------------------------------
+
 type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
+	Meta    interface{} `json:"meta,omitempty"`
 	Error   *ErrorBody  `json:"error,omitempty"`
-	Meta    *Meta       `json:"meta,omitempty"`
 }
 
-// ErrorBody represents an error in the response.
 type ErrorBody struct {
 	Code    string                 `json:"code"`
 	Message string                 `json:"message"`
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
-// Meta contains metadata about the response.
-type Meta struct {
+type MetaResponse struct {
+	Data any `json:"data"`
+	Meta any `json:"meta"`
+}
+
+type MetaPagination struct {
 	Page       int `json:"page,omitempty"`
 	PerPage    int `json:"per_page,omitempty"`
 	Total      int `json:"total,omitempty"`
 	TotalPages int `json:"total_pages,omitempty"`
 }
 
-// JSON writes a JSON response.
+type MetaProcessing struct {
+	BatchID       string     `json:"batch_id"`
+	Status        string     `json:"status"`
+	TotalJobs     int        `json:"total_jobs"`
+	CompletedJobs int        `json:"completed_jobs"`
+	BatchJobs     []BatchJob `json:"jobs"`
+	CreatedAt     *string    `json:"created_at"`
+	UpdatedAt     *string    `json:"updated_at"`
+}
+
+type BatchJob struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"started_at,omitempty"`
+	CompletedAt string `json:"completed_at,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// AppError Interface ที่หน้าตาตรงกับ getter ใน errors.go เป๊ะๆ
+type AppError interface {
+	error
+	GetCode() string
+	GetMessage() string
+	GetDetails() map[string]interface{}
+}
+
+// DecodeBody decoded request body to target struct
+func DecodeBody(r *http.Request, target interface{}) error {
+	return json.NewDecoder(r.Body).Decode(target)
+}
+
+// -------------------------------------------------------------------------
+// 2. Base Writers
+// -------------------------------------------------------------------------
+
+func writeJSON(w http.ResponseWriter, status int, resp Response) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// -------------------------------------------------------------------------
+// 3. Success Responses
+// -------------------------------------------------------------------------
+
 func JSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	resp := Response{
-		Success: status >= 200 && status < 300,
-		Data:    data,
-	}
-
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, status, Response{Success: true, Data: data})
 }
 
-// JSONWithMeta writes a JSON response with metadata.
-func JSONWithMeta(w http.ResponseWriter, status int, data interface{}, meta *Meta) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	resp := Response{
-		Success: status >= 200 && status < 300,
-		Data:    data,
-		Meta:    meta,
-	}
-
-	json.NewEncoder(w).Encode(resp)
+func JSONWithMeta(w http.ResponseWriter, status int, data interface{}, meta interface{}) {
+	writeJSON(w, status, Response{Success: true, Data: data, Meta: meta})
 }
 
-// Error writes an error response.
-func Error(w http.ResponseWriter, status int, err interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+func OK(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusOK, res) }
+func OKWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusOK, data, meta)
+}
 
-	var errBody *ErrorBody
+func Created(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusCreated, res) }
+func CreatedWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusCreated, data, meta)
+}
 
-	switch e := err.(type) {
-	case *ErrorBody:
-		errBody = e
-	case interface{ Error() string }:
-		errBody = &ErrorBody{
-			Code:    "ERROR",
-			Message: e.Error(),
-		}
-	case string:
-		errBody = &ErrorBody{
-			Code:    "ERROR",
-			Message: e,
-		}
-	default:
-		errBody = &ErrorBody{
-			Code:    "UNKNOWN_ERROR",
-			Message: "An unknown error occurred",
-		}
-	}
+func Accepted(w http.ResponseWriter, res interface{}) { JSON(w, http.StatusAccepted, res) }
+func AcceptedWithMeta(w http.ResponseWriter, data interface{}, meta interface{}) {
+	JSONWithMeta(w, http.StatusAccepted, data, meta)
+}
 
-	resp := Response{
+func NoContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
+
+// -------------------------------------------------------------------------
+// 4. Error Responses & Central Error Handler
+// -------------------------------------------------------------------------
+
+// Error เป็น Base Writer สำหรับ Error
+func Error(w http.ResponseWriter, status int, errBody *ErrorBody) {
+	writeJSON(w, status, Response{
 		Success: false,
 		Error:   errBody,
+	})
+}
+
+// HandleError รับจบทุก Error ของระบบ (เรียกใช้ตัวนี้ใน Handler เป็นหลัก)
+func HandleError(w http.ResponseWriter, err error) {
+	// 1. ตรวจสอบว่าเป็น AppError ของเราหรือไม่
+	if appErr, ok := err.(AppError); ok {
+		status := mapErrorCodeToHTTPStatus(appErr.GetCode())
+
+		Error(w, status, &ErrorBody{
+			Code:    appErr.GetCode(),
+			Message: appErr.GetMessage(), // ใช้ GetMessage() เพื่อไม่ให้ leak SQL error ออกไปหา User
+			Details: appErr.GetDetails(),
+		})
+		return
 	}
 
-	json.NewEncoder(w).Encode(resp)
-}
-
-// Created writes a 201 Created response.
-func Created(w http.ResponseWriter, data interface{}) {
-	JSON(w, http.StatusCreated, data)
-}
-
-// NoContent writes a 204 No Content response.
-func NoContent(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// NotFound writes a 404 Not Found response.
-func NotFound(w http.ResponseWriter, message string) {
-	Error(w, http.StatusNotFound, &ErrorBody{
-		Code:    "NOT_FOUND",
-		Message: message,
-	})
-}
-
-// BadRequest writes a 400 Bad Request response.
-func BadRequest(w http.ResponseWriter, message string) {
-	Error(w, http.StatusBadRequest, &ErrorBody{
-		Code:    "BAD_REQUEST",
-		Message: message,
-	})
-}
-
-// Unauthorized writes a 401 Unauthorized response.
-func Unauthorized(w http.ResponseWriter, message string) {
-	Error(w, http.StatusUnauthorized, &ErrorBody{
-		Code:    "UNAUTHORIZED",
-		Message: message,
-	})
-}
-
-// Forbidden writes a 403 Forbidden response.
-func Forbidden(w http.ResponseWriter, message string) {
-	Error(w, http.StatusForbidden, &ErrorBody{
-		Code:    "FORBIDDEN",
-		Message: message,
-	})
-}
-
-// InternalError writes a 500 Internal Server Error response.
-func InternalError(w http.ResponseWriter, message string) {
+	// 2. ถ้าเป็น Error ธรรมดาที่ไม่ได้จับคู่ไว้ (เช่น standard error) ให้ตอบ 500
 	Error(w, http.StatusInternalServerError, &ErrorBody{
 		Code:    "INTERNAL_ERROR",
-		Message: message,
+		Message: "An unexpected internal server error occurred",
 	})
+}
+
+// mapErrorCodeToHTTPStatus ผูกความสัมพันธ์ระหว่าง Domain Error กับ HTTP Status
+func mapErrorCodeToHTTPStatus(code string) int {
+	switch code {
+	case "VALIDATION_ERROR":
+		return http.StatusBadRequest
+	case "UNAUTHORIZED":
+		return http.StatusUnauthorized
+	case "FORBIDDEN":
+		return http.StatusForbidden
+	case "NOT_FOUND":
+		return http.StatusNotFound
+	case "CONFLICT":
+		return http.StatusConflict
+	case "RATE_LIMIT_EXCEEDED":
+		return http.StatusTooManyRequests
+	case "TIMEOUT_ERROR":
+		return http.StatusGatewayTimeout
+	default:
+		// คลุมพวก INTERNAL_ERROR, DATABASE_ERROR, AI_SERVICE_ERROR
+		return http.StatusInternalServerError
+	}
 }

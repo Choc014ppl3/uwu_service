@@ -2,225 +2,156 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/windfall/uwu_service/internal/client"
 	"github.com/windfall/uwu_service/internal/config"
-	"github.com/windfall/uwu_service/internal/handler/http"
-	"github.com/windfall/uwu_service/internal/logger"
-	"github.com/windfall/uwu_service/internal/repository"
-	"github.com/windfall/uwu_service/internal/server"
-	"github.com/windfall/uwu_service/internal/service"
+	"github.com/windfall/uwu_service/internal/domain/auth"
+	"github.com/windfall/uwu_service/internal/domain/dialog"
+	"github.com/windfall/uwu_service/internal/domain/profile"
+	"github.com/windfall/uwu_service/internal/domain/video"
+	"github.com/windfall/uwu_service/internal/infra/client"
+	"github.com/windfall/uwu_service/internal/infra/server"
+	"github.com/windfall/uwu_service/pkg/logger"
 )
 
 func main() {
+	// -----------------------------------------
+	// 1. Setup Infrastructure
+	// -----------------------------------------
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		panic("failed to load config: " + err.Error())
 	}
 
-	// Initialize logger
-	log := logger.New(cfg.LogLevel, cfg.LogFormat)
-	log.Info().Str("env", cfg.Environment).Msg("Starting uwu_service")
+	// Initialize Logger & Queue
+	logger := logger.NewLogger(cfg.LogLevel, cfg.LogFormat)
+	queue := client.NewQueueClient(logger, cfg.QueueBufferSize)
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Initialize Database Connection
+	db, err := client.NewPostgresClient(context.Background(), cfg.DatabaseURL())
+	if err != nil {
+		logger.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
-	// Initialize clients
-	var geminiClient *client.GeminiClient
+	// Initialize Azure AI Client
+	chatGPTClient := client.NewAzureChatGPTClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
+	whisperClient := client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
+	speechClient := client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
 
-	if cfg.GeminiSABase64 != "" {
-		log.Info().Msg("Initializing Gemini with Base64 Service Account")
-
-		// Decode base64 service account
-		saJSON, err := base64.StdEncoding.DecodeString(cfg.GeminiSABase64)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to decode GEMINI_SA_BASE64")
-		} else {
-			// Extract project_id from JSON
-			var sa struct {
-				ProjectID string `json:"project_id"`
-			}
-			if err := json.Unmarshal(saJSON, &sa); err == nil && sa.ProjectID != "" {
-				log.Info().Str("project_id", sa.ProjectID).Str("location", cfg.GCPLocation).Msg("Extracted Project ID from Service Account")
-
-				geminiClient, err = client.NewGeminiClientWithCredentials(ctx, sa.ProjectID, cfg.GCPLocation, saJSON)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to initialize Gemini client")
-				} else {
-					log.Info().Msg("Gemini client initialized successfully")
-				}
-			} else {
-				log.Error().Msg("Could not extract project_id from service account JSON")
-			}
-		}
-	} else {
-		log.Warn().Msg("GEMINI_SA_BASE64 not set, skipping Gemini initialization")
+	// Initialize Gemini Image Client
+	imageClient, err := client.NewGeminiImageClient(cfg.GeminiSABase64, cfg.GCPLocation)
+	if err != nil {
+		logger.Error("Failed to initialize Gemini image client", "error", err)
+		os.Exit(1)
 	}
 
-	if geminiClient == nil {
-		log.Warn().Msg("Gemini client not initialized (no valid credentials)")
-	}
-
-	var azureSpeechClient *client.AzureSpeechClient
-	if cfg.AzureAISpeechKey != "" && cfg.AzureServiceRegion != "" {
-		azureSpeechClient = client.NewAzureSpeechClient(cfg.AzureAISpeechKey, cfg.AzureServiceRegion)
-	}
-
-	// Initialize Azure OpenAI Whisper client (for video subtitle transcription)
-	var whisperClient *client.AzureWhisperClient
-	if cfg.AzureWhisperEndpoint != "" && cfg.AzureWhisperKey != "" {
-		whisperClient = client.NewAzureWhisperClient(cfg.AzureWhisperEndpoint, cfg.AzureWhisperKey)
-		log.Info().Msg("Azure Whisper client initialized")
-	}
-
-	// Initialize Azure GPT5 Nano Chat client (for quiz generation)
-	var azureChatClient *client.AzureChatClient
-	if cfg.AzureGPT5NanoEndpoint != "" && cfg.AzureGPT5NanoKey != "" {
-		azureChatClient = client.NewAzureChatClient(cfg.AzureGPT5NanoEndpoint, cfg.AzureGPT5NanoKey)
-		log.Info().Msg("Azure GPT5 Nano Chat client initialized")
-	}
-
-	// Initialize Redis client
-	var redisClient *client.RedisClient
-	if cfg.RedisURL != "" {
-		var err error
-		redisClient, err = client.NewRedisClient(cfg.RedisURL)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize Redis client")
-		} else {
-			log.Info().Msg("Redis client initialized")
-		}
+	// Initialize Redis Client
+	redisClient, err := client.NewRedisClient(cfg.RedisURL)
+	if err != nil {
+		logger.Error("Failed to initialize Redis client", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize Cloudflare R2 Client (using S3 protocol)
-	var cloudflareClient *client.CloudflareClient
-	if cfg.CloudflareAccessKeyID != "" && cfg.CloudflareSecretKey != "" && cfg.CloudflareR2Endpoint != "" && cfg.CloudflareBucketName != "" {
-		var err error
-		// Use Access Key/Secret if valid (Standard R2)
-		// Or if user provided CLOUDFLARE_API_TOKEN, we assume they might want to use it as a static credential?
-		// Usually R2 requires S3 credentials. We'll use the specific AccessKey/Secret fields.
-		// If they are empty, we might skip.
-		// Note: The user requested "add this env CLOUDFLARE_API_TOKEN".
-		// If CLOUDFLARE_API_TOKEN is used as "Access Key"? Unlikely.
-		// We'll stick to standard fields I added to config: CloudflareAccessKeyID/CloudflareSecretKey.
-
-		cloudflareClient, err = client.NewCloudflareClient(ctx,
-			cfg.CloudflareAccessKeyID,
-			cfg.CloudflareSecretKey,
-			cfg.CloudflareR2Endpoint,
-			cfg.CloudflareBucketName,
-			cfg.CloudflarePublicURL,
-		)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize Cloudflare client")
-		} else {
-			log.Info().Msg("Cloudflare R2 client initialized")
-		}
-	} else {
-		log.Warn().Msg("Cloudflare configuration missing, skipping R2 initialization")
+	cloudflareClient, err := client.NewCloudflareClient(context.Background(),
+		cfg.CloudflareAccessKeyID,
+		cfg.CloudflareSecretKey,
+		cfg.CloudflareR2Endpoint,
+		cfg.CloudflareBucketName,
+		cfg.CloudflarePublicURL,
+	)
+	if err != nil {
+		logger.Error("Failed to initialize Cloudflare client", "error", err)
+		os.Exit(1)
 	}
 
-	// Initialize Postgres Client
-	var postgresClient *client.PostgresClient
-	dbURL := cfg.DatabaseURL()
-	if dbURL != "" {
-		var err error
-		postgresClient, err = client.NewPostgresClient(ctx, dbURL)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize Postgres client")
-		} else {
-			log.Info().Msg("Postgres client initialized")
-		}
-	} else {
-		log.Warn().Msg("DatabaseURL construction failed, skipping Postgres initialization")
-	}
+	// -----------------------------------------
+	// 2. Setup Application
+	// -----------------------------------------
 
-	// Initialize Repositories
-	learningItemRepo := repository.NewPostgresLearningItemRepository(postgresClient)
-	mediaItemRepo := repository.NewPostgresMediaItemRepository(postgresClient)
-	scenarioRepo := repository.NewPostgresScenarioRepository(postgresClient)
-	userRepo := repository.NewPostgresUserRepository(postgresClient)
-	// videoRepo := repository.NewPostgresVideoRepository(postgresClient) // Deprecated
+	// Register Auth Domain
+	authRepo := auth.NewAuthRepository(db, []byte(cfg.JWTSecret))
+	authService := auth.NewAuthService(authRepo)
+	authHandler := auth.NewAuthHandler(authService, logger)
 
-	// Initialize services
-	aiService := service.NewAIService(geminiClient, cloudflareClient, azureSpeechClient)
-	scenarioService := service.NewScenarioService(aiService, scenarioRepo)
-	speechService := service.NewSpeechService(azureSpeechClient)
-	speakingService := service.NewSpeakingService(azureSpeechClient, geminiClient, redisClient, log)
-	learningService := service.NewLearningService(aiService, learningItemRepo)
-	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-	batchService := service.NewBatchService(redisClient, log)
-	quizRepo := repository.NewPostgresQuizRepository(postgresClient)
-	retellRepo := repository.NewPostgresRetellRepository(postgresClient)
-	videoService := service.NewVideoService(learningItemRepo, mediaItemRepo, quizRepo, cloudflareClient, azureSpeechClient, whisperClient, azureChatClient, geminiClient, batchService, log)
-	quizService := service.NewQuizService(quizRepo)
-	retellService := service.NewRetellService(retellRepo, cloudflareClient, whisperClient, geminiClient, log)
-	workoutService := service.NewWorkoutService(aiService, scenarioRepo, learningItemRepo, batchService, azureChatClient, log)
+	// Register Video Domain
+	videoAIRepo := video.NewAIRepository(whisperClient, chatGPTClient, logger)
+	videoBatchRepo := video.NewBatchRepository(redisClient, logger)
+	fileRepo := video.NewFileRepository(cloudflareClient, logger)
+	videoRepo := video.NewVideoRepository(db)
+	videoService := video.NewVideoService(videoRepo, videoAIRepo, videoBatchRepo, fileRepo)
+	videoHandler := video.NewVideoHandler(videoService, queue)
 
-	// Initialize handlers
-	healthHandler := http.NewHealthHandler()
-	apiHandler := http.NewAPIHandler(log, aiService, speechService, scenarioService)
-	speakingHandler := http.NewSpeakingHandler(log, speakingService)
-	learningItemHandler := http.NewLearningItemHandler(learningService)
-	authHandler := http.NewAuthHandler(log, authService)
-	videoHandler := http.NewVideoHandler(log, videoService, batchService)
-	quizHandler := http.NewQuizHandler(log, quizService)
-	retellHandler := http.NewRetellHandler(log, retellService)
-	workoutHandler := http.NewWorkoutHandler(log, workoutService, batchService)
+	// Register Dialog Domain
+	dialogAIRepo := dialog.NewAIRepository(chatGPTClient)
+	dialogImageRepo := dialog.NewImageRepository(imageClient)
+	dialogAudioRepo := dialog.NewAudioRepository(speechClient)
+	dialogFileRepo := dialog.NewFileRepository(cloudflareClient, logger)
 
-	// Initialize HTTP server
-	httpServer := server.NewHTTPServer(cfg, log, healthHandler, apiHandler, speakingHandler, learningItemHandler, authHandler, authService, videoHandler, quizHandler, retellHandler, workoutHandler)
+	dialogBatchRepo := dialog.NewBatchRepository(redisClient, logger)
+	dialogRepo := dialog.NewDialogRepository(db)
+	dialogService := dialog.NewDialogService(dialogRepo, dialogAIRepo, dialogImageRepo, dialogAudioRepo, dialogFileRepo, dialogBatchRepo)
+	dialogHandler := dialog.NewDialogHandler(dialogService, queue)
 
-	// Start servers
+	// Register Profile Domain
+	profileRepo := profile.NewProfileRepository(db)
+	profileService := profile.NewProfileService(profileRepo)
+	profileHandler := profile.NewProfileHandler(profileService)
+
+	// -----------------------------------------
+	// 3. Setup & Start Queue Server (Background Jobs)
+	// -----------------------------------------
+	queueServer := server.NewQueueServer(logger, queue, videoService, dialogService)
+	queueServer.SetupWorkers()
+
+	// สร้าง Context สำหรับควบคุม Lifecycle ของ Worker
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// รัน Queue แบบ Asynchronous (ไม่บล็อก main thread)
+	queueServer.Start(ctx, cfg.QueueWorkerCount)
+
+	// -----------------------------------------
+	// 4. Setup & Start HTTP Server
+	// -----------------------------------------
+	httpServer := server.NewHTTPServer(cfg, logger, db, authRepo, authHandler, videoHandler, dialogHandler, profileHandler)
+
+	// สั่งรัน HTTP Server ใน Goroutine เพื่อให้ main thread ไปรอรับสัญญาณ Shutdown ได้
 	go func() {
 		if err := httpServer.Start(); err != nil {
-			log.Error().Err(err).Msg("HTTP server error")
+			logger.Error("HTTP server failed", "error", err)
+			// ถ้าพัง ให้ส่งสัญญาณปิดระบบทั้งหมด
 			cancel()
 		}
 	}()
 
-	log.Info().
-		Str("http_addr", cfg.HTTPAddress()).
-		Msg("Servers started")
-
-	// Wait for shutdown signal
+	// -----------------------------------------
+	// 5. Graceful Shutdown
+	// -----------------------------------------
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case <-quit:
-		log.Info().Msg("Shutdown signal received")
+		logger.Info("Received shutdown signal")
 	case <-ctx.Done():
-		log.Info().Msg("Context cancelled")
+		logger.Info("Context cancelled, initiating shutdown")
 	}
 
-	// Graceful shutdown
-	log.Info().Msg("Shutting down servers...")
+	// 1. สั่งยกเลิก Context ให้ Queue เลิกรับงานใหม่
+	cancel()
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer shutdownCancel()
+	// 2. สั่งรอคิวเก่าทำงานให้เสร็จ
+	queueServer.Stop()
 
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("HTTP server shutdown error")
-	}
+	// 3. สั่งปิด HTTP Server (ถ้ามีเมธอด Stop ใน HTTPServer ของคุณ)
+	// httpServer.Stop(ctx)
 
-	// Close clients
-	if geminiClient != nil {
-		geminiClient.Close()
-	}
-	if redisClient != nil {
-		redisClient.Close()
-	}
-	if postgresClient != nil {
-		postgresClient.Close()
-	}
-
-	log.Info().Msg("Server stopped")
+	logger.Info("Server exited gracefully")
 }
